@@ -4,6 +4,13 @@ Integration tests talk to a real PostgreSQL because most of what is worth
 testing here is database behaviour: SKIP LOCKED, unique constraints, conditional
 updates, generated tsvector columns. A SQLite substitute would pass while
 proving nothing about any of them.
+
+They never talk to the *application's* database. Every test that needs a clean
+slate truncates every table, and pointing that at the database the running
+stack serves would silently destroy whatever a demo had just loaded. The
+session therefore derives a sibling database - `<name>_test` - from the
+configured URL, creates it if it is missing, and refuses to run against a
+database whose name does not end in `_test`.
 """
 
 from __future__ import annotations
@@ -15,7 +22,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import make_url, text
 from sqlalchemy.orm import Session
 
 from iep.config import Settings, get_settings
@@ -23,21 +30,86 @@ from iep.db import session as db_session_module
 from iep.db.models import Base
 from iep.storage.local import LocalObjectStore
 
-DEFAULT_TEST_DATABASE_URL = "postgresql+psycopg://iep:iep@localhost:55432/iep"
+# 127.0.0.1 rather than localhost: the published port binds to IPv4 only, and
+# resolving localhost tries ::1 first, which costs a connection timeout per
+# attempt on a developer machine.
+DEFAULT_TEST_DATABASE_URL = "postgresql+psycopg://iep:iep@127.0.0.1:55432/iep"
+TEST_DATABASE_SUFFIX = "_test"
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    os.environ.setdefault("IEP_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
+    """Point the whole session, environment included, at the test database.
+
+    Code under test that opens its own session - the worker loop, the CLI -
+    reads `IEP_DATABASE_URL` rather than a fixture. Leaving that variable on the
+    application database would have those paths reading and writing real data
+    while the fixtures worked on a different one, which is how a test can pass
+    against rows it never created.
+    """
+    os.environ["IEP_DATABASE_URL"] = as_test_database(
+        os.environ.get("IEP_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
+    )
+
+
+def as_test_database(url: str) -> str:
+    """Point a configured URL at its `_test` sibling."""
+    parsed = make_url(url)
+    name = parsed.database or "iep"
+    if name.endswith(TEST_DATABASE_SUFFIX):
+        return url
+    # `str(URL)` masks the password as ***; the credential has to survive.
+    return parsed.set(database=f"{name}{TEST_DATABASE_SUFFIX}").render_as_string(
+        hide_password=False
+    )
+
+
+def _ensure_database_exists(url: str) -> None:
+    """Create the test database if the server does not have it yet.
+
+    Connects to the `postgres` maintenance database because CREATE DATABASE
+    cannot run inside a transaction or against the database being created.
+    """
+    from sqlalchemy import create_engine
+
+    parsed = make_url(url)
+    target = parsed.database
+    assert target and target.endswith(TEST_DATABASE_SUFFIX)
+
+    admin = create_engine(
+        parsed.set(database="postgres").render_as_string(hide_password=False),
+        isolation_level="AUTOCOMMIT",
+        connect_args={"connect_timeout": 10},
+    )
+    try:
+        with admin.connect() as connection:
+            exists = connection.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": target}
+            ).scalar_one_or_none()
+            if exists is None:
+                connection.execute(text(f'CREATE DATABASE "{target}"'))
+    finally:
+        admin.dispose()
 
 
 @pytest.fixture(scope="session")
 def database_url() -> str:
-    return os.environ.get("IEP_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
+    return as_test_database(os.environ.get("IEP_DATABASE_URL", DEFAULT_TEST_DATABASE_URL))
 
 
 @pytest.fixture(scope="session")
 def engine(database_url: str):  # type: ignore[no-untyped-def]
     from sqlalchemy import create_engine
+
+    name = make_url(database_url).database or ""
+    if not name.endswith(TEST_DATABASE_SUFFIX):
+        # The suite truncates every table. Running it against anything but a
+        # dedicated test database would destroy real data.
+        pytest.fail(f"refusing to run against {name!r}: the test database must end in _test")
+
+    try:
+        _ensure_database_exists(database_url)
+    except Exception as exc:  # pragma: no cover - environment guard
+        pytest.skip(f"PostgreSQL not reachable at {database_url}: {type(exc).__name__}")
 
     engine = create_engine(database_url, future=True)
     try:

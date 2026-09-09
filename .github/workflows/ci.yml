@@ -164,17 +164,28 @@ jobs:
           docker compose -p iep-ci exec -T api \
             iep seed --corpus /tmp/corpus \
             --call-page-url http://devsources:8080/public/convocatoria.html
-          for attempt in {1..30}; do
+          # n8n answers its health check before it has registered the
+          # production webhook of an active workflow, so the first calls
+          # legitimately return 404 and the loop has to keep trying. The
+          # response is written with -o rather than piped through tee: a
+          # pipeline reports tee's exit status, not curl's, which made this
+          # loop break on the first attempt and hide the 404.
+          for attempt in $(seq 1 30); do
             if curl --fail --silent --show-error \
               -H 'content-type: application/json' \
               -d '{"reference":"INN-2025-042"}' \
-              http://127.0.0.1:5678/webhook/dossier-review \
-              | tee /tmp/n8n-response.json; then
+              -o /tmp/n8n-response.json \
+              http://127.0.0.1:5678/webhook/dossier-review; then
               break
             fi
-            if [ "$attempt" = 30 ]; then exit 1; fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "the n8n webhook never became reachable"
+              docker compose -p iep-ci --profile n8n logs --tail=100 n8n
+              exit 1
+            fi
             sleep 2
           done
+          cat /tmp/n8n-response.json
           python -c "import json; r=json.load(open('/tmp/n8n-response.json')); assert r.get('channel', '').startswith('simulated:'); assert r.get('blockers', 0) > 0"
       - name: Stop and remove CI-only Compose resources
         if: always()
