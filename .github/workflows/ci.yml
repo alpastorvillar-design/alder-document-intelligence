@@ -11,6 +11,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  hygiene:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Scan every published revision for credential signatures
+        run: python scripts/scan_secrets.py
+
   lint:
     runs-on: ubuntu-24.04
     steps:
@@ -20,11 +29,23 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -r requirements-dev.lock
       - run: python -m pip install --no-deps -e .
+      - run: python -m pip check
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy
 
-  test:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-dev.lock
+      - run: python -m pip install --no-deps -e .
+      - run: pytest -q tests/unit
+
+  integration:
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -56,11 +77,11 @@ jobs:
       - run: python -m pip install -r requirements-dev.lock
       - run: python -m pip install --no-deps -e .
       - run: alembic upgrade head
-      - run: pytest -q --cov=iep --cov-report=term-missing
+      - run: pytest -q tests/integration tests/e2e --cov=iep --cov-report=term-missing
 
   measure:
     runs-on: ubuntu-24.04
-    needs: test
+    needs: integration
     services:
       postgres:
         image: postgres:17.11-bookworm
@@ -104,6 +125,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - name: Validate the Compose model
+        run: docker compose -p iep-ci config --quiet
       - name: Build the single project image
         run: docker build -f docker/Dockerfile -t innovation-evidence-pipeline:local .
       - name: Verify the OCR toolchain inside the image
@@ -111,3 +134,38 @@ jobs:
           docker run --rm innovation-evidence-pipeline:local tesseract --version
           docker run --rm innovation-evidence-pipeline:local \
             python -c "import pytesseract, fitz, openpyxl; print('extractors importable')"
+      - name: Start the isolated stack from a clean state
+        run: |
+          docker compose -p iep-ci up -d --wait postgres devsources api worker
+          curl --fail --silent http://127.0.0.1:8000/healthz
+          curl --fail --silent http://127.0.0.1:8000/readyz
+      - name: Import the optional n8n workflow
+        run: |
+          docker compose -p iep-ci --profile n8n up -d --wait n8n
+          docker compose -p iep-ci exec -T n8n \
+            n8n import:workflow --input=/workflows/dossier-review.json
+          docker compose -p iep-ci exec -T n8n \
+            n8n update:workflow --id=iep-dossier-review --active=true
+          docker compose -p iep-ci restart n8n
+      - name: Execute the n8n route against synthetic data
+        run: |
+          docker compose -p iep-ci exec -T api \
+            python -m corpus.generate --out /tmp/corpus
+          docker compose -p iep-ci exec -T api \
+            iep seed --corpus /tmp/corpus \
+            --call-page-url http://devsources:8080/public/convocatoria.html
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error \
+              -H 'content-type: application/json' \
+              -d '{"reference":"INN-2025-042"}' \
+              http://127.0.0.1:5678/webhook/dossier-review \
+              | tee /tmp/n8n-response.json; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then exit 1; fi
+            sleep 2
+          done
+          python -c "import json; r=json.load(open('/tmp/n8n-response.json')); assert r.get('channel', '').startswith('simulated:'); assert r.get('blockers', 0) > 0"
+      - name: Stop and remove CI-only Compose resources
+        if: always()
+        run: docker compose -p iep-ci --profile n8n down --volumes --remove-orphans

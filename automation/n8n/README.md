@@ -64,29 +64,14 @@ The workflow carries a stable `id`, so re-importing updates it in place rather
 than leaving a pile of copies. Activation is deliberately not baked into the
 file: a workflow that arrives already listening is a surprise, not a feature.
 
-## Verified behaviour
+## Verification
 
-Imported into n8n 1.121.2 and executed against the running stack. The API log
-for one execution:
-
-```
-GET  /dossiers?reference=INN-2025-042            200
-POST /dossiers/{id}/process                      202
-GET  /jobs/{job id}                              200
-GET  /dossiers/{id}                              200
-GET  /dossiers/{id}/findings?finding_status=OPEN 200
-```
-
-and the webhook response:
-
-```json
-{
-  "channel": "simulated: no external connector is configured",
-  "subject": "Dossier INN-2025-042 needs review",
-  "body": "Open findings: 16. Review at http://api:8000/ui/dossiers/...",
-  "blockers": 10
-}
-```
+The Python suite validates stable unique node ids, absence of embedded
+credentials and local paths, and routing of failed jobs out of the polling loop.
+The container CI job imports the workflow into the pinned n8n image and executes
+it against a freshly seeded local stack. Treat only the matching CI run as proof
+of runtime behaviour; finding counts belong to the generated evaluation output,
+not this document.
 
 ## Limits
 
@@ -95,6 +80,5 @@ and the webhook response:
   age, and the job endpoint gains a "give up after" contract.
 - n8n stores its own state in a SQLite volume here. A real deployment would
   point it at PostgreSQL and put it behind authentication.
-- Nothing in this workflow is covered by the Python test suite; it is verified
-  by running it. That is a real gap and is listed in
-  [docs/production-gap.md](../../docs/production-gap.md).
+- The structural tests do not replace a real import and execution. CI performs
+  that runtime smoke check against the pinned image.
