@@ -25,9 +25,11 @@ foreach ($reference in @("INN-2025-041", "INN-2025-042")) {
 }
 
 if ($WithN8n) {
+    docker compose -p $projectName --profile n8n run --rm --no-deps n8n `
+        import:workflow --input=/workflows/dossier-review.json
+    docker compose -p $projectName --profile n8n run --rm --no-deps n8n `
+        update:workflow --id=iep-dossier-review --active=true
     docker compose -p $projectName --profile n8n up -d --wait n8n
-    docker compose -p $projectName exec -T n8n `
-        n8n import:workflow --input=/workflows/dossier-review.json
 }
 
 docker compose -p $projectName ps

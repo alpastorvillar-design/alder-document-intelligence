@@ -44,17 +44,15 @@ into a node would put it somewhere with no tests and no history.
 
 ## Running it
 
-```bash
-docker compose --profile n8n up -d
-```
-
-Then open http://localhost:5678, import `automation/n8n/dossier-review.json`,
-and press *Test workflow*. Or from the command line:
+Import and activate before starting the server so the demo's SQLite file has a
+single writer. Then open http://localhost:5678 or call the webhook:
 
 ```bash
-docker compose --profile n8n exec n8n n8n import:workflow --input=/workflows/dossier-review.json
-docker compose --profile n8n exec n8n n8n update:workflow --id=iep-dossier-review --active=true
-docker compose --profile n8n restart n8n
+docker compose --profile n8n run --rm --no-deps n8n \
+  import:workflow --input=/workflows/dossier-review.json
+docker compose --profile n8n run --rm --no-deps n8n \
+  update:workflow --id=iep-dossier-review --active=true
+docker compose --profile n8n up -d --wait n8n
 curl -X POST http://localhost:5678/webhook/dossier-review \
      -H 'content-type: application/json' \
      -d '{"reference":"INN-2025-042"}'

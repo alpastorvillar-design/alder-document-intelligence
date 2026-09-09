@@ -150,12 +150,13 @@ jobs:
           curl --fail --silent http://127.0.0.1:8000/readyz
       - name: Import the optional n8n workflow
         run: |
+          # Import before the server starts: the demo uses SQLite and two n8n
+          # processes must not migrate or write the same file concurrently.
+          docker compose -p iep-ci --profile n8n run --rm --no-deps n8n \
+            import:workflow --input=/workflows/dossier-review.json
+          docker compose -p iep-ci --profile n8n run --rm --no-deps n8n \
+            update:workflow --id=iep-dossier-review --active=true
           docker compose -p iep-ci --profile n8n up -d --wait n8n
-          docker compose -p iep-ci exec -T n8n \
-            n8n import:workflow --input=/workflows/dossier-review.json
-          docker compose -p iep-ci exec -T n8n \
-            n8n update:workflow --id=iep-dossier-review --active=true
-          docker compose -p iep-ci restart n8n
       - name: Execute the n8n route against synthetic data
         run: |
           docker compose -p iep-ci exec -T api \
