@@ -38,7 +38,10 @@ DOSSIER_REFERENCE_PATTERN = re.compile(r"^INN-\d{4}-\d{3}$")
 
 
 class Base(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    # `from_attributes` lets a persistence row be validated straight into the
+    # contract, so the API cannot accidentally return a shape the contract
+    # does not describe.
+    model_config = ConfigDict(extra="forbid", frozen=True, from_attributes=True)
 
 
 # --------------------------------------------------------------------------
