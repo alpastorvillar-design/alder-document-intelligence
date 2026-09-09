@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # see docs/threat-model.md for the reasoning behind each ceiling.
     max_upload_bytes: int = 20 * 1024 * 1024
     max_pdf_pages: int = 100
+    max_image_pixels: int = 40_000_000
     max_excel_cells: int = 200_000
     max_decompressed_bytes: int = 100 * 1024 * 1024
 
@@ -48,6 +49,7 @@ class Settings(BaseSettings):
     registry_api_page_size: int = 25
     registry_api_timeout_seconds: float = 10.0
     registry_api_max_attempts: int = 3
+    registry_api_max_bytes: int = 2 * 1024 * 1024
 
     scraper_allowlist: str = "localhost,127.0.0.1"
     scraper_max_bytes: int = 1024 * 1024
@@ -61,6 +63,7 @@ class Settings(BaseSettings):
     ocr_language: str = "spa"
     ocr_min_word_confidence: float = 60.0
     ocr_dpi: int = 300
+    ocr_timeout_seconds: float = 30.0
 
     # Confidence at or below which an extraction is sent to a human instead of
     # being trusted. Raising it trades reviewer time for fewer silent errors.

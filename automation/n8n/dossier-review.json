@@ -1,0 +1,730 @@
+{
+  "id": "iep-dossier-review",
+  "name": "Dossier review orchestration",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dossier-review",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Intake webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        300
+      ],
+      "webhookId": "a1000000-0000-4000-8000-000000000001"
+    },
+    {
+      "parameters": {},
+      "id": "a1000000-0000-4000-8000-000000000018",
+      "name": "Run it by hand",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r1",
+              "name": "reference",
+              "value": "={{ $json.body?.reference || 'INN-2025-042' }}",
+              "type": "string"
+            },
+            {
+              "id": "r2",
+              "name": "apiBaseUrl",
+              "value": "={{ $env.IEP_API_BASE_URL || 'http://api:8000' }}",
+              "type": "string"
+            },
+            {
+              "id": "r3",
+              "name": "correlationId",
+              "value": "={{ 'n8n-' + $execution.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Read the request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.apiBaseUrl }}/dossiers",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "reference",
+              "value": "={{ $json.reference }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Correlation-ID",
+              "value": "={{ $json.correlationId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Find the dossier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -440,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m1",
+              "name": "dossierId",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "m2",
+              "name": "apiBaseUrl",
+              "value": "={{ $('Read the request').first().json.apiBaseUrl }}",
+              "type": "string"
+            },
+            {
+              "id": "m3",
+              "name": "correlationId",
+              "value": "={{ $('Read the request').first().json.correlationId }}",
+              "type": "string"
+            },
+            {
+              "id": "m4",
+              "name": "reference",
+              "value": "={{ $('Read the request').first().json.reference }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "Pick the dossier id",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -220,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.apiBaseUrl }}/dossiers/{{ $json.dossierId }}/process",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Correlation-ID",
+              "value": "={{ $json.correlationId }}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ 'n8n-' + $json.reference }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Start processing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        220
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 4
+      },
+      "id": "a1000000-0000-4000-8000-000000000006",
+      "name": "Give the worker a moment",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        140
+      ],
+      "webhookId": "a1000000-0000-4000-8000-000000000016"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Pick the dossier id').first().json.apiBaseUrl }}/jobs/{{ $json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Correlation-ID",
+              "value": "={{ $('Pick the dossier id').first().json.correlationId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "Check the job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        140
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "SUCCEEDED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000008",
+      "name": "Job finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c3",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "FAILED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "c4",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "DEAD_LETTER",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000017",
+      "name": "Job failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Pick the dossier id').first().json.apiBaseUrl }}/dossiers/{{ $('Pick the dossier id').first().json.dossierId }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000009",
+      "name": "Read the dossier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        40
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "NEEDS_REVIEW",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000010",
+      "name": "Needs a reviewer?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Pick the dossier id').first().json.apiBaseUrl }}/dossiers/{{ $('Pick the dossier id').first().json.dossierId }}/findings",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "finding_status",
+              "value": "OPEN"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000011",
+      "name": "List open findings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        -60
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n1",
+              "name": "channel",
+              "value": "simulated: no external connector is configured",
+              "type": "string"
+            },
+            {
+              "id": "n2",
+              "name": "subject",
+              "value": "={{ 'Dossier ' + $('Pick the dossier id').first().json.reference + ' needs review' }}",
+              "type": "string"
+            },
+            {
+              "id": "n3",
+              "name": "body",
+              "value": "={{ 'Open findings: ' + $input.all().length + '. Review at ' + $('Pick the dossier id').first().json.apiBaseUrl + '/ui/dossiers/' + $('Pick the dossier id').first().json.dossierId }}",
+              "type": "string"
+            },
+            {
+              "id": "n4",
+              "name": "blockers",
+              "value": "={{ $input.all().filter(i => i.json.severity === 'BLOCKER').length }}",
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000012",
+      "name": "Notify the reviewer (simulated)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1540,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "o1",
+              "name": "outcome",
+              "value": "={{ 'No reviewer action required. Dossier state: ' + $json.status }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000013",
+      "name": "Nothing to route",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1320,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e1",
+              "name": "outcome",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "e2",
+              "name": "detail",
+              "value": "={{ $json.error?.message || $json.last_error || $json.message || 'the pipeline API did not accept the request' }}",
+              "type": "string"
+            },
+            {
+              "id": "e3",
+              "name": "correlationId",
+              "value": "={{ $('Read the request').first().json.correlationId }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000014",
+      "name": "Report the failure",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        660,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000015",
+      "name": "Answer the caller",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        140
+      ]
+    }
+  ],
+  "connections": {
+    "Intake webhook": {
+      "main": [
+        [
+          {
+            "node": "Read the request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the request": {
+      "main": [
+        [
+          {
+            "node": "Find the dossier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find the dossier": {
+      "main": [
+        [
+          {
+            "node": "Pick the dossier id",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick the dossier id": {
+      "main": [
+        [
+          {
+            "node": "Start processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start processing": {
+      "main": [
+        [
+          {
+            "node": "Give the worker a moment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Give the worker a moment": {
+      "main": [
+        [
+          {
+            "node": "Check the job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check the job": {
+      "main": [
+        [
+          {
+            "node": "Job finished?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job finished?": {
+      "main": [
+        [
+          {
+            "node": "Read the dossier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Job failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job failed?": {
+      "main": [
+        [
+          {
+            "node": "Report the failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Give the worker a moment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the dossier": {
+      "main": [
+        [
+          {
+            "node": "Needs a reviewer?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs a reviewer?": {
+      "main": [
+        [
+          {
+            "node": "List open findings",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nothing to route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List open findings": {
+      "main": [
+        [
+          {
+            "node": "Notify the reviewer (simulated)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify the reviewer (simulated)": {
+      "main": [
+        [
+          {
+            "node": "Answer the caller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nothing to route": {
+      "main": [
+        [
+          {
+            "node": "Answer the caller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report the failure": {
+      "main": [
+        [
+          {
+            "node": "Answer the caller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run it by hand": {
+      "main": [
+        [
+          {
+            "node": "Read the request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "versionId": "a1000000-0000-4000-8000-0000000000ff",
+  "meta": {
+    "instanceId": "innovation-evidence-pipeline-local"
+  },
+  "tags": []
+}

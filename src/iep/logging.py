@@ -54,6 +54,16 @@ _RESERVED = frozenset(
 )
 
 
+def safe_extra(fields: dict[str, Any]) -> dict[str, Any]:
+    """Rename keys the stdlib reserves on a LogRecord.
+
+    `logging.makeRecord` raises KeyError for names like `message` or `module`,
+    which turns a log line into a 500. Anything built from an exception or from
+    caller data goes through here first.
+    """
+    return {(f"{k}_" if k in _RESERVED else k): v for k, v in fields.items()}
+
+
 def _redact(value: Any) -> Any:
     if isinstance(value, dict):
         return {

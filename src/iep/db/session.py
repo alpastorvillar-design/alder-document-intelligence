@@ -29,6 +29,10 @@ def get_engine() -> Engine:
             pool_pre_ping=True,
             pool_size=5,
             max_overflow=5,
+            # SQL parameter values can contain extracted personal or business
+            # data. They are useful while debugging, but not worth leaking in
+            # an exception traceback or an operator log.
+            hide_parameters=True,
             future=True,
         )
     return _engine

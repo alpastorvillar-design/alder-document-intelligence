@@ -14,7 +14,9 @@ ALLOWED: dict[S, frozenset[S]] = {
     # Documents can keep arriving after the first one, so INGESTED loops.
     S.INGESTED: frozenset({S.INGESTED, S.QUEUED, S.FAILED}),
     S.QUEUED: frozenset({S.PROCESSING, S.FAILED}),
-    S.PROCESSING: frozenset({S.NEEDS_REVIEW, S.APPROVED, S.FAILED}),
+    # Processing never approves. The only exit from a successful run is
+    # review by a person.
+    S.PROCESSING: frozenset({S.NEEDS_REVIEW, S.FAILED}),
     # Review can send a dossier back round: a correction re-runs validation.
     S.NEEDS_REVIEW: frozenset({S.QUEUED, S.NEEDS_REVIEW, S.APPROVED, S.REJECTED, S.FAILED}),
     # Terminal-but-reopenable: a rejected dossier can be resubmitted with new

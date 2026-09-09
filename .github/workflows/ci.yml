@@ -11,6 +11,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  hygiene:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Scan every published revision for credential signatures
+        run: python scripts/scan_secrets.py
+
   lint:
     runs-on: ubuntu-24.04
     steps:
@@ -20,11 +29,23 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -r requirements-dev.lock
       - run: python -m pip install --no-deps -e .
+      - run: python -m pip check
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy
 
-  test:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-dev.lock
+      - run: python -m pip install --no-deps -e .
+      - run: pytest -q tests/unit
+
+  integration:
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -51,16 +72,22 @@ jobs:
           python-version: "3.12"
       - name: Install Tesseract with the Spanish language pack
         run: |
-          sudo apt-get update
+          # Hosted runners include unrelated third-party repositories. Restrict
+          # this update to Ubuntu so a browser-repository mirror cannot break
+          # an OCR test that does not depend on it.
+          sudo apt-get update \
+            -o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources" \
+            -o Dir::Etc::sourceparts="-" \
+            -o APT::Get::List-Cleanup="0"
           sudo apt-get install --no-install-recommends -y tesseract-ocr tesseract-ocr-spa
       - run: python -m pip install -r requirements-dev.lock
       - run: python -m pip install --no-deps -e .
       - run: alembic upgrade head
-      - run: pytest -q --cov=iep --cov-report=term-missing
+      - run: pytest -q tests/integration tests/e2e --cov=iep --cov-report=term-missing
 
   measure:
     runs-on: ubuntu-24.04
-    needs: test
+    needs: integration
     services:
       postgres:
         image: postgres:17.11-bookworm
@@ -86,7 +113,10 @@ jobs:
           python-version: "3.12"
       - name: Install Tesseract with the Spanish language pack
         run: |
-          sudo apt-get update
+          sudo apt-get update \
+            -o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources" \
+            -o Dir::Etc::sourceparts="-" \
+            -o APT::Get::List-Cleanup="0"
           sudo apt-get install --no-install-recommends -y tesseract-ocr tesseract-ocr-spa
       - run: python -m pip install -r requirements-dev.lock
       - run: python -m pip install --no-deps -e .
@@ -104,6 +134,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - name: Validate the Compose model
+        run: docker compose -p iep-ci config --quiet
       - name: Build the single project image
         run: docker build -f docker/Dockerfile -t innovation-evidence-pipeline:local .
       - name: Verify the OCR toolchain inside the image
@@ -111,3 +143,50 @@ jobs:
           docker run --rm innovation-evidence-pipeline:local tesseract --version
           docker run --rm innovation-evidence-pipeline:local \
             python -c "import pytesseract, fitz, openpyxl; print('extractors importable')"
+      - name: Start the isolated stack from a clean state
+        run: |
+          docker compose -p iep-ci up -d --wait postgres devsources api worker
+          curl --fail --silent http://127.0.0.1:8000/healthz
+          curl --fail --silent http://127.0.0.1:8000/readyz
+      - name: Import the optional n8n workflow
+        run: |
+          # Import before the server starts: the demo uses SQLite and two n8n
+          # processes must not migrate or write the same file concurrently.
+          docker compose -p iep-ci --profile n8n run --rm --no-deps n8n \
+            import:workflow --input=/workflows/dossier-review.json
+          docker compose -p iep-ci --profile n8n run --rm --no-deps n8n \
+            update:workflow --id=iep-dossier-review --active=true
+          docker compose -p iep-ci --profile n8n up -d --wait n8n
+      - name: Execute the n8n route against synthetic data
+        run: |
+          docker compose -p iep-ci exec -T api \
+            python -m corpus.generate --out /tmp/corpus
+          docker compose -p iep-ci exec -T api \
+            iep seed --corpus /tmp/corpus \
+            --call-page-url http://devsources:8080/public/convocatoria.html
+          # n8n answers its health check before it has registered the
+          # production webhook of an active workflow, so the first calls
+          # legitimately return 404 and the loop has to keep trying. The
+          # response is written with -o rather than piped through tee: a
+          # pipeline reports tee's exit status, not curl's, which made this
+          # loop break on the first attempt and hide the 404.
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error \
+              -H 'content-type: application/json' \
+              -d '{"reference":"INN-2025-042"}' \
+              -o /tmp/n8n-response.json \
+              http://127.0.0.1:5678/webhook/dossier-review; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "the n8n webhook never became reachable"
+              docker compose -p iep-ci --profile n8n logs --tail=100 n8n
+              exit 1
+            fi
+            sleep 2
+          done
+          cat /tmp/n8n-response.json
+          python -c "import json; r=json.load(open('/tmp/n8n-response.json')); assert r.get('channel', '').startswith('simulated:'); assert r.get('blockers', 0) > 0"
+      - name: Stop and remove CI-only Compose resources
+        if: always()
+        run: docker compose -p iep-ci --profile n8n down --volumes --remove-orphans

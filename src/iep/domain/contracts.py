@@ -38,7 +38,10 @@ DOSSIER_REFERENCE_PATTERN = re.compile(r"^INN-\d{4}-\d{3}$")
 
 
 class Base(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    # `from_attributes` lets a persistence row be validated straight into the
+    # contract, so the API cannot accidentally return a shape the contract
+    # does not describe.
+    model_config = ConfigDict(extra="forbid", frozen=True, from_attributes=True)
 
 
 # --------------------------------------------------------------------------
@@ -190,6 +193,7 @@ class Extraction(Base):
     corrected_by: str | None = None
     corrected_at: datetime | None = None
     correction_reason: str | None = None
+    revision: int = Field(ge=0)
 
     @property
     def display_value(self) -> str:
@@ -290,6 +294,7 @@ class ReviewCorrection(BaseModel):
     actor: str = Field(min_length=1, max_length=120)
     reason: str = Field(min_length=1, max_length=1000)
     new_value: str = Field(min_length=1, max_length=500)
+    expected_revision: int = Field(ge=0)
 
 
 class ReviewConfirmation(BaseModel):
@@ -297,6 +302,7 @@ class ReviewConfirmation(BaseModel):
 
     actor: str = Field(min_length=1, max_length=120)
     reason: str = Field(min_length=1, max_length=1000)
+    expected_revision: int = Field(ge=0)
 
 
 class FindingResolution(BaseModel):

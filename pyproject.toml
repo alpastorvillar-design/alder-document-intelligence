@@ -26,6 +26,7 @@ dependencies = [
   "pillow==11.3.0",
   "openpyxl==3.1.5",
   "beautifulsoup4==4.14.2",
+  "anthropic==1.4.0",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +36,7 @@ dev = [
   "ruff==0.14.4",
   "mypy==1.18.2",
   "types-beautifulsoup4==4.12.0.20250516",
+  "types-openpyxl==3.1.5.20250919",
 ]
 
 [project.scripts]
@@ -60,7 +62,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["ARG001", "ARG002", "S105", "S106", "S311"]
+# SQLAlchemy's TypeDecorator hooks take a `dialect` argument this project has
+# no use for; the signature is fixed by the framework.
+"src/iep/db/models.py" = ["ARG002"]
+"tests/**" = ["ARG001", "ARG002", "ARG005", "S105", "S106", "S311", "RUF001"]
 "corpus/**" = ["S311"]  # synthetic corpus uses random for reproducible fixtures, not for secrets
 "evaluation/**" = ["S311"]
 

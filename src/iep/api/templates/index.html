@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dossiers</title>
+<style>
+  html { color-scheme: light; }
+  body { background:#fff; margin:0; padding:2rem 1.5rem; max-width:900px; margin-inline:auto;
+         font:15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         color:#16191d; }
+  h1 { font-size:1.4rem; margin:0 0 1.25rem; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th,td { text-align:left; padding:.5rem .6rem; border-bottom:1px solid #d9dee5; }
+  th { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; color:#5b6470; }
+  a { color:#1b4f8a; }
+  .mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.85em; }
+  .empty { color:#5b6470; font-style:italic; }
+</style>
+</head>
+<body>
+<h1>Dossiers</h1>
+{% if dossiers %}
+<table>
+  <thead><tr><th>Reference</th><th>Title</th><th>Status</th><th>Claimed</th><th></th></tr></thead>
+  <tbody>
+  {% for d in dossiers %}
+    <tr>
+      <td class="mono">{{ d.reference }}</td>
+      <td>{{ d.title }}</td>
+      <td>{{ d.status }}</td>
+      <td class="mono">{{ d.claimed_total_eur }}</td>
+      <td><a href="/ui/dossiers/{{ d.id }}">review</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No dossiers yet. Create one with POST /dossiers, or see /docs.</p>
+{% endif %}
+</body>
+</html>
