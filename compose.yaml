@@ -1,0 +1,114 @@
+name: innovation-evidence-pipeline
+
+x-app: &app
+  image: innovation-evidence-pipeline:local
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  environment:
+    IEP_DATABASE_URL: postgresql+psycopg://iep:${POSTGRES_PASSWORD:-iep}@postgres:5432/iep
+    IEP_STORAGE_ROOT: /var/lib/iep/objects
+    IEP_REPORT_ROOT: /var/lib/iep/reports
+    IEP_SEMANTIC_PROVIDER: ${IEP_SEMANTIC_PROVIDER:-deterministic}
+    IEP_REGISTRY_API_BASE_URL: http://devsources:8080
+    IEP_REGISTRY_API_TOKEN: ${IEP_REGISTRY_API_TOKEN:-local-development-token}
+    IEP_SCRAPER_ALLOWLIST: devsources,localhost,127.0.0.1
+    IEP_API_KEY: ${IEP_API_KEY:-}
+    IEP_LOG_LEVEL: ${IEP_LOG_LEVEL:-INFO}
+  volumes:
+    - objects:/var/lib/iep
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17.11-bookworm
+    environment:
+      POSTGRES_USER: iep
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iep}
+      POSTGRES_DB: iep
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iep -d iep"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    # Published on a non-default port so host-side integration tests and psql
+    # can reach it without colliding with a local PostgreSQL install. In a real
+    # deployment the database would not be reachable outside its network.
+    ports:
+      - "55432:5432"
+
+  api:
+    <<: *app
+    command:
+      - sh
+      - -c
+      - "alembic upgrade head && uvicorn iep.api.app:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "iep.worker.runner"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  # Development-only stand-in for the corporate systems the pipeline reads
+  # from: a paginated HTTP registry and a static public page. It is a separate
+  # application (package `devsources`) so that no test-support endpoint can
+  # ever be reachable through the product API.
+  devsources:
+    <<: *app
+    command:
+      - uvicorn
+      - devsources.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+    depends_on: []
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Optional. The core pipeline runs without it: `docker compose up` alone
+  # never starts n8n.
+  n8n:
+    profiles: ["n8n"]
+    image: n8nio/n8n:1.121.2
+    environment:
+      N8N_PORT: 5678
+      N8N_SECURE_COOKIE: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_RUNNERS_ENABLED: "true"
+      GENERIC_TIMEZONE: Europe/Madrid
+      IEP_API_BASE_URL: http://api:8000
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8ndata:/home/node/.n8n
+      - ./automation/n8n:/workflows:ro
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  objects:
+  n8ndata:

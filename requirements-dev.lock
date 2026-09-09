@@ -1,0 +1,16 @@
+# Runtime + development dependency lock for linux/amd64 + CPython 3.12.
+# Used by CI. The container image installs requirements.lock only.
+-r requirements.lock
+coverage==7.16.0
+iniconfig==2.3.0
+mypy==1.18.2
+mypy_extensions==1.1.0
+pathspec==1.1.1
+pluggy==1.6.0
+Pygments==2.21.0
+pytest==8.4.2
+pytest-cov==7.0.0
+ruff==0.14.4
+types-beautifulsoup4==4.12.0.20250516
+types-html5lib==1.1.11.20260518
+types-webencodings==0.6.0.20260907

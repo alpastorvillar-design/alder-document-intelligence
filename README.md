@@ -1,0 +1,48 @@
+# Innovation Evidence Pipeline
+
+Reviewing an innovation funding claim is a document problem before it is a data
+problem. A single dossier arrives as a technical report in PDF, a pile of
+scanned expense receipts, a timesheet workbook, a record in a corporate system,
+and a published call for proposals on a web page. Someone has to decide whether
+the declared spend is actually supported — and, if a claim is later challenged,
+show where every figure came from.
+
+This repository is a **production-oriented reference implementation** of that
+review step: it ingests heterogeneous documents, extracts fields while keeping a
+locator back to the exact page, cell or bounding box they came from, cross-checks
+the sources against each other with deterministic rules, routes what it cannot
+settle to a human, and produces an auditable report.
+
+It is a reference implementation, not a deployed system. See
+[docs/production-gap.md](docs/production-gap.md) for what would have to change
+before it ran against real dossiers.
+
+## The design decision that matters
+
+A language model is genuinely useful here — classifying documents, pulling a
+project title out of prose, spotting that two sections contradict each other.
+It is also the wrong tool for deciding whether €184,320 of declared personnel
+cost matches the timesheet.
+
+So the pipeline splits the work:
+
+| Concern | Handled by |
+| --- | --- |
+| Locating text, cells, and words on a scan | Deterministic extractors (PyMuPDF, openpyxl, Tesseract) |
+| Interpreting prose, classifying, proposing candidate fields | A pluggable semantic provider |
+| Arithmetic, eligibility, duplicates, cross-source reconciliation | Deterministic, versioned rules |
+| Anything ambiguous, low-confidence or contradictory | A human reviewer, with the evidence in front of them |
+| Approving or rejecting | A human, recorded in an append-only audit trail |
+
+Every extracted field carries its source document, its locator, the extractor
+that produced it, that extractor's version, the contract version, a confidence
+score, and any human correction. Nothing in the pipeline can approve a dossier.
+
+## Status
+
+Scaffolding. The vertical slice is being built on
+`feat/production-oriented-vertical-slice`.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

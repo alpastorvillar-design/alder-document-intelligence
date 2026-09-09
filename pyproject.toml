@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "innovation-evidence-pipeline"
+version = "0.1.0"
+description = "Evidence-linked review pipeline for innovation funding dossiers"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+dependencies = [
+  "fastapi==0.121.2",
+  "uvicorn[standard]==0.41.0",
+  "pydantic==2.13.1",
+  "pydantic-settings==2.13.0",
+  "sqlalchemy==2.0.45",
+  "alembic==1.17.2",
+  "psycopg[binary]==3.2.13",
+  "python-multipart==0.0.20",
+  "jinja2==3.1.6",
+  "httpx==0.28.1",
+  "pymupdf==1.28.2",
+  "pytesseract==0.3.13",
+  "pillow==11.3.0",
+  "openpyxl==3.1.5",
+  "beautifulsoup4==4.14.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.4.2",
+  "pytest-cov==7.0.0",
+  "ruff==0.14.4",
+  "mypy==1.18.2",
+  "types-beautifulsoup4==4.12.0.20250516",
+]
+
+[project.scripts]
+iep = "iep.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+iep = ["reporting/templates/*.html", "semantic/prompts/*.txt", "api/templates/*.html"]
+devsources = ["templates/*.html", "data/*.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "corpus", "evaluation"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF", "S", "ARG", "PTH"]
+ignore = [
+  "S101",  # assert is the pytest idiom
+  "B008",  # FastAPI Depends() in defaults is the framework idiom
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG001", "ARG002", "S105", "S106", "S311"]
+"corpus/**" = ["S311"]  # synthetic corpus uses random for reproducible fixtures, not for secrets
+"evaluation/**" = ["S311"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "integration: requires a live PostgreSQL database",
+  "docker: requires the compose stack to be running",
+  "ocr: requires a local Tesseract installation",
+]
+filterwarnings = ["error::DeprecationWarning:iep.*"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["iep"]
+mypy_path = "src"
+strict_equality = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["pytesseract.*", "fitz.*", "pymupdf.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src/iep"]
+branch = true

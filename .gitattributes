@@ -1,0 +1,8 @@
+# The container image and CI both run on Linux; committing CRLF would break
+# shell scripts and produce noisy diffs between contributors on Windows.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary
+*.xlsx binary
