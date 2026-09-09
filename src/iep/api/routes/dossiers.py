@@ -75,12 +75,17 @@ def create_dossier(
 def list_dossiers(
     session: Session = Depends(db_session),
     dossier_status: DossierStatus | None = None,
+    reference: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Dossier]:
     stmt = select(DossierRow).order_by(DossierRow.created_at.desc())
     if dossier_status is not None:
         stmt = stmt.where(DossierRow.status == dossier_status)
+    if reference:
+        # An integrator holds the business reference, not our id. Without this
+        # they have to page the whole list and filter client-side.
+        stmt = stmt.where(DossierRow.reference == reference.strip().upper())
     stmt = stmt.limit(min(limit, 200)).offset(max(offset, 0))
     return [Dossier.model_validate(row) for row in session.execute(stmt).scalars()]
 
