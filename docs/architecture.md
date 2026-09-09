@@ -1,3 +1,5 @@
+**English** · [Español](es/arquitectura.md)
+
 # Architecture
 
 ## Shape

@@ -188,7 +188,7 @@ INN-2025-042: 8 accepted, 1 duplicate, 2 rejected
    *Dismiss*. Recarga: verás quién y por qué.
 4. Pulsa *Generate report*: se abre el informe HTML.
 5. Intenta *Approve* con bloqueantes abiertos: **te lo va a rechazar**. Ese es el
-   comportamiento correcto y es lo que conviene enseñar en una entrevista.
+   comportamiento correcto, y es lo que conviene enseñar.
 
 ## 6. Cómo abrir n8n y ver el workflow
 
@@ -265,7 +265,7 @@ Este proyecto hace la primera mitad y **no** la segunda:
 
 Nada genera texto a partir de eso. Por eso el documento se llama *recuperación
 de evidencia* y no RAG: llamarlo RAG sería afirmar algo que el código no hace, y
-en una entrevista técnica eso se detecta en una pregunta.
+cualquiera que lea el código lo detecta en una pregunta.
 
 **Cuándo sería RAG de verdad aquí.** Si añadiéramos "redacta el borrador del
 informe de justificación citando la evidencia": recuperas los segmentos, se los
@@ -280,7 +280,7 @@ consultas en lenguaje natural sobre miles de expedientes con redacciones
 heterogéneas, los embeddings se justifican — y `pgvector` los pondría en la
 misma base de datos, sin infraestructura nueva.
 
-Está razonado en [ADR 0004](../adr/0004-lexical-retrieval-not-rag.md).
+Está razonado en [ADR 0004](adr/0004-recuperacion-lexica-no-rag.md).
 
 ## 9. Ver el modelo de lenguaje funcionando
 
@@ -296,7 +296,7 @@ contra dobles inyectados. Se puede activar, y en
 [`docs/es/demostracion-llm.md`](demostracion-llm.md) está el procedimiento
 exacto, con lo que cuesta y con qué mirar.
 
-Lo importante para una entrevista: **el modelo sólo clasifica**. Sus propuestas
+Lo importante: **el modelo sólo clasifica**. Sus propuestas
 de campo no se guardan como extracciones, y ninguna regla compara nunca contra
 algo que haya producido un modelo. Por eso un documento que intente dar
 instrucciones al sistema no puede mover una cifra — hay una prueba que lo fija.

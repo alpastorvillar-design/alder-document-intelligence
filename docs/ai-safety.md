@@ -1,3 +1,5 @@
+**English** · [Español](es/seguridad-ia.md)
+
 # AI safety
 
 ## Default path

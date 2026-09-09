@@ -1,3 +1,5 @@
+**English** · [Español](es/modelo-de-amenazas.md)
+
 # Threat model
 
 ## Scope and assets

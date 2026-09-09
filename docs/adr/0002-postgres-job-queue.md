@@ -1,3 +1,5 @@
+**English** · [Español](../es/adr/0002-cola-en-postgres.md)
+
 # ADR 0002: Use PostgreSQL as the job queue
 
 **Status:** accepted for this workload

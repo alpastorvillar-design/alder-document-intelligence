@@ -1,3 +1,5 @@
+**English** · [Español](../es/adr/0003-reglas-deterministas-no-un-modelo.md)
+
 # ADR 0003: Keep decisions in deterministic rules
 
 **Status:** accepted

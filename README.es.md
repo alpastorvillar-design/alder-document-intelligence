@@ -17,8 +17,8 @@ proceden, cruza las fuentes entre sí con reglas deterministas, envía a una
 persona lo que no puede resolver y produce un informe auditable.
 
 Es una implementación de referencia, no un sistema desplegado. En
-[docs/production-gap.md](docs/production-gap.md) está lo que habría que cambiar
-antes de ejecutarlo contra expedientes reales.
+[docs/es/brecha-produccion.md](docs/es/brecha-produccion.md) está lo que habría
+que cambiar antes de ejecutarlo contra expedientes reales.
 
 ## La decisión de diseño que importa
 
@@ -47,7 +47,7 @@ un expediente.
 La vertical está implementada y ejercitada por pruebas unitarias, de integración
 contra PostgreSQL, de migración, de recuperación y de humo en contenedor. Las
 mediciones publicadas salen del arnés de evaluación en lugar de copiarse a esta
-página; están en [resultados medidos](docs/measured-results.md).
+página; están en [resultados medidos](docs/es/resultados-medidos.md).
 
 ## Puesta en marcha
 
@@ -75,20 +75,33 @@ ya no hagan falta.
 La API, la pantalla de revisión y el simulador local de fuentes escuchan sólo en
 loopback: `http://127.0.0.1:8000/docs`, `http://127.0.0.1:8000/ui/dossiers` y
 `http://127.0.0.1:8080`. La interfaz opcional de workflows se describe en
-[`automation/n8n/README.md`](automation/n8n/README.md).
+[`automation/n8n/README.es.md`](automation/n8n/README.es.md).
 
 ## Documentación
 
-La documentación técnica está en inglés, que es la convención del repositorio.
+Toda la documentación existe en español y en inglés, con un selector de idioma en
+la primera línea de cada documento. El índice completo está en
+[docs/es/README.md](docs/es/README.md).
 
-- [Arquitectura](docs/architecture.md), [modelo de dominio](docs/domain-model.md)
-  y [flujo de trabajo](docs/workflow.md)
-- [Ingesta y procedencia](docs/ingestion-and-provenance.md),
-  [validación](docs/validation-strategy.md) y [seguridad de IA](docs/ai-safety.md)
-- [Modelo de amenazas](docs/threat-model.md), [operación](docs/operations.md) y
-  [brecha hasta producción](docs/production-gap.md)
-- [Mediciones](docs/measured-results.md), [impacto de negocio](docs/business-impact.md),
-  [limitaciones](docs/limitations.md) y [guion de demostración](docs/demo.md)
+¿Primera vez aquí? Empieza por el **[recorrido guiado](docs/es/recorrido.md)**:
+qué se está ejecutando, qué hace cada endpoint, cómo lanzar la demostración, cómo
+abrir n8n, y dónde encajan —y dónde no— el RAG y un modelo de lenguaje.
+
+- [Recorrido guiado](docs/es/recorrido.md) y
+  [demostración del LLM](docs/es/demostracion-llm.md)
+- [Arquitectura](docs/es/arquitectura.md),
+  [modelo de dominio](docs/es/modelo-de-dominio.md) y
+  [flujo de trabajo](docs/es/workflow.md)
+- [Ingesta y procedencia](docs/es/ingesta-y-procedencia.md),
+  [validación](docs/es/estrategia-de-validacion.md) y
+  [seguridad de la IA](docs/es/seguridad-ia.md)
+- [Modelo de amenazas](docs/es/modelo-de-amenazas.md),
+  [operación](docs/es/operacion.md) y
+  [brecha con producción](docs/es/brecha-produccion.md)
+- [Mediciones](docs/es/resultados-medidos.md),
+  [impacto de negocio](docs/es/impacto-negocio.md),
+  [limitaciones](docs/es/limitaciones.md) y
+  [guion de demostración](docs/es/demostracion.md)
 
 ## Licencia
 

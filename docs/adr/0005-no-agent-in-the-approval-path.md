@@ -1,3 +1,5 @@
+**English** · [Español](../es/adr/0005-sin-agente-en-la-aprobacion.md)
+
 # ADR 0005: No autonomous agent in the approval path
 
 **Status:** accepted

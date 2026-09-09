@@ -1,3 +1,5 @@
+**English** · [Español](../es/adr/0001-localizadores-de-evidencia.md)
+
 # ADR 0001: Evidence locators are part of every value
 
 **Status:** accepted

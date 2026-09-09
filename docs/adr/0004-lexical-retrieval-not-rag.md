@@ -1,3 +1,5 @@
+**English** · [Español](../es/adr/0004-recuperacion-lexica-no-rag.md)
+
 # ADR 0004: Start with lexical evidence retrieval
 
 **Status:** accepted

@@ -1,3 +1,5 @@
+**English** · [Español](es/impacto-negocio.md)
+
 # Business impact
 
 The business value is not “using more AI”. It is reducing the manual effort to

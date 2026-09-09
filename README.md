@@ -75,6 +75,15 @@ The API, review screen, and local source simulator bind only to loopback:
 
 ## Documentation
 
+Every document exists in English and Spanish, with a switcher on its first line.
+The full index is [docs/README.md](docs/README.md).
+
+New here? Start with the **[guided walkthrough](docs/walkthrough.md)** — what is
+running, what every endpoint does, how to launch the demo, how to open n8n, and
+where retrieval and a language model do and do not fit.
+
+- [Guided walkthrough](docs/walkthrough.md) and
+  [LLM demonstration](docs/llm-demo.md)
 - [Architecture](docs/architecture.md), [domain model](docs/domain-model.md),
   and [workflow](docs/workflow.md)
 - [Ingestion and provenance](docs/ingestion-and-provenance.md),

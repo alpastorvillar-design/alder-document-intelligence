@@ -1,3 +1,5 @@
+**English** · [Español](es/resultados-medidos.md)
+
 # Measured results
 
 No fixed result is copied into the repository. The canonical evidence is the

@@ -1,3 +1,5 @@
+**English** · [Español](es/modelo-de-dominio.md)
+
 # Domain model
 
 Every object below is a Pydantic contract in

@@ -1,3 +1,5 @@
+**English** · [Español](es/workflow.md)
+
 # Workflow and state machine
 
 ## States

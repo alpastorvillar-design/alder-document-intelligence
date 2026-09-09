@@ -1,3 +1,5 @@
+**English** · [Español](es/estrategia-de-validacion.md)
+
 # Validation strategy
 
 ## Separation of responsibilities

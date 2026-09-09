@@ -1,3 +1,5 @@
+**English** · [Español](es/operacion.md)
+
 # Operations
 
 ## Local topology

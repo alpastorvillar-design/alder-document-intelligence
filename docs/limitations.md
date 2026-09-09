@@ -1,3 +1,5 @@
+**English** · [Español](es/limitaciones.md)
+
 # Limitations
 
 - The corpus is small, synthetic, Spanish, and deliberately regular. It proves
