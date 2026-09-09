@@ -13,6 +13,12 @@ x-app: &app
     IEP_REGISTRY_API_BASE_URL: http://devsources:8080
     IEP_REGISTRY_API_TOKEN: ${IEP_REGISTRY_API_TOKEN:-local-development-token}
     IEP_SCRAPER_ALLOWLIST: devsources,localhost,127.0.0.1
+    # Pointing the hosted provider at the local simulator lets the whole
+    # adapter path run with no key and no cost. Override both to talk to a
+    # real provider; see docs/llm-demo.md.
+    IEP_LLM_BASE_URL: ${IEP_LLM_BASE_URL:-http://devsources:8080}
+    IEP_LLM_API_KEY: ${IEP_LLM_API_KEY:-}
+    IEP_LLM_MODEL: ${IEP_LLM_MODEL:-claude-haiku-4-5}
     IEP_API_KEY: ${IEP_API_KEY:-}
     IEP_LOG_LEVEL: ${IEP_LOG_LEVEL:-INFO}
   volumes:

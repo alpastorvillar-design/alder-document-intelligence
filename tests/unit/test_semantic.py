@@ -15,6 +15,7 @@ import httpx
 import pytest
 from corpus import documents as corpus_documents
 from corpus.dataset import DOSSIER_B
+from pydantic import ValidationError
 
 from iep.domain.enums import DocumentKind
 from iep.semantic.deterministic import DeterministicSemanticExtractor
@@ -330,3 +331,47 @@ def _pdf_text(data: bytes) -> str:
 
     with pymupdf.open(stream=data, filetype="pdf") as doc:
         return "\n".join(page.get_text() for page in doc)
+
+
+class TestSchemaViolationFromTheSdk:
+    """The SDK validates structured output itself and raises.
+
+    Before this was handled, a model reply that did not fit the schema escaped
+    as a bare pydantic error and took the run down, instead of being retried and
+    then abandoned as the adapter claims. The local model simulator produced
+    exactly that, which is how it was found.
+    """
+
+    def _violation(self) -> ValidationError:
+        try:
+            LlmResponse.model_validate(
+                {
+                    "document_kind": "A FILE OF SOME SORT",
+                    "kind_confidence": "very",
+                    "proposals": "none",
+                }
+            )
+        except ValidationError as exc:
+            return exc
+        raise AssertionError("expected the payload to be rejected")
+
+    def test_a_schema_violation_is_retried_not_raised(self) -> None:
+        client = FakeMessages([self._violation(), Reply(ok_response())])
+        provider = AnthropicSemanticExtractor(
+            api_key="",
+            model="claude-haiku-4-5",
+            timeout_seconds=1.0,
+            max_attempts=2,
+            max_output_tokens=512,
+            client=client,
+        )
+        outcome = provider.run(request())
+        assert outcome.usage.attempts == 2
+        assert outcome.usage.rejected_responses == 1
+        assert "could not be used" in client.calls[1]["messages"][-1]["content"]
+
+    def test_repeated_schema_violations_end_as_a_provider_error(self) -> None:
+        provider = adapter([self._violation(), self._violation()], max_attempts=2)
+        with pytest.raises(SemanticProviderError) as excinfo:
+            provider.run(request())
+        assert excinfo.value.retryable is True

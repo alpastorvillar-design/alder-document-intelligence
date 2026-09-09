@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Response
+from fastapi.responses import RedirectResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -35,13 +36,19 @@ _env.filters["number"] = format_number
 router = APIRouter(prefix="/ui", tags=["ui"], dependencies=[Depends(require_api_key)])
 
 
-@router.get("", response_class=Response, summary="Dossier list")
+@router.get("/dossiers", response_class=Response, summary="Dossier list")
 def index(session: Session = Depends(db_session)) -> Response:
     rows = list(
         session.execute(select(Dossier).order_by(Dossier.created_at.desc()).limit(50)).scalars()
     )
     html = _env.get_template("index.html").render(dossiers=rows)
     return Response(content=html, media_type="text/html; charset=utf-8")
+
+
+@router.get("", include_in_schema=False)
+def index_redirect() -> RedirectResponse:
+    """`/ui` is a natural thing to type; send it to the list rather than 404."""
+    return RedirectResponse(url="/ui/dossiers", status_code=307)
 
 
 @router.get("/dossiers/{dossier_id}", response_class=Response, summary="Review one dossier")

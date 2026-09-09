@@ -954,3 +954,44 @@ class TestApi:
         schema = client.get("/openapi.json").json()
         assert "ApiError" in schema["components"]["schemas"]
         assert "/dossiers/{dossier_id}/approve" in schema["paths"]
+
+
+class TestReviewPages:
+    """The URLs the README and the demo script actually print.
+
+    A route that exists at a different path from the one every document points
+    at is a broken product, however well the handler works.
+    """
+
+    @pytest.fixture
+    def client(self, wired_settings: Settings, db: Session) -> Iterator[TestClient]:
+        from iep.api.app import create_app
+
+        with TestClient(create_app()) as client:
+            yield client
+
+    def test_the_documented_review_queue_url_serves_the_list(self, client: TestClient) -> None:
+        response = client.get("/ui/dossiers")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "Dossiers" in response.text
+
+    def test_the_bare_ui_path_redirects_to_the_list(self, client: TestClient) -> None:
+        response = client.get("/ui", follow_redirects=False)
+        assert response.status_code == 307
+        assert response.headers["location"] == "/ui/dossiers"
+
+    def test_one_dossier_can_be_opened_for_review(self, client: TestClient) -> None:
+        created = client.post(
+            "/dossiers",
+            json={
+                "reference": "INN-2025-600",
+                "title": "Review page",
+                "period_start": "2025-01-01",
+                "period_end": "2025-12-31",
+                "claimed_total_eur": "100.00",
+            },
+        ).json()
+        response = client.get(f"/ui/dossiers/{created['id']}")
+        assert response.status_code == 200
+        assert "Review page" in response.text

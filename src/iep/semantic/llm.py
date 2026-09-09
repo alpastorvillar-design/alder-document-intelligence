@@ -211,6 +211,20 @@ class AnthropicSemanticExtractor:
                 raise SemanticProviderError(
                     f"provider rejected the request ({exc.status_code})", retryable=False
                 ) from exc
+            except ValidationError as exc:
+                # The SDK validates the structured output itself and raises
+                # rather than handing back an unparsed result, so a reply that
+                # does not fit the schema arrives here. Without this branch a
+                # malformed response escaped as a bare pydantic error and took
+                # the pipeline down instead of being retried and then abandoned.
+                rejected += 1
+                last_error = exc
+                log.warning(
+                    "llm_schema_violation",
+                    extra={"attempt": attempts, "errors": exc.error_count()},
+                )
+                messages = self._retry_messages(user_message, str(exc)[:800])
+                continue
 
             usage = getattr(response, "usage", None)
             input_tokens += int(getattr(usage, "input_tokens", 0) or 0)

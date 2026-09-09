@@ -31,6 +31,7 @@ from iep.ingestion.service import IngestionRejectedError, accepts_documents, ing
 from iep.logging import configure_logging
 from iep.pipeline.processor import finalise_state, process_dossier
 from iep.reporting import render
+from iep.semantic.protocol import SemanticProviderError
 from iep.storage.local import LocalObjectStore
 from iep.worker.runner import build_semantic_provider
 
@@ -129,7 +130,13 @@ def process(reference: str, *, provider: str | None) -> int:
     if provider:
         settings = settings.model_copy(update={"semantic_provider": provider})
     store = LocalObjectStore(settings.storage_root)
-    semantic = build_semantic_provider(settings)
+    try:
+        semantic = build_semantic_provider(settings)
+    except SemanticProviderError as exc:
+        # Selecting the hosted provider without a key is a configuration
+        # mistake, not a crash. Say what is missing.
+        print(f"cannot use the '{settings.semantic_provider}' provider: {exc}", file=sys.stderr)
+        return 3
 
     with session_scope() as session:
         dossier = dossiers.get_by_reference(session, reference)

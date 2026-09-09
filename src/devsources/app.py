@@ -32,7 +32,10 @@ EXPECTED_TOKEN = "local-development-token"  # noqa: S105 - a fixture, not a secr
 
 app = FastAPI(
     title="Development source simulator",
-    description="Not part of the product. Simulates a corporate registry and a public page.",
+    description=(
+        "Not part of the product. Simulates a corporate registry, a public page "
+        "and a hosted language model."
+    ),
     version="1.0.0",
 )
 
@@ -171,3 +174,56 @@ def _spanish(amount: Decimal) -> str:
 def _require_token(authorization: str | None) -> None:
     if authorization != f"Bearer {EXPECTED_TOKEN}":
         raise HTTPException(status_code=401, detail="missing or invalid bearer token")
+
+
+# ---------------------------------------------------------------------------
+# A stand-in for a hosted language model.
+# ---------------------------------------------------------------------------
+# This is NOT a model. It is a local endpoint that speaks enough of the Messages
+# API for the official SDK to talk to it, so the whole hosted-provider path -
+# request shaping with a structured-output schema, response validation, the
+# grounding check, retries, and token and cost accounting - can be exercised
+# without a key and without spending anything.
+#
+# It answers by reading the document with the deterministic provider, so the
+# reply is derived from the document in front of it rather than being canned.
+# What it cannot demonstrate is a model's judgement on prose a rule cannot
+# parse; that is the whole reason the hosted adapter exists, and it needs a real
+# key. `docs/llm-demo.md` says so and gives the procedure.
+
+_llm_calls = itertools.count(1)
+# Every third call answers with something the schema rejects, so the adapter's
+# validation and retry path is visible rather than only asserted in a test.
+_MALFORMED_ON = 3
+
+
+@app.post("/v1/messages")
+def simulated_messages(payload: dict[str, Any]) -> dict[str, Any]:
+    from corpus.simulated_model import answer
+
+    call = next(_llm_calls)
+    document = _document_text(payload)
+    body = answer(document, malformed=call % _MALFORMED_ON == 0)
+    return {
+        "id": f"msg_simulated_{call:06d}",
+        "type": "message",
+        "role": "assistant",
+        "model": payload.get("model", "local-simulator"),
+        "content": [{"type": "text", "text": body}],
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": {
+            # Characters over four is the usual working approximation; this is
+            # a simulator, and the number is only ever used for an estimate.
+            "input_tokens": max(1, len(document) // 4),
+            "output_tokens": max(1, len(body) // 4),
+        },
+    }
+
+
+def _document_text(payload: dict[str, Any]) -> str:
+    for message in payload.get("messages", []):
+        content = message.get("content")
+        if isinstance(content, str) and "<untrusted_document>" in content:
+            return content.split("<untrusted_document>", 1)[1].split("</untrusted_document>")[0]
+    return ""
