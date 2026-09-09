@@ -5,7 +5,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-WORKFLOW = Path("automation/n8n/dossier-review.json")
+import pytest
+
+# Resolved from this file rather than from the working directory: the same
+# tests are run from the repository root in CI and from /app inside the image,
+# where the optional automation directory is deliberately not shipped.
+WORKFLOW = Path(__file__).resolve().parents[2] / "automation" / "n8n" / "dossier-review.json"
+
+pytestmark = pytest.mark.skipif(
+    not WORKFLOW.exists(),
+    reason="the optional n8n workflow is not part of the runtime image",
+)
 
 
 def test_workflow_has_stable_unique_identifiers_and_no_credentials() -> None:

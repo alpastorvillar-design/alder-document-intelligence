@@ -219,12 +219,16 @@ class PublicPageScraper:
             return
         for info in infos:
             address = ipaddress.ip_address(info[4][0])
-            if address.is_link_local or address.is_multicast or address.is_reserved:
+            if host in _LOCAL_FIXTURE_HOSTS and (address.is_private or address.is_loopback):
+                continue
+            if (
+                address.is_private
+                or address.is_loopback
+                or address.is_link_local
+                or address.is_multicast
+                or address.is_reserved
+            ):
                 raise ScraperError(f"host {host!r} resolves to a disallowed address")
-            if (address.is_private or address.is_loopback) and host not in _LOCAL_FIXTURE_HOSTS:
-                raise ScraperError(
-                    f"host {host!r} resolves to a private address reserved for local fixtures"
-                )
 
     def _throttle(self, host: str) -> None:
         previous = _last_request_at.get(host)

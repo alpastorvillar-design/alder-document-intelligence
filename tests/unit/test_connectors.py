@@ -294,8 +294,19 @@ class TestPublicPageScraper:
             lambda host, port: [(2, 1, 6, "", ("10.0.0.8", 0))],
         )
         handler = lambda request: httpx.Response(200, text=GOOD_PAGE)  # noqa: E731
-        with pytest.raises(ScraperError, match="private address"):
+        with pytest.raises(ScraperError, match="disallowed address"):
             scraper(handler).capture("http://pages.test/internal")
+
+    def test_the_named_local_fixture_may_resolve_to_ipv6_loopback(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "iep.connectors.public_page.socket.getaddrinfo",
+            lambda host, port: [(10, 1, 6, "", ("::1", 0, 0, 0))],
+        )
+        handler = lambda request: httpx.Response(200, text=GOOD_PAGE)  # noqa: E731
+        capture = scraper(handler).capture("http://localhost/call")
+        assert capture.value("call.code") == "CALL-SYN-2025-A"
 
     def test_a_page_over_the_size_ceiling_is_refused(self) -> None:
         handler = lambda request: httpx.Response(200, text="x" * 9000)  # noqa: E731
