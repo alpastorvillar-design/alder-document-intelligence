@@ -113,7 +113,12 @@ class DossierResult:
     unexpected_findings: list[str]
     retrieval: list[dict[str, Any]]
     replay_stable: bool
+    # False when the two runs did not see the same external sources, in
+    # which case the replay result says nothing about the pipeline.
+    replay_comparable: bool
     replay_seconds: float
+    external_capture_first_run: list[str]
+    external_capture_replay_run: list[str]
     needs_review_fields: int
     final_status: str
     semantic_provider: str
@@ -279,7 +284,9 @@ def evaluate_dossier(
         dossier = dossiers.get(session, dossier_id)
         dossiers.transition(session, dossier, DossierStatus.QUEUED)
         dossiers.transition(session, dossier, DossierStatus.PROCESSING)
-        process_dossier(session, store, settings, dossier=dossier, semantic=semantic)
+        replay_outcome = process_dossier(
+            session, store, settings, dossier=dossier, semantic=semantic
+        )
         finalise_state(session, dossier)
     replay_seconds = time.monotonic() - replay_started
 
@@ -317,8 +324,16 @@ def evaluate_dossier(
         missed_findings=sorted(set(expected_findings) - set(detected)),
         unexpected_findings=sorted(set(detected) - set(expected_findings)),
         retrieval=retrieval_results,
+        # The local source simulator fails and rate-limits on a deliberate
+        # schedule. If one of the two runs could not reach a source and the
+        # other could, the states legitimately differ and the comparison says
+        # nothing about whether the pipeline is idempotent - so it is reported
+        # as not comparable rather than as a failure.
         replay_stable=after_replay == before_replay,
+        replay_comparable=sorted(outcome.warnings) == sorted(replay_outcome.warnings),
         replay_seconds=round(replay_seconds, 3),
+        external_capture_first_run=sorted(outcome.warnings),
+        external_capture_replay_run=sorted(replay_outcome.warnings),
         needs_review_fields=needs_review,
         final_status=final_status,
         semantic_provider=outcome.semantic_provider,
@@ -606,8 +621,27 @@ def _totals(results: list[DossierResult]) -> dict[str, Any]:
         ),
         "input_bytes": sum(result.input_bytes for result in results),
         "documents_processed": sum(result.documents_processed for result in results),
-        "replay_stable": all(result.replay_stable for result in results),
+        "replay_stable": all(
+            result.replay_stable for result in results if result.replay_comparable
+        ),
+        "replay_comparable": all(result.replay_comparable for result in results),
     }
+
+
+def _replay_verdict(totals: dict[str, Any]) -> str:
+    if not totals["replay_comparable"]:
+        return "not comparable: an external source differed between the two runs"
+    return "yes" if totals["replay_stable"] else "no"
+
+
+def _dossier_replay_verdict(result: dict[str, Any]) -> str:
+    if not result["replay_comparable"]:
+        return (
+            "not comparable (external capture differed: "
+            f"{result['external_capture_first_run']} vs "
+            f"{result['external_capture_replay_run']})"
+        )
+    return "stable" if result["replay_stable"] else "CHANGED"
 
 
 def render_summary(payload: dict[str, Any]) -> str:
@@ -638,7 +672,7 @@ def render_summary(payload: dict[str, Any]) -> str:
         f"{totals['finding_false_positives']} / {totals['finding_false_negatives']} |",
         f"| Retrieval target accuracy | {totals['retrieval_correct_targets']}/"
         f"{totals['retrieval_probes']} |",
-        f"| Replay is a no-op | {'yes' if totals['replay_stable'] else 'no'} |",
+        f"| Replay is a no-op | {_replay_verdict(totals)} |",
         f"| Wall clock for the whole run | {payload['total_seconds']}s |",
         "",
     ]
@@ -655,8 +689,7 @@ def render_summary(payload: dict[str, Any]) -> str:
             f"- final state: {result['final_status']}",
             f"- stage seconds: {result['stage_seconds']}",
             f"- peak traced memory: {result['peak_memory_mb']} MB",
-            f"- replay: {'stable' if result['replay_stable'] else 'CHANGED'} "
-            f"in {result['replay_seconds']}s",
+            f"- replay: {_dossier_replay_verdict(result)} in {result['replay_seconds']}s",
             "",
         ]
         if result["missed_findings"]:
