@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from iep.api.errors import ConflictError, NotFoundError
@@ -48,27 +48,38 @@ def get_finding(session: Session, finding_id: uuid.UUID) -> Finding:
 
 
 def correct_field(
-    session: Session, extraction_id: uuid.UUID, *, actor: str, reason: str, new_value: str
+    session: Session,
+    extraction_id: uuid.UUID,
+    *,
+    actor: str,
+    reason: str,
+    new_value: str,
+    expected_revision: int | None = None,
 ) -> Extraction:
     extraction = get_extraction(session, extraction_id)
     dossier = dossiers.get(session, extraction.dossier_id)
     _require_open(dossier.status)
 
     previous = extraction.value_text
-    if extraction.original_value_text is None:
-        # Only the first correction records an original; a second correction
-        # of the same field must not overwrite what the machine read.
-        extraction.original_value_text = previous
-
-    extraction.value_text = new_value[:500]
-    extraction.value_number = parse.parse_amount(new_value)
-    extraction.value_date = parse.parse_date(new_value)
-    extraction.status = FieldStatus.CORRECTED
-    extraction.corrected_by = actor
-    extraction.corrected_at = datetime.now(UTC)
-    extraction.correction_reason = reason
-    # A human reading is not a guess.
-    extraction.confidence = 1.0
+    original = extraction.original_value_text
+    if original is None:
+        original = previous
+    _apply_field_update(
+        session,
+        extraction,
+        expected_revision=expected_revision,
+        values={
+            "original_value_text": original,
+            "value_text": new_value[:500],
+            "value_number": parse.parse_amount(new_value),
+            "value_date": parse.parse_date(new_value),
+            "status": FieldStatus.CORRECTED,
+            "corrected_by": actor,
+            "corrected_at": datetime.now(UTC),
+            "correction_reason": reason,
+            "confidence": 1.0,
+        },
+    )
 
     _record(
         session,
@@ -90,16 +101,28 @@ def correct_field(
 
 
 def confirm_field(
-    session: Session, extraction_id: uuid.UUID, *, actor: str, reason: str
+    session: Session,
+    extraction_id: uuid.UUID,
+    *,
+    actor: str,
+    reason: str,
+    expected_revision: int | None = None,
 ) -> Extraction:
     extraction = get_extraction(session, extraction_id)
     dossier = dossiers.get(session, extraction.dossier_id)
     _require_open(dossier.status)
 
-    extraction.status = FieldStatus.CONFIRMED
-    extraction.corrected_by = actor
-    extraction.corrected_at = datetime.now(UTC)
-    extraction.correction_reason = reason
+    _apply_field_update(
+        session,
+        extraction,
+        expected_revision=expected_revision,
+        values={
+            "status": FieldStatus.CONFIRMED,
+            "corrected_by": actor,
+            "corrected_at": datetime.now(UTC),
+            "correction_reason": reason,
+        },
+    )
 
     _record(
         session,
@@ -145,6 +168,7 @@ def resolve_finding(
 
 def approve(session: Session, dossier_id: uuid.UUID, *, actor: str, reason: str) -> None:
     dossier = dossiers.get(session, dossier_id)
+    _require_open(dossier.status)
     blockers = _open_blockers(session, dossier_id)
     if blockers:
         # A blocker has to be explicitly dismissed with a reason before the
@@ -153,6 +177,19 @@ def approve(session: Session, dossier_id: uuid.UUID, *, actor: str, reason: str)
         raise ConflictError(
             f"{len(blockers)} blocking finding(s) are still open. Dismiss or resolve them first.",
             {"open_blockers": [str(f.id) for f in blockers]},
+        )
+    pending_fields = list(
+        session.execute(
+            select(Extraction).where(
+                Extraction.dossier_id == dossier_id,
+                Extraction.status == FieldStatus.NEEDS_REVIEW,
+            )
+        ).scalars()
+    )
+    if pending_fields:
+        raise ConflictError(
+            f"{len(pending_fields)} extracted field(s) still need review.",
+            {"fields_needing_review": [str(row.id) for row in pending_fields]},
         )
 
     dossiers.transition(session, dossier, DossierStatus.APPROVED, actor=actor, reason=reason)
@@ -170,6 +207,7 @@ def approve(session: Session, dossier_id: uuid.UUID, *, actor: str, reason: str)
 
 def reject(session: Session, dossier_id: uuid.UUID, *, actor: str, reason: str) -> None:
     dossier = dossiers.get(session, dossier_id)
+    _require_open(dossier.status)
     dossiers.transition(session, dossier, DossierStatus.REJECTED, actor=actor, reason=reason)
     _record(
         session,
@@ -188,7 +226,7 @@ def _open_blockers(session: Session, dossier_id: uuid.UUID) -> list[Finding]:
         session.execute(
             select(Finding).where(
                 Finding.dossier_id == dossier_id,
-                Finding.status == FindingStatus.OPEN,
+                Finding.status.in_((FindingStatus.OPEN, FindingStatus.ACCEPTED)),
                 Finding.severity == Severity.BLOCKER,
             )
         ).scalars()
@@ -196,8 +234,39 @@ def _open_blockers(session: Session, dossier_id: uuid.UUID) -> list[Finding]:
 
 
 def _require_open(status: str) -> None:
-    if DossierStatus(status) is DossierStatus.APPROVED:
-        raise ConflictError("An approved dossier cannot be edited.", {"status": status})
+    if DossierStatus(status) is not DossierStatus.NEEDS_REVIEW:
+        raise ConflictError(
+            "Human decisions are only accepted while the dossier is in NEEDS_REVIEW.",
+            {"status": status},
+        )
+
+
+def _apply_field_update(
+    session: Session,
+    extraction: Extraction,
+    *,
+    expected_revision: int | None,
+    values: dict[str, object],
+) -> None:
+    current_revision = extraction.revision
+    if expected_revision is not None and expected_revision != current_revision:
+        raise ConflictError(
+            "The extraction changed after it was loaded. Refresh it before editing.",
+            {"expected_revision": expected_revision, "actual_revision": current_revision},
+        )
+    applied = session.execute(
+        update(Extraction)
+        .where(Extraction.id == extraction.id, Extraction.revision == current_revision)
+        .values(**values, revision=current_revision + 1)
+        .returning(Extraction.id)
+    ).scalar_one_or_none()
+    if applied is None:
+        session.refresh(extraction)
+        raise ConflictError(
+            "The extraction was edited concurrently. Refresh it before retrying.",
+            {"actual_revision": extraction.revision},
+        )
+    session.refresh(extraction)
 
 
 def _record(

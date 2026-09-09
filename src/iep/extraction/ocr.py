@@ -100,7 +100,9 @@ def tesseract_version() -> str:
         raise ExtractionError(f"Tesseract is not available: {exc}", retryable=False) from exc
 
 
-def recognise(image_bytes: bytes, *, page: int, language: str) -> OcrPage:
+def recognise(
+    image_bytes: bytes, *, page: int, language: str, timeout_seconds: float = 30.0
+) -> OcrPage:
     try:
         image = Image.open(io.BytesIO(image_bytes))
         image.load()
@@ -113,10 +115,16 @@ def recognise(image_bytes: bytes, *, page: int, language: str) -> OcrPage:
 
     try:
         data = pytesseract.image_to_data(
-            prepared, lang=language, output_type=pytesseract.Output.DICT
+            prepared,
+            lang=language,
+            output_type=pytesseract.Output.DICT,
+            timeout=timeout_seconds,
         )
     except pytesseract.TesseractNotFoundError as exc:
         raise ExtractionError("Tesseract binary not found", retryable=False) from exc
+    except RuntimeError as exc:
+        # pytesseract raises RuntimeError when its subprocess exceeds timeout.
+        raise ExtractionError("OCR timed out", retryable=True) from exc
     except Exception as exc:
         # A transient failure here (a killed subprocess, a temp-file problem)
         # is worth retrying; a malformed image is not, and was caught above.

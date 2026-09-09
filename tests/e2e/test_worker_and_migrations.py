@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -33,8 +34,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class TestWorkerRecovery:
+    @pytest.mark.ocr
     def test_a_job_abandoned_mid_run_is_picked_up_again(
-        self, db: Session, settings: Settings
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        corpus_dir: Path,
+        wired_settings: Settings,
+        requires_ocr: None,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Simulates a worker killed while holding a job.
 
@@ -42,27 +51,45 @@ class TestWorkerRecovery:
         reclaims it once the lease expires, and because the pipeline is
         idempotent, starting again is safe rather than merely tolerable.
         """
-        dossier = new_dossier(db)
-        dossiers.transition(db, dossier, DossierStatus.INGESTED)
+        dossier = seed(
+            db,
+            store,
+            settings,
+            corpus_dir,
+            DOSSIER_B.reference,
+            claimed_total=DOSSIER_B.claimed_total_eur,
+        )
         dossiers.transition(db, dossier, DossierStatus.QUEUED)
         queue.enqueue(db, dossier_id=dossier.id, idempotency_key="recover-me")
         db.commit()
 
-        job = queue.claim(db, worker_id="worker-that-dies", lease_seconds=0)
-        db.commit()
+        job = queue.claim(db, worker_id="worker-that-dies", lease_seconds=30)
         assert job is not None and job.status is JobStatus.RUNNING
+        job.leased_until = queue.now() - timedelta(seconds=1)
+        db.commit()
 
         # No heartbeat ever arrives. Another worker sweeps the expired lease.
-        second = Worker(settings, worker_id="worker-that-lives")
+        second = Worker(wired_settings, worker_id="worker-that-lives")
+        monkeypatch.setattr(
+            "iep.pipeline.processor.RegistryConnector",
+            lambda settings: registry_double(settings),
+        )
+        monkeypatch.setattr(
+            "iep.pipeline.processor.PublicPageScraper",
+            lambda settings: scraper_double(settings),
+        )
         reclaimed = second.reclaim()
         assert reclaimed == 1
+        assert second.run_once() is True
 
         db.expire_all()
         refreshed = db.get(ProcessingJob, job.id)
         assert refreshed is not None
-        assert refreshed.status is JobStatus.PENDING
+        assert refreshed.status is JobStatus.SUCCEEDED
         assert refreshed.leased_by is None
-        assert "lease expired" in (refreshed.last_error or "")
+        assert refreshed.last_error is None
+        db.refresh(dossier)
+        assert DossierStatus(dossier.status) is DossierStatus.NEEDS_REVIEW
 
     def test_the_reclaim_is_recorded_in_the_audit_trail(
         self, db: Session, settings: Settings
@@ -74,7 +101,9 @@ class TestWorkerRecovery:
         dossiers.transition(db, dossier, DossierStatus.QUEUED)
         queue.enqueue(db, dossier_id=dossier.id, idempotency_key="audited")
         db.commit()
-        queue.claim(db, worker_id="dying", lease_seconds=0)
+        job = queue.claim(db, worker_id="dying", lease_seconds=30)
+        assert job is not None
+        job.leased_until = queue.now() - timedelta(seconds=1)
         db.commit()
 
         Worker(settings, worker_id="reaper").reclaim()

@@ -96,6 +96,30 @@ class TestDossierConstraints:
 
 
 class TestDocumentDeduplication:
+    def test_an_approved_dossier_cannot_accept_more_documents(
+        self, db: Session, store: LocalObjectStore, settings: Settings
+    ) -> None:
+        dossier = new_dossier(db)
+        for target in (
+            DossierStatus.INGESTED,
+            DossierStatus.QUEUED,
+            DossierStatus.PROCESSING,
+            DossierStatus.NEEDS_REVIEW,
+            DossierStatus.APPROVED,
+        ):
+            dossiers.transition(db, dossier, target)
+
+        with pytest.raises(InvalidStateTransitionError, match="cannot be added"):
+            ingest_upload(
+                db,
+                store,
+                settings,
+                dossier=dossier,
+                filename="late.pdf",
+                declared_media_type="application/pdf",
+                data=a_real_pdf(),
+            )
+
     def test_the_same_bytes_twice_is_one_document(
         self, db: Session, store: LocalObjectStore, settings: Settings
     ) -> None:
@@ -124,6 +148,36 @@ class TestDocumentDeduplication:
         assert second.is_duplicate
         assert second.document.id == first.document.id
         assert db.execute(select(Document).where(Document.dossier_id == dossier.id)).scalars().all()
+
+    def test_different_documents_may_share_the_same_display_name(
+        self, db: Session, store: LocalObjectStore, settings: Settings
+    ) -> None:
+        from corpus import documents
+        from corpus.dataset import DOSSIER_A, DOSSIER_B
+
+        dossier = new_dossier(db)
+        first = ingest_upload(
+            db,
+            store,
+            settings,
+            dossier=dossier,
+            filename="same-name.pdf",
+            declared_media_type="application/pdf",
+            data=documents.technical_report(DOSSIER_A),
+        )
+        second = ingest_upload(
+            db,
+            store,
+            settings,
+            dossier=dossier,
+            filename="same-name.pdf",
+            declared_media_type="application/pdf",
+            data=documents.technical_report(DOSSIER_B),
+        )
+        db.commit()
+        assert not first.is_duplicate and not second.is_duplicate
+        assert first.document.id != second.document.id
+        assert first.document.original_filename == second.document.original_filename
 
     def test_the_constraint_stops_a_racing_second_insert(self, db: Session) -> None:
         dossier = new_dossier(db)
@@ -184,6 +238,20 @@ class TestJobQueue:
         assert first.id == second.id
         assert db.execute(select(ProcessingJob)).scalars().all() == [first]
 
+    def test_the_same_key_is_scoped_to_its_dossier(self, db: Session) -> None:
+        first_dossier = new_dossier(db, reference="INN-2025-901")
+        second_dossier = new_dossier(db, reference="INN-2025-902")
+        first, first_created = queue.enqueue(
+            db, dossier_id=first_dossier.id, idempotency_key="shared"
+        )
+        second, second_created = queue.enqueue(
+            db, dossier_id=second_dossier.id, idempotency_key="shared"
+        )
+        db.commit()
+        assert first_created and second_created
+        assert first.id != second.id
+        assert first.dossier_id != second.dossier_id
+
     def test_a_claim_marks_the_job_running_and_leases_it(self, db: Session) -> None:
         dossier = new_dossier(db)
         queue.enqueue(db, dossier_id=dossier.id, idempotency_key="k")
@@ -196,6 +264,20 @@ class TestJobQueue:
         assert job.leased_by == "w1"
         assert job.attempts == 1
         assert job.leased_until is not None
+
+    def test_a_stale_worker_cannot_complete_a_reclaimed_job(self, db: Session) -> None:
+        dossier = new_dossier(db)
+        queue.enqueue(db, dossier_id=dossier.id, idempotency_key="fenced")
+        db.commit()
+        job = queue.claim(db, worker_id="old-worker", lease_seconds=0)
+        assert job is not None
+        db.commit()
+        queue.reclaim_expired(db)
+        db.commit()
+        replacement = queue.claim(db, worker_id="new-worker", lease_seconds=30)
+        assert replacement is not None
+        with pytest.raises(queue.LostLeaseError):
+            queue.succeed(db, job.id, worker_id="old-worker")
 
     def test_two_workers_never_claim_the_same_job(self, db: Session, session_factory) -> None:  # type: ignore[no-untyped-def]
         dossier = new_dossier(db)

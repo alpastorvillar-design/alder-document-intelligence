@@ -137,10 +137,13 @@ def timesheet_fields(sheets: list[Sheet], *, extractor_version: str) -> list[Fie
         row_index = 0
         for row in sheet.rows[header_row:]:
             values = {cell.column: cell for cell in row}
-            employee_cell = values.get(columns.get("id empleado", -1))
+            formula_cells = set(sheet.formula_cells)
+            employee_cell = _trusted_cell(
+                sheet, values, columns.get("id empleado", -1), formula_cells
+            )
             if employee_cell is None or not employee_cell.text.strip():
                 continue
-            hours_cell = values.get(columns.get("horas", -1))
+            hours_cell = _trusted_cell(sheet, values, columns.get("horas", -1), formula_cells)
             if hours_cell is None or hours_cell.as_decimal() is None:
                 continue
 
@@ -151,7 +154,7 @@ def timesheet_fields(sheets: list[Sheet], *, extractor_version: str) -> list[Fie
                 ("rol", "role"),
                 ("mes", "month"),
             ):
-                cell = values.get(columns.get(label, -1))
+                cell = _trusted_cell(sheet, values, columns.get(label, -1), formula_cells)
                 if cell is not None and cell.text.strip():
                     candidates.append(_cell_text(f"{prefix}.{suffix}", cell, extractor_version))
             for label, suffix in (
@@ -159,7 +162,7 @@ def timesheet_fields(sheets: list[Sheet], *, extractor_version: str) -> list[Fie
                 ("tarifa eur/h", "hourly_rate_eur"),
                 ("importe eur", "amount_eur"),
             ):
-                cell = values.get(columns.get(label, -1))
+                cell = _trusted_cell(sheet, values, columns.get(label, -1), formula_cells)
                 number = cell.as_decimal() if cell is not None else None
                 if cell is not None and number is not None:
                     candidates.append(
@@ -167,6 +170,19 @@ def timesheet_fields(sheets: list[Sheet], *, extractor_version: str) -> list[Fie
                     )
             row_index += 1
     return candidates
+
+
+def _trusted_cell(
+    sheet: Sheet,
+    values: dict[int, excel.Cell],
+    column: int,
+    formula_cells: set[str],
+) -> excel.Cell | None:
+    """Return only literal cells; cached formula results are untrusted input."""
+    cell = values.get(column)
+    if cell is None or f"{sheet.name}!{cell.reference}" in formula_cells:
+        return None
+    return cell
 
 
 def _cell_text(field_path: str, cell: excel.Cell, extractor_version: str) -> FieldCandidate:

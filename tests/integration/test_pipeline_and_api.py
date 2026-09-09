@@ -6,6 +6,7 @@ skip rather than fake it when it is not installed, and CI installs it.
 
 from __future__ import annotations
 
+import json
 import threading
 import uuid
 from collections.abc import Iterator
@@ -254,6 +255,10 @@ class TestPipeline:
             assert row.extractor_version
             assert row.contract_version == "1.0.0"
             assert 0.0 <= float(row.confidence) <= 1.0
+        assert any(row.method is ExtractionMethod.HTTP_API for row in rows)
+        assert any(row.locator.get("kind") == "API_FIELD" for row in rows)
+        assert any(row.method is ExtractionMethod.HTML_SELECTOR for row in rows)
+        assert any(row.locator.get("kind") == "HTML_SELECTOR" for row in rows)
 
     def test_no_amount_a_rule_uses_came_from_the_semantic_provider(
         self,
@@ -331,6 +336,59 @@ class TestPipeline:
         )
         first = run(db, store, settings, dossier)
 
+        def state() -> tuple[tuple[object, ...], ...]:
+            extraction_state = tuple(
+                (
+                    "extraction",
+                    str(row.id),
+                    row.dedup_key,
+                    row.field_path,
+                    row.value_text,
+                    str(row.value_number),
+                    str(row.value_date),
+                    json.dumps(row.locator, sort_keys=True),
+                    str(row.status),
+                )
+                for row in db.execute(
+                    select(Extraction)
+                    .where(Extraction.dossier_id == dossier.id)
+                    .order_by(Extraction.dedup_key)
+                ).scalars()
+            )
+            finding_state = tuple(
+                (
+                    "finding",
+                    str(row.id),
+                    row.fingerprint,
+                    row.rule_id,
+                    str(row.status),
+                    json.dumps(row.detail, sort_keys=True),
+                    tuple(row.extraction_ids),
+                    tuple(row.document_ids),
+                )
+                for row in db.execute(
+                    select(Finding)
+                    .where(Finding.dossier_id == dossier.id)
+                    .order_by(Finding.fingerprint)
+                ).scalars()
+            )
+            chunk_state = tuple(
+                (
+                    "chunk",
+                    str(row.id),
+                    str(row.document_id),
+                    row.ordinal,
+                    row.text,
+                    json.dumps(row.locator, sort_keys=True),
+                )
+                for row in db.execute(
+                    select(DocumentChunk)
+                    .where(DocumentChunk.dossier_id == dossier.id)
+                    .order_by(DocumentChunk.document_id, DocumentChunk.ordinal)
+                ).scalars()
+            )
+            return extraction_state + finding_state + chunk_state
+
         def counts() -> tuple[int, int, int]:
             return (
                 len(
@@ -366,12 +424,14 @@ class TestPipeline:
 
         before = counts()
         keys_before = dedup_keys()
+        state_before = state()
         second = run(db, store, settings, dossier)
         assert counts() == before
         # Comparing keys, not only counts: a derived value keyed on the order
         # of its inputs would keep the count stable in one session and drift in
         # another, which is exactly how this was missed once.
         assert dedup_keys() == keys_before
+        assert state() == state_before
         assert second.summary.created == 0
         assert second.extractions_written == first.extractions_written
 
@@ -472,7 +532,13 @@ class TestReviewFlow:
         from tests.conftest import new_dossier
 
         dossier = new_dossier(db)
-        dossiers.transition(db, dossier, DossierStatus.INGESTED)
+        for target in (
+            DossierStatus.INGESTED,
+            DossierStatus.QUEUED,
+            DossierStatus.PROCESSING,
+            DossierStatus.NEEDS_REVIEW,
+        ):
+            dossiers.transition(db, dossier, target)
         extraction = Extraction(
             id=uuid.uuid4(),
             dossier_id=dossier.id,
@@ -506,6 +572,13 @@ class TestReviewFlow:
         from tests.conftest import new_dossier
 
         dossier = new_dossier(db)
+        for target in (
+            DossierStatus.INGESTED,
+            DossierStatus.QUEUED,
+            DossierStatus.PROCESSING,
+            DossierStatus.NEEDS_REVIEW,
+        ):
+            dossiers.transition(db, dossier, target)
         extraction = Extraction(
             id=uuid.uuid4(),
             dossier_id=dossier.id,
@@ -530,6 +603,67 @@ class TestReviewFlow:
         db.refresh(extraction)
         assert extraction.original_value_text == "first"
         assert extraction.value_text == "third"
+
+    def test_concurrent_corrections_do_not_silently_overwrite(
+        self, db: Session, session_factory
+    ) -> None:  # type: ignore[no-untyped-def]
+        from iep.api.errors import ConflictError
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db)
+        for target in (
+            DossierStatus.INGESTED,
+            DossierStatus.QUEUED,
+            DossierStatus.PROCESSING,
+            DossierStatus.NEEDS_REVIEW,
+        ):
+            dossiers.transition(db, dossier, target)
+        extraction = Extraction(
+            id=uuid.uuid4(),
+            dossier_id=dossier.id,
+            document_id=None,
+            field_path="invoice.total_eur",
+            value_text="first",
+            value_number=None,
+            value_date=None,
+            locator={"kind": "PDF_PAGE", "page": 1},
+            method=ExtractionMethod.OCR_TESSERACT,
+            extractor_version="test/1",
+            contract_version="1.0.0",
+            confidence=Decimal("0.60"),
+            status=FieldStatus.NEEDS_REVIEW,
+            dedup_key=uuid.uuid4().hex,
+        )
+        db.add(extraction)
+        db.commit()
+
+        first = session_factory()
+        second = session_factory()
+        try:
+            first_row = first.get(Extraction, extraction.id)
+            second_row = second.get(Extraction, extraction.id)
+            assert first_row is not None and second_row is not None
+            review.correct_field(
+                first,
+                first_row.id,
+                actor="reviewer-one",
+                reason="source checked",
+                new_value="second",
+                expected_revision=0,
+            )
+            first.commit()
+            with pytest.raises(ConflictError, match="edited concurrently"):
+                review.correct_field(
+                    second,
+                    second_row.id,
+                    actor="reviewer-two",
+                    reason="different reading",
+                    new_value="third",
+                    expected_revision=0,
+                )
+        finally:
+            first.close()
+            second.close()
 
     def test_approval_is_refused_while_a_blocker_is_open(self, db: Session) -> None:
         from iep.api.errors import ConflictError
@@ -559,6 +693,74 @@ class TestReviewFlow:
 
         with pytest.raises(ConflictError, match="blocking finding"):
             review.approve(db, dossier.id, actor="a.reviewer", reason="looks fine")
+
+    def test_accepting_a_blocker_does_not_make_it_approvable(self, db: Session) -> None:
+        from iep.api.errors import ConflictError
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db)
+        for target in (
+            DossierStatus.INGESTED,
+            DossierStatus.QUEUED,
+            DossierStatus.PROCESSING,
+            DossierStatus.NEEDS_REVIEW,
+        ):
+            dossiers.transition(db, dossier, target)
+        finding = Finding(
+            id=uuid.uuid4(),
+            dossier_id=dossier.id,
+            rule_id="TEST_BLOCKER",
+            rule_version="1.0.0",
+            severity=Severity.BLOCKER,
+            status=FindingStatus.OPEN,
+            message="blocked",
+            detail={},
+            extraction_ids=[],
+            document_ids=[],
+            fingerprint=uuid.uuid4().hex,
+        )
+        db.add(finding)
+        db.flush()
+
+        review.resolve_finding(
+            db, finding.id, actor="a.reviewer", reason="confirmed as a real issue", accept=True
+        )
+        with pytest.raises(ConflictError, match="blocking finding"):
+            review.approve(db, dossier.id, actor="a.reviewer", reason="cannot waive an issue")
+
+    def test_approval_is_refused_while_a_field_needs_review(self, db: Session) -> None:
+        from iep.api.errors import ConflictError
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db)
+        for target in (
+            DossierStatus.INGESTED,
+            DossierStatus.QUEUED,
+            DossierStatus.PROCESSING,
+            DossierStatus.NEEDS_REVIEW,
+        ):
+            dossiers.transition(db, dossier, target)
+        extraction = Extraction(
+            id=uuid.uuid4(),
+            dossier_id=dossier.id,
+            document_id=None,
+            field_path="invoice.total_eur",
+            value_text="100.00",
+            value_number=Decimal("100.00"),
+            value_date=None,
+            locator={"kind": "PDF_PAGE", "page": 1},
+            method=ExtractionMethod.OCR_TESSERACT,
+            extractor_version="test/1",
+            contract_version="1.0.0",
+            confidence=Decimal("0.60"),
+            status=FieldStatus.NEEDS_REVIEW,
+            dedup_key=uuid.uuid4().hex,
+        )
+        db.add(extraction)
+        db.flush()
+
+        with pytest.raises(ConflictError, match="still need review"):
+            review.approve(db, dossier.id, actor="a.reviewer", reason="not complete")
 
     def test_approval_succeeds_once_the_blocker_is_resolved(self, db: Session) -> None:
         from tests.conftest import new_dossier
@@ -628,7 +830,7 @@ class TestReviewFlow:
         )
         db.add(extraction)
         db.flush()
-        with pytest.raises(ConflictError, match="approved dossier"):
+        with pytest.raises(ConflictError, match="only accepted"):
             review.correct_field(db, extraction.id, actor="a", reason="r", new_value="v2")
 
 

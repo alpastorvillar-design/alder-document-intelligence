@@ -26,6 +26,10 @@ from iep.db.models import ProcessingJob
 from iep.domain.enums import JobStatus, JobType
 
 
+class LostLeaseError(RuntimeError):
+    """The job is no longer owned by the worker attempting to mutate it."""
+
+
 def now() -> datetime:
     return datetime.now(UTC)
 
@@ -57,7 +61,7 @@ def enqueue(
             idempotency_key=idempotency_key,
             available_at=now(),
         )
-        .on_conflict_do_nothing(index_elements=["idempotency_key"])
+        .on_conflict_do_nothing(index_elements=["dossier_id", "idempotency_key"])
         .returning(ProcessingJob.id)
     )
     inserted = session.execute(stmt).scalar_one_or_none()
@@ -68,7 +72,10 @@ def enqueue(
         return job, True
 
     existing = session.execute(
-        select(ProcessingJob).where(ProcessingJob.idempotency_key == idempotency_key)
+        select(ProcessingJob).where(
+            ProcessingJob.dossier_id == dossier_id,
+            ProcessingJob.idempotency_key == idempotency_key,
+        )
     ).scalar_one()
     return existing, False
 
@@ -110,20 +117,39 @@ def claim(session: Session, *, worker_id: str, lease_seconds: int) -> Processing
     return job
 
 
-def heartbeat(session: Session, job_id: uuid.UUID, *, lease_seconds: int) -> None:
-    session.execute(
+def heartbeat(
+    session: Session,
+    job_id: uuid.UUID,
+    *,
+    worker_id: str,
+    lease_seconds: int,
+) -> bool:
+    renewed = session.execute(
         update(ProcessingJob)
-        .where(ProcessingJob.id == job_id, ProcessingJob.status == JobStatus.RUNNING)
+        .where(
+            ProcessingJob.id == job_id,
+            ProcessingJob.status == JobStatus.RUNNING,
+            ProcessingJob.leased_by == worker_id,
+        )
         .values(leased_until=now() + timedelta(seconds=lease_seconds))
-    )
+        .returning(ProcessingJob.id)
+    ).scalar_one_or_none()
+    return renewed is not None
 
 
-def succeed(session: Session, job_id: uuid.UUID) -> None:
-    session.execute(
+def succeed(session: Session, job_id: uuid.UUID, *, worker_id: str) -> None:
+    applied = session.execute(
         update(ProcessingJob)
-        .where(ProcessingJob.id == job_id)
+        .where(
+            ProcessingJob.id == job_id,
+            ProcessingJob.status == JobStatus.RUNNING,
+            ProcessingJob.leased_by == worker_id,
+        )
         .values(status=JobStatus.SUCCEEDED, leased_by=None, leased_until=None, last_error=None)
-    )
+        .returning(ProcessingJob.id)
+    ).scalar_one_or_none()
+    if applied is None:
+        raise LostLeaseError(f"worker {worker_id} no longer owns job {job_id}")
 
 
 def fail(
@@ -132,6 +158,7 @@ def fail(
     *,
     error: str,
     retryable: bool,
+    worker_id: str | None = None,
     backoff_seconds: float = 5.0,
 ) -> JobStatus:
     """Record a failure, retrying only when the error is recoverable.
@@ -147,9 +174,13 @@ def fail(
         status = JobStatus.DEAD_LETTER if retryable else JobStatus.FAILED
         available_at = job.available_at
 
-    session.execute(
+    expected_worker = worker_id or job.leased_by
+    conditions = [ProcessingJob.id == job.id, ProcessingJob.status == JobStatus.RUNNING]
+    if expected_worker is not None:
+        conditions.append(ProcessingJob.leased_by == expected_worker)
+    applied = session.execute(
         update(ProcessingJob)
-        .where(ProcessingJob.id == job.id)
+        .where(*conditions)
         .values(
             status=status,
             last_error=error[:2000],
@@ -157,7 +188,10 @@ def fail(
             leased_until=None,
             available_at=available_at,
         )
-    )
+        .returning(ProcessingJob.id)
+    ).scalar_one_or_none()
+    if applied is None:
+        raise LostLeaseError(f"worker {expected_worker} no longer owns job {job.id}")
     return status
 
 
@@ -169,7 +203,7 @@ def reclaim_expired(session: Session, *, limit: int = 20) -> list[uuid.UUID]:
     """
     expired = list(
         session.execute(
-            select(ProcessingJob.id)
+            select(ProcessingJob)
             .where(
                 ProcessingJob.status == JobStatus.RUNNING,
                 ProcessingJob.leased_until.is_not(None),
@@ -183,15 +217,13 @@ def reclaim_expired(session: Session, *, limit: int = 20) -> list[uuid.UUID]:
     if not expired:
         return []
 
-    session.execute(
-        update(ProcessingJob)
-        .where(ProcessingJob.id.in_(expired))
-        .values(
-            status=JobStatus.PENDING,
-            leased_by=None,
-            leased_until=None,
-            available_at=now(),
-            last_error="lease expired; job reclaimed",
+    reclaimed_at = now()
+    for job in expired:
+        job.status = (
+            JobStatus.DEAD_LETTER if job.attempts >= job.max_attempts else JobStatus.PENDING
         )
-    )
-    return expired
+        job.leased_by = None
+        job.leased_until = None
+        job.available_at = reclaimed_at
+        job.last_error = "lease expired; job reclaimed"
+    return [job.id for job in expired]

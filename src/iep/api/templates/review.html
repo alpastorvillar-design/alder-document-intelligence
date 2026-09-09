@@ -110,8 +110,8 @@
       <td>{{ e.status }}</td>
       <td>
         <input type="text" id="v-{{ e.id }}" placeholder="new value">
-        <button onclick="correct('{{ e.id }}')">Correct</button>
-        <button onclick="confirmField('{{ e.id }}')">Confirm</button>
+        <button onclick="correct('{{ e.id }}', {{ e.revision }})">Correct</button>
+        <button onclick="confirmField('{{ e.id }}', {{ e.revision }})">Confirm</button>
       </td>
     </tr>
   {% endfor %}
@@ -150,19 +150,23 @@ async function post(url, body) {
   return true;
 }
 
-async function correct(id) {
+async function correct(id, revision) {
   const value = document.getElementById("v-" + id).value.trim();
   if (!value) { flash("Type the corrected value first."); return; }
   const reason = prompt("Why is this value wrong?");
   if (!reason) return;
-  if (await post(`/extractions/${id}/correct`, { actor: actor(), reason, new_value: value })) {
+  if (await post(`/extractions/${id}/correct`, {
+    actor: actor(), reason, new_value: value, expected_revision: revision
+  })) {
     location.reload();
   }
 }
 
-async function confirmField(id) {
+async function confirmField(id, revision) {
   const reason = prompt("Confirming this reading. Why?") || "checked against the source document";
-  if (await post(`/extractions/${id}/confirm`, { actor: actor(), reason })) location.reload();
+  if (await post(`/extractions/${id}/confirm`, {
+    actor: actor(), reason, expected_revision: revision
+  })) location.reload();
 }
 
 async function resolve(id, accept) {

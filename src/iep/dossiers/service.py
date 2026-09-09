@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from iep.api.errors import ConflictError, InvalidStateTransitionError, NotFoundError
@@ -41,8 +42,18 @@ def create(session: Session, payload: DossierCreate) -> Dossier:
         call_page_url=payload.call_page_url,
         status=DossierStatus.DRAFT,
     )
-    session.add(dossier)
-    session.flush()
+    try:
+        with session.begin_nested():
+            session.add(dossier)
+            session.flush()
+    except IntegrityError:
+        existing = session.execute(
+            select(Dossier).where(Dossier.reference == payload.reference)
+        ).scalar_one()
+        raise ConflictError(
+            "A dossier already exists for this reference.",
+            {"reference": payload.reference, "dossier_id": str(existing.id)},
+        ) from None
     audit.record(
         session,
         action=AuditAction.DOSSIER_CREATED,

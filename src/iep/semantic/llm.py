@@ -291,7 +291,11 @@ class AnthropicSemanticExtractor:
             ),
             notes=tuple(validated.notes),
         )
-        kept, ungrounded = grounded_proposals(result, request.text)
+        kept, ungrounded = grounded_proposals(
+            result,
+            request.text,
+            frozenset(spec.field_path for spec in request.fields),
+        )
         if ungrounded:
             log.warning(
                 "llm_ungrounded_proposals_discarded",

@@ -123,9 +123,11 @@ def _normalise(text: str) -> str:
 
 
 def grounded_proposals(
-    result: SemanticResult, source_text: str
+    result: SemanticResult,
+    source_text: str,
+    allowed_fields: frozenset[str] | None = None,
 ) -> tuple[tuple[SemanticProposal, ...], tuple[str, ...]]:
-    """Drop proposals whose evidence quote is not in the source.
+    """Drop proposals that are unrequested or not grounded in quoted source text.
 
     This is the guard that makes an invented figure unusable: a value the
     document does not contain cannot be quoted from it, so it never becomes an
@@ -135,12 +137,14 @@ def grounded_proposals(
     kept: list[SemanticProposal] = []
     rejected: list[str] = []
     for proposal in result.proposals:
-        if _normalise(proposal.evidence_quote) in haystack:
+        quote = _normalise(proposal.evidence_quote)
+        value = _normalise(proposal.value)
+        if allowed_fields is not None and proposal.field_path not in allowed_fields:
+            rejected.append(f"{proposal.field_path}: field was not requested")
+        elif quote in haystack and value in quote:
             kept.append(proposal)
         else:
-            rejected.append(
-                f"{proposal.field_path}: evidence quote not present in the source document"
-            )
+            rejected.append(f"{proposal.field_path}: value is not grounded in its source quotation")
     return tuple(kept), tuple(rejected)
 
 

@@ -29,7 +29,7 @@ from decimal import Decimal
 
 from iep.connectors.registry import RegistryPerson
 from iep.db.models import Document, Dossier, Extraction
-from iep.domain.enums import DocumentKind, DocumentStatus, Severity
+from iep.domain.enums import DocumentKind, DocumentStatus, FieldStatus, Severity
 
 RULES_VERSION = "1.0.0"
 
@@ -76,6 +76,7 @@ class CallWindow:
     eligible_from: date | None
     eligible_to: date | None
     source: str
+    max_funding_eur: Decimal | None = None
 
 
 @dataclass
@@ -88,24 +89,45 @@ class RuleContext:
     ocr_confidence_by_document: dict[uuid.UUID, float]
     document_text_by_id: dict[uuid.UUID, str]
     duplicate_document_shas: tuple[str, ...] = ()
+    registry_available: bool = True
+    external_capture_errors: tuple[tuple[str, str], ...] = ()
+    formula_cells_by_document: dict[uuid.UUID, tuple[str, ...]] = field(default_factory=dict)
 
     def by_field(self, field_path: str) -> list[Extraction]:
-        return [e for e in self.extractions if e.field_path == field_path]
+        return [
+            e
+            for e in self.extractions
+            if e.field_path == field_path and e.status != FieldStatus.REJECTED
+        ]
 
     def one(self, field_path: str) -> Extraction | None:
         found = self.by_field(field_path)
-        return found[0] if found else None
+        return sorted(found, key=lambda e: (-float(e.confidence), str(e.id)))[0] if found else None
 
     def documents_of_kind(self, kind: DocumentKind) -> list[Document]:
-        return [d for d in self.documents if d.document_kind == kind]
+        return [
+            d
+            for d in self.documents
+            if d.document_kind == kind and d.status == DocumentStatus.EXTRACTED
+        ]
 
     def per_document(self, document_id: uuid.UUID) -> dict[str, Extraction]:
-        return {e.field_path: e for e in self.extractions if e.document_id == document_id}
+        matching = [
+            e
+            for e in self.extractions
+            if e.document_id == document_id and e.status != FieldStatus.REJECTED
+        ]
+        return {
+            field_path: sorted(rows, key=lambda e: (-float(e.confidence), str(e.id)))[0]
+            for field_path, rows in _group_by_field(matching).items()
+        }
 
     def timesheet_rows(self) -> list[dict[str, Extraction]]:
         grouped: dict[str, dict[str, Extraction]] = defaultdict(dict)
         for extraction in self.extractions:
             if not extraction.field_path.startswith("timesheet.rows["):
+                continue
+            if extraction.status == FieldStatus.REJECTED:
                 continue
             prefix, _, suffix = extraction.field_path.rpartition(".")
             grouped[prefix][suffix] = extraction
@@ -162,6 +184,41 @@ def rule_document_intake(ctx: RuleContext) -> Iterator[RuleFinding]:
                 document_ids=(document.id,),
                 subject=str(document.id),
             )
+        elif document.status == DocumentStatus.FAILED:
+            yield RuleFinding(
+                rule_id="DOCUMENT_EXTRACTION_FAILED",
+                severity=Severity.BLOCKER,
+                message=(
+                    f"{document.original_filename} could not be processed: "
+                    f"{document.rejection_reason or 'extraction failed'}."
+                ),
+                document_ids=(document.id,),
+                subject=str(document.id),
+            )
+
+    for document_id, formula_cells in sorted(
+        ctx.formula_cells_by_document.items(), key=lambda item: str(item[0])
+    ):
+        yield RuleFinding(
+            rule_id="UNTRUSTED_EXCEL_FORMULA",
+            severity=Severity.WARNING,
+            message=(
+                f"A workbook contains {len(formula_cells)} formula cell(s). Cached results "
+                "were not used as evidence."
+            ),
+            detail={"formula_cells": list(formula_cells[:20])},
+            document_ids=(document_id,),
+            subject=str(document_id),
+        )
+
+    for source, error in ctx.external_capture_errors:
+        yield RuleFinding(
+            rule_id="EXTERNAL_SOURCE_UNAVAILABLE",
+            severity=Severity.BLOCKER,
+            message=f"The {source} could not be captured; dependent checks were not completed.",
+            detail={"source": source, "error": error},
+            subject=source,
+        )
 
     for digest in ctx.duplicate_document_shas:
         yield RuleFinding(
@@ -419,6 +476,8 @@ def rule_timesheet_rows(ctx: RuleContext) -> Iterator[RuleFinding]:
                     subject=subject,
                 )
 
+        if not ctx.registry_available:
+            continue
         person = ctx.registry.get(employee_id)
         if person is None:
             yield RuleFinding(
@@ -452,8 +511,12 @@ def rule_timesheet_rows(ctx: RuleContext) -> Iterator[RuleFinding]:
                     "declared_rate_eur": str(rate.value_number),
                     "registry_rate_eur": str(person.hourly_rate_eur),
                 },
-                extraction_ids=(rate.id,),
-                document_ids=_document_ids(rate),
+                extraction_ids=(rate.id, *_registry_rate_ids(ctx, employee_id)),
+                document_ids=tuple(
+                    dict.fromkeys(
+                        (*_document_ids(rate), *_registry_rate_document_ids(ctx, employee_id))
+                    )
+                ),
                 subject=f"{employee_id}|rate",
             )
 
@@ -542,6 +605,24 @@ def rule_cost_reconciliation(ctx: RuleContext) -> Iterator[RuleFinding]:
                 subject="claimed_total",
             )
 
+    if (
+        ctx.call_window.max_funding_eur is not None
+        and ctx.dossier.claimed_total_eur > ctx.call_window.max_funding_eur
+    ):
+        source = ctx.one("call.max_funding_eur")
+        yield RuleFinding(
+            rule_id="CLAIM_ABOVE_CALL_MAXIMUM",
+            severity=Severity.BLOCKER,
+            message=(
+                f"The dossier claims {money(ctx.dossier.claimed_total_eur)}, above the "
+                f"captured call maximum of {money(ctx.call_window.max_funding_eur)}."
+            ),
+            detail={"window_source": ctx.call_window.source},
+            extraction_ids=(source.id,) if source else (),
+            document_ids=_document_ids(source) if source else (),
+            subject="call_maximum",
+        )
+
 
 def rule_required_evidence(ctx: RuleContext) -> Iterator[RuleFinding]:
     required = {
@@ -573,6 +654,37 @@ def rule_required_evidence(ctx: RuleContext) -> Iterator[RuleFinding]:
                 subject=field_path,
             )
 
+    invoice_requirements = (
+        "invoice.number",
+        "invoice.issue_date",
+        "invoice.project_code",
+        "invoice.total_eur",
+    )
+    for document in ctx.documents_of_kind(DocumentKind.EXPENSE_INVOICE):
+        fields = ctx.per_document(document.id)
+        for field_path in invoice_requirements:
+            if field_path not in fields:
+                yield RuleFinding(
+                    rule_id="INSUFFICIENT_EVIDENCE",
+                    severity=Severity.BLOCKER,
+                    message=(
+                        f"{document.original_filename} does not provide the required "
+                        f"{field_path.rsplit('.', 1)[-1]} field."
+                    ),
+                    detail={"missing_field": field_path},
+                    document_ids=(document.id,),
+                    subject=f"{document.id}|{field_path}",
+                )
+
+    if ctx.documents_of_kind(DocumentKind.TIMESHEET) and not ctx.timesheet_rows():
+        yield RuleFinding(
+            rule_id="INSUFFICIENT_EVIDENCE",
+            severity=Severity.BLOCKER,
+            message="The timesheet contains no complete literal data row.",
+            detail={"missing_field": "timesheet.rows"},
+            subject="timesheet.rows",
+        )
+
 
 def rule_ambiguous_fields(ctx: RuleContext) -> Iterator[RuleFinding]:
     """Two readings of the same field on the same document that disagree."""
@@ -590,7 +702,7 @@ def rule_ambiguous_fields(ctx: RuleContext) -> Iterator[RuleFinding]:
             continue
         yield RuleFinding(
             rule_id="AMBIGUOUS_FIELD",
-            severity=Severity.WARNING,
+            severity=Severity.BLOCKER,
             message=(
                 f"{field_path} was read {len(distinct)} different ways from the same document. "
                 "A reviewer has to choose."
@@ -655,6 +767,23 @@ def _document_ids(extraction: Extraction) -> tuple[uuid.UUID, ...]:
 
 def _normalise_reference(value: str) -> str:
     return re.sub(r"[^A-Z0-9-]", "", value.upper())
+
+
+def _group_by_field(extractions: list[Extraction]) -> dict[str, list[Extraction]]:
+    grouped: dict[str, list[Extraction]] = defaultdict(list)
+    for extraction in extractions:
+        grouped[extraction.field_path].append(extraction)
+    return grouped
+
+
+def _registry_rate_ids(ctx: RuleContext, employee_id: str) -> tuple[uuid.UUID, ...]:
+    row = ctx.one(f"registry.personnel[{employee_id}].hourly_rate_eur")
+    return (row.id,) if row else ()
+
+
+def _registry_rate_document_ids(ctx: RuleContext, employee_id: str) -> tuple[uuid.UUID, ...]:
+    row = ctx.one(f"registry.personnel[{employee_id}].hourly_rate_eur")
+    return _document_ids(row) if row else ()
 
 
 def _month_start(month_text: str) -> date | None:

@@ -22,6 +22,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import delete, select
@@ -30,11 +31,22 @@ from sqlalchemy.orm import Session
 
 from iep.audit import service as audit
 from iep.config import Settings
-from iep.connectors.public_page import PublicPageScraper, ScraperError
-from iep.connectors.registry import ConnectorError, RegistryConnector, RegistryPerson
+from iep.connectors.public_page import (
+    SCRAPER_VERSION,
+    PageCapture,
+    PublicPageScraper,
+    ScraperError,
+)
+from iep.connectors.registry import (
+    CONNECTOR_VERSION,
+    ConnectorError,
+    RegistryConnector,
+    RegistryPerson,
+    RegistrySnapshot,
+)
 from iep.db.models import Document, DocumentChunk, Dossier
 from iep.db.models import Extraction as ExtractionRow
-from iep.domain.contracts import CONTRACT_VERSION, DerivedLocator
+from iep.domain.contracts import CONTRACT_VERSION, ApiFieldLocator, DerivedLocator
 from iep.domain.enums import (
     AuditAction,
     DocumentKind,
@@ -107,6 +119,8 @@ class DocumentOutcome:
     used_ocr: bool = False
     stage_seconds: float = 0.0
     error: str | None = None
+    semantic_cost_eur: float = 0.0
+    semantic_warnings: list[str] = field(default_factory=list)
     # Whichever reader ran keeps its own structured output here so the field
     # readers can work from it without re-parsing the bytes.
     pdf_pages: pdf_text.PdfPages | None = None
@@ -147,12 +161,14 @@ def process_dossier(
     estimated_cost = 0.0
 
     stage = time.monotonic()
-    registry_people, registry_warning = _capture_registry(
-        session, store, settings, dossier, registry
+    registry_people, registry_candidates, registry_document_ids, registry_warning = (
+        _capture_registry(session, store, settings, dossier, registry)
     )
     if registry_warning:
         warnings.append(registry_warning)
-    call_window, call_warning = _capture_call_page(session, store, settings, dossier, scraper)
+    call_window, call_candidates, call_document_ids, call_warning = _capture_call_page(
+        session, store, settings, dossier, scraper
+    )
     if call_warning:
         warnings.append(call_warning)
     stages["external_capture"] = time.monotonic() - stage
@@ -186,12 +202,25 @@ def process_dossier(
     candidates: list[FieldCandidate] = []
     document_of_candidate: list[uuid.UUID | None] = []
     for outcome in outcomes:
+        estimated_cost += outcome.semantic_cost_eur
+        warnings.extend(outcome.semantic_warnings)
         for candidate in outcome.candidates:
             candidates.append(candidate)
             document_of_candidate.append(outcome.document_id)
 
+    candidates.extend(registry_candidates)
+    document_of_candidate.extend(registry_document_ids)
+    candidates.extend(call_candidates)
+    document_of_candidate.extend(call_document_ids)
+
     stage = time.monotonic()
-    written = _persist_extractions(session, dossier.id, candidates, document_of_candidate)
+    written = _persist_extractions(
+        session,
+        dossier.id,
+        candidates,
+        document_of_candidate,
+        review_threshold=settings.review_confidence_threshold,
+    )
     chunks_written = _persist_chunks(session, dossier.id, outcomes)
     stages["persist"] = time.monotonic() - stage
 
@@ -204,7 +233,13 @@ def process_dossier(
 
     stage = time.monotonic()
     aggregates = _aggregate_candidates(extractions)
-    written += _persist_extractions(session, dossier.id, aggregates, [None] * len(aggregates))
+    written += _persist_extractions(
+        session,
+        dossier.id,
+        aggregates,
+        [None] * len(aggregates),
+        review_threshold=settings.review_confidence_threshold,
+    )
     session.flush()
     extractions = list(
         session.execute(
@@ -227,6 +262,22 @@ def process_dossier(
         },
         document_text_by_id={o.document_id: o.text for o in outcomes if o.text},
         duplicate_document_shas=duplicates,
+        registry_available=registry_warning is None,
+        external_capture_errors=tuple(
+            (source, warning)
+            for source, warning in (
+                ("personnel registry", registry_warning),
+                ("published call page", call_warning),
+            )
+            if warning is not None
+        ),
+        formula_cells_by_document={
+            outcome.document_id: tuple(
+                formula for sheet in outcome.sheets for formula in sheet.formula_cells
+            )
+            for outcome in outcomes
+            if outcome.sheets and any(sheet.formula_cells for sheet in outcome.sheets)
+        },
     )
     summary = validation_engine.persist(session, dossier.id, evaluate(context))
     stages["validation"] = time.monotonic() - stage
@@ -247,6 +298,7 @@ def process_dossier(
             "findings_created": summary.created,
             "semantic_provider": semantic.name,
             "semantic_config_hash": semantic.config_hash(),
+            "estimated_llm_cost_eur": round(estimated_cost, 6),
             "stages_seconds": {k: round(v, 3) for k, v in stages.items()},
         },
     )
@@ -328,9 +380,15 @@ def _read_pdf(settings: Settings, data: bytes, outcome: DocumentOutcome) -> None
     # No usable text layer: this is a scan wearing a PDF wrapper.
     ocr_pages = [
         ocr.recognise(
-            pdf_text.render_page_png(data, page, dpi=settings.ocr_dpi),
+            pdf_text.render_page_png(
+                data,
+                page,
+                dpi=settings.ocr_dpi,
+                max_pixels=settings.max_image_pixels,
+            ),
             page=page,
             language=settings.ocr_language,
+            timeout_seconds=settings.ocr_timeout_seconds,
         )
         for page in range(1, min(pdf_text.page_count(data), settings.max_pdf_pages) + 1)
     ]
@@ -342,7 +400,12 @@ def _read_pdf(settings: Settings, data: bytes, outcome: DocumentOutcome) -> None
 
 
 def _read_image(settings: Settings, data: bytes, outcome: DocumentOutcome) -> None:
-    page = ocr.recognise(data, page=1, language=settings.ocr_language)
+    page = ocr.recognise(
+        data,
+        page=1,
+        language=settings.ocr_language,
+        timeout_seconds=settings.ocr_timeout_seconds,
+    )
     outcome.text = page.text
     outcome.chunks = list(ocr.chunks_from_pages([page]))
     outcome.ocr_confidence = ocr.mean_confidence([page])
@@ -386,6 +449,10 @@ def _classify(
         log.warning("semantic_provider_failed", extra={"error": str(exc)})
         metrics.increment("iep_semantic_failures_total", provider=semantic.name)
         return _fallback_kind(document), 0.0
+    outcome.semantic_cost_eur = result.usage.estimated_cost_eur
+    outcome.semantic_warnings.extend(
+        f"{document.original_filename}: {warning}" for warning in result.warnings
+    )
     return result.result.document_kind, result.result.kind_confidence
 
 
@@ -472,13 +539,15 @@ def _persist_extractions(
     dossier_id: uuid.UUID,
     candidates: list[FieldCandidate],
     document_ids: list[uuid.UUID | None],
+    *,
+    review_threshold: float,
 ) -> int:
     written = 0
     for candidate, document_id in zip(candidates, document_ids, strict=True):
         key = dedup_key(document_id, candidate)
         status = (
             FieldStatus.NEEDS_REVIEW
-            if candidate.confidence < _review_threshold()
+            if candidate.confidence < review_threshold
             else FieldStatus.EXTRACTED
         )
         values = {
@@ -510,8 +579,10 @@ def _persist_extractions(
                     "confidence": values["confidence"],
                     "extractor_version": values["extractor_version"],
                     "contract_version": values["contract_version"],
+                    "locator": values["locator"],
+                    "status": values["status"],
                 },
-                where=ExtractionRow.status != FieldStatus.CORRECTED,
+                where=ExtractionRow.status.not_in((FieldStatus.CORRECTED, FieldStatus.CONFIRMED)),
             )
         )
         session.execute(stmt)
@@ -524,15 +595,12 @@ def _persist_chunks(
 ) -> int:
     total = 0
     for outcome in outcomes:
-        if not outcome.chunks:
-            continue
-        # Rebuild per document so a re-read cannot leave stale segments behind.
-        session.execute(
-            delete(DocumentChunk).where(DocumentChunk.document_id == outcome.document_id)
-        )
+        active_ordinals: list[int] = []
         for chunk in outcome.chunks:
-            session.add(
-                DocumentChunk(
+            active_ordinals.append(chunk.ordinal)
+            session.execute(
+                pg_insert(DocumentChunk)
+                .values(
                     id=uuid.uuid4(),
                     dossier_id=dossier_id,
                     document_id=outcome.document_id,
@@ -540,8 +608,19 @@ def _persist_chunks(
                     text=chunk.text,
                     locator=chunk.locator.model_dump(mode="json"),
                 )
+                .on_conflict_do_update(
+                    index_elements=["document_id", "ordinal"],
+                    set_={
+                        "text": chunk.text,
+                        "locator": chunk.locator.model_dump(mode="json"),
+                    },
+                )
             )
             total += 1
+        stale = delete(DocumentChunk).where(DocumentChunk.document_id == outcome.document_id)
+        if active_ordinals:
+            stale = stale.where(DocumentChunk.ordinal.not_in(active_ordinals))
+        session.execute(stale)
     return total
 
 
@@ -552,7 +631,9 @@ def _aggregate_candidates(extractions: list[ExtractionRow]) -> list[FieldCandida
     invoice_totals = [
         (e, e.value_number)
         for e in ordered
-        if e.field_path == "invoice.total_eur" and e.value_number is not None
+        if e.field_path == "invoice.total_eur"
+        and e.value_number is not None
+        and e.status != FieldStatus.REJECTED
     ]
     timesheet_amounts = [
         (e, e.value_number)
@@ -560,6 +641,7 @@ def _aggregate_candidates(extractions: list[ExtractionRow]) -> list[FieldCandida
         if e.field_path.startswith("timesheet.rows[")
         and e.field_path.endswith(".amount_eur")
         and e.value_number is not None
+        and e.status != FieldStatus.REJECTED
     ]
 
     out: list[FieldCandidate] = []
@@ -636,12 +718,6 @@ def _duplicate_content_digests(session: Session, dossier_id: uuid.UUID) -> tuple
     return tuple(sorted(d for d in digests if d and d != "None"))
 
 
-def _review_threshold() -> float:
-    from iep.config import get_settings
-
-    return get_settings().review_confidence_threshold
-
-
 # --------------------------------------------------------------------------
 # External sources
 # --------------------------------------------------------------------------
@@ -653,16 +729,20 @@ def _capture_registry(
     settings: Settings,
     dossier: Dossier,
     connector: RegistryConnector | None,
-) -> tuple[list[RegistryPerson], str | None]:
+) -> tuple[list[RegistryPerson], list[FieldCandidate], list[uuid.UUID | None], str | None]:
+    owns_connector = connector is None
     connector = connector or RegistryConnector(settings)
     try:
         snapshot = connector.fetch_personnel()
     except ConnectorError as exc:
         log.warning("registry_capture_failed", extra={"error": str(exc)})
         metrics.increment("iep_external_capture_failures_total", source="registry")
-        return [], f"personnel registry unavailable: {exc}"
+        return [], [], [], f"personnel registry unavailable: {exc}"
+    finally:
+        if owns_connector:
+            connector.close()
 
-    _store_capture(
+    document = _store_capture(
         session,
         store,
         dossier,
@@ -672,7 +752,8 @@ def _capture_registry(
         source_kind=SourceKind.REGISTRY_API,
         source_detail=f"{snapshot.endpoint} ({snapshot.contract_version})",
     )
-    return list(snapshot.people), None
+    candidates = _registry_candidates(snapshot)
+    return list(snapshot.people), candidates, [document.id] * len(candidates), None
 
 
 def _capture_call_page(
@@ -681,10 +762,11 @@ def _capture_call_page(
     settings: Settings,
     dossier: Dossier,
     scraper: PublicPageScraper | None,
-) -> tuple[CallWindow, str | None]:
+) -> tuple[CallWindow, list[FieldCandidate], list[uuid.UUID | None], str | None]:
     if not dossier.call_page_url:
-        return CallWindow(None, None, "dossier period (no call page recorded)"), None
+        return CallWindow(None, None, "dossier period (no call page recorded)"), [], [], None
 
+    owns_scraper = scraper is None
     scraper = scraper or PublicPageScraper(settings)
     try:
         capture = scraper.capture(dossier.call_page_url)
@@ -693,10 +775,15 @@ def _capture_call_page(
         metrics.increment("iep_external_capture_failures_total", source="call_page")
         return (
             CallWindow(None, None, "dossier period (call page unavailable)"),
-            f"published call page unavailable: {exc}",
+            [],
+            [],
+            (f"published call page unavailable: {exc}"),
         )
+    finally:
+        if owns_scraper:
+            scraper.close()
 
-    _store_capture(
+    document = _store_capture(
         session,
         store,
         dossier,
@@ -706,12 +793,16 @@ def _capture_call_page(
         source_kind=SourceKind.PUBLIC_PAGE,
         source_detail=capture.url,
     )
+    candidates = _call_page_candidates(capture, captured_at=document.received_at)
     return (
         CallWindow(
             capture.as_date("call.eligible_from"),
             capture.as_date("call.eligible_to"),
             f"published call page {capture.url}",
+            max_funding_eur=capture.as_amount("call.max_funding_eur"),
         ),
+        candidates,
+        [document.id] * len(candidates),
         None,
     )
 
@@ -726,7 +817,7 @@ def _store_capture(
     media_kind: MediaKind,
     source_kind: SourceKind,
     source_detail: str,
-) -> None:
+) -> Document:
     """Persist an external capture as a first-class document.
 
     A captured payload is evidence like any other: it gets a hash, a stored
@@ -738,26 +829,25 @@ def _store_capture(
         select(Document).where(Document.dossier_id == dossier.id, Document.content_sha256 == digest)
     ).scalar_one_or_none()
     if existing is not None:
-        return
+        return existing
 
     key = store.put(digest, data)
-    session.add(
-        Document(
-            id=uuid.uuid4(),
-            dossier_id=dossier.id,
-            original_filename=filename,
-            declared_media_type=None,
-            media_kind=media_kind,
-            document_kind=DocumentKind.UNKNOWN,
-            status=DocumentStatus.EXTRACTED,
-            source_kind=source_kind,
-            source_detail=source_detail[:1000],
-            size_bytes=len(data),
-            content_sha256=digest,
-            storage_key=key,
-            page_count=None,
-        )
+    document = Document(
+        id=uuid.uuid4(),
+        dossier_id=dossier.id,
+        original_filename=filename,
+        declared_media_type=None,
+        media_kind=media_kind,
+        document_kind=DocumentKind.UNKNOWN,
+        status=DocumentStatus.EXTRACTED,
+        source_kind=source_kind,
+        source_detail=source_detail[:1000],
+        size_bytes=len(data),
+        content_sha256=digest,
+        storage_key=key,
+        page_count=None,
     )
+    session.add(document)
     session.flush()
     audit.record(
         session,
@@ -765,9 +855,74 @@ def _store_capture(
         dossier_id=dossier.id,
         payload={
             "filename": filename,
+            "document_id": str(document.id),
             "source_kind": str(source_kind),
             "source_detail": source_detail[:200],
             "content_sha256": digest,
             "size_bytes": len(data),
         },
     )
+    return document
+
+
+def _registry_candidates(snapshot: RegistrySnapshot) -> list[FieldCandidate]:
+    candidates: list[FieldCandidate] = []
+    for person in snapshot.people:
+        prefix = f"registry.personnel[{person.employee_id}]"
+        values: tuple[tuple[str, object], ...] = (
+            ("employee_id", person.employee_id),
+            ("full_name", person.full_name),
+            ("role", person.role),
+            ("hourly_rate_eur", person.hourly_rate_eur),
+            ("contract_start", person.contract_start),
+            ("contract_end", person.contract_end),
+        )
+        for suffix, value in values:
+            if value is None:
+                continue
+            candidates.append(
+                FieldCandidate(
+                    field_path=f"{prefix}.{suffix}",
+                    locator=ApiFieldLocator(
+                        endpoint=snapshot.endpoint,
+                        record_id=person.employee_id,
+                        json_path=f"$.pages[*].items[employee_id={person.employee_id}].{suffix}",
+                        contract_version=snapshot.contract_version,
+                    ),
+                    method=ExtractionMethod.HTTP_API,
+                    extractor_version=CONNECTOR_VERSION,
+                    confidence=1.0,
+                    value_text=str(value),
+                    value_number=value if isinstance(value, Decimal) else None,
+                    value_date=value if isinstance(value, date) else None,
+                )
+            )
+    return candidates
+
+
+def _call_page_candidates(capture: PageCapture, *, captured_at: datetime) -> list[FieldCandidate]:
+    candidates: list[FieldCandidate] = []
+    for captured in capture.fields:
+        value_date = (
+            capture.as_date(captured.field_path)
+            if captured.field_path.endswith(("from", "to"))
+            else None
+        )
+        value_number = (
+            capture.as_amount(captured.field_path)
+            if captured.field_path == "call.max_funding_eur"
+            else None
+        )
+        candidates.append(
+            FieldCandidate(
+                field_path=captured.field_path,
+                locator=captured.locator.model_copy(update={"captured_at": captured_at}),
+                method=ExtractionMethod.HTML_SELECTOR,
+                extractor_version=SCRAPER_VERSION,
+                confidence=1.0,
+                value_text=captured.value_text,
+                value_number=value_number,
+                value_date=value_date,
+            )
+        )
+    return candidates

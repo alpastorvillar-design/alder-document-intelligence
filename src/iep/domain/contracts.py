@@ -193,6 +193,7 @@ class Extraction(Base):
     corrected_by: str | None = None
     corrected_at: datetime | None = None
     correction_reason: str | None = None
+    revision: int = Field(ge=0)
 
     @property
     def display_value(self) -> str:
@@ -293,6 +294,7 @@ class ReviewCorrection(BaseModel):
     actor: str = Field(min_length=1, max_length=120)
     reason: str = Field(min_length=1, max_length=1000)
     new_value: str = Field(min_length=1, max_length=500)
+    expected_revision: int = Field(ge=0)
 
 
 class ReviewConfirmation(BaseModel):
@@ -300,6 +302,7 @@ class ReviewConfirmation(BaseModel):
 
     actor: str = Field(min_length=1, max_length=120)
     reason: str = Field(min_length=1, max_length=1000)
+    expected_revision: int = Field(ge=0)
 
 
 class FindingResolution(BaseModel):

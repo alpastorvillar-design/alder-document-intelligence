@@ -99,7 +99,9 @@ class DeterministicSemanticExtractor:
         )
         # The same grounding check the hosted adapter goes through. It should
         # never reject anything here, and the test asserts that it does not.
-        kept, rejected = grounded_proposals(result, text)
+        kept, rejected = grounded_proposals(
+            result, text, frozenset(spec.field_path for spec in request.fields)
+        )
         return SemanticOutcome(
             result=result.model_copy(update={"proposals": kept}),
             usage=SemanticUsage(attempts=1, rejected_responses=0),

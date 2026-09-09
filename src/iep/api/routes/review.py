@@ -93,6 +93,7 @@ def correct_extraction(
         actor=payload.actor,
         reason=payload.reason,
         new_value=payload.new_value,
+        expected_revision=payload.expected_revision,
     )
     return Extraction.model_validate(row)
 
@@ -103,7 +104,13 @@ def confirm_extraction(
     payload: ReviewConfirmation,
     session: Session = Depends(db_session),
 ) -> Extraction:
-    row = review.confirm_field(session, extraction_id, actor=payload.actor, reason=payload.reason)
+    row = review.confirm_field(
+        session,
+        extraction_id,
+        actor=payload.actor,
+        reason=payload.reason,
+        expected_revision=payload.expected_revision,
+    )
     return Extraction.model_validate(row)
 
 

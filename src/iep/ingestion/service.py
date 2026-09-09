@@ -8,12 +8,15 @@ nothing is trusted because of its name.
 
 from __future__ import annotations
 
+import io
 import uuid
+import warnings
 from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from iep.api.errors import InvalidStateTransitionError
 from iep.audit import service as audit
 from iep.config import Settings
 from iep.db.models import Document, Dossier
@@ -84,6 +87,16 @@ def ingest_upload(
     source_kind: SourceKind = SourceKind.UPLOAD,
     source_detail: str | None = None,
 ) -> IngestResult:
+    if DossierStatus(dossier.status) not in {
+        DossierStatus.DRAFT,
+        DossierStatus.INGESTED,
+        DossierStatus.REJECTED,
+        DossierStatus.FAILED,
+    }:
+        raise InvalidStateTransitionError(
+            "Documents cannot be added while the dossier is being processed or after approval.",
+            {"status": str(dossier.status)},
+        )
     display_name = safe_display_name(filename)
 
     if len(data) > settings.max_upload_bytes:
@@ -106,7 +119,7 @@ def ingest_upload(
         ) from exc
 
     try:
-        page_count = _page_count(media_kind, data, settings)
+        page_count = _validate_content(media_kind, data, settings)
     except IngestionRejectedError as exc:
         raise _reject(session, dossier, display_name, data, exc.reason, exc.status) from exc
 
@@ -167,7 +180,12 @@ def ingest_upload(
         },
     )
 
-    if dossier.status in (DossierStatus.DRAFT, DossierStatus.INGESTED, DossierStatus.REJECTED):
+    if dossier.status in (
+        DossierStatus.DRAFT,
+        DossierStatus.INGESTED,
+        DossierStatus.REJECTED,
+        DossierStatus.FAILED,
+    ):
         dossier.status = DossierStatus.INGESTED
 
     return IngestResult(document=document, duplicate_of=None)
@@ -230,8 +248,37 @@ def _reject(
     return IngestionRejectedError(reason, status=status, document_id=document.id)
 
 
-def _page_count(media_kind: MediaKind, data: bytes, settings: Settings) -> int | None:
-    """Open PDFs eagerly so a corrupt file is rejected at ingestion, not later."""
+def _validate_content(media_kind: MediaKind, data: bytes, settings: Settings) -> int | None:
+    """Open parser-backed formats before storage and enforce expansion ceilings."""
+    if media_kind in (MediaKind.PNG, MediaKind.JPEG):
+        from PIL import Image, UnidentifiedImageError
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                with Image.open(io.BytesIO(data)) as image:
+                    pixels = image.width * image.height
+                    if pixels > settings.max_image_pixels:
+                        raise IngestionRejectedError(
+                            f"image has {pixels} pixels, above the "
+                            f"{settings.max_image_pixels} pixel limit",
+                            status=DocumentStatus.UNSUPPORTED,
+                        )
+                    image.verify()
+        except IngestionRejectedError:
+            raise
+        except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+            raise IngestionRejectedError(
+                "image exceeds the safe decompression limit",
+                status=DocumentStatus.UNSUPPORTED,
+            ) from exc
+        except (UnidentifiedImageError, OSError, SyntaxError) as exc:
+            raise IngestionRejectedError(
+                f"image could not be opened: {type(exc).__name__}",
+                status=DocumentStatus.CORRUPT,
+            ) from exc
+        return None
+
     if media_kind is not MediaKind.PDF:
         return None
     import pymupdf

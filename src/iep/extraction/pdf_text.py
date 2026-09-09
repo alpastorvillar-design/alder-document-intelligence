@@ -100,10 +100,20 @@ def chunk_pages(pages: PdfPages, *, max_chars: int = 900) -> tuple[TextChunk, ..
     return tuple(chunks)
 
 
-def render_page_png(data: bytes, page_number: int, *, dpi: int) -> bytes:
+def render_page_png(
+    data: bytes, page_number: int, *, dpi: int, max_pixels: int = 40_000_000
+) -> bytes:
     """Rasterise one page so the OCR path can read a scanned PDF."""
     with pymupdf.open(stream=data, filetype="pdf") as doc:
-        pixmap = doc.load_page(page_number - 1).get_pixmap(dpi=dpi)
+        page = doc.load_page(page_number - 1)
+        scale = dpi / 72.0
+        pixels = int(page.rect.width * scale) * int(page.rect.height * scale)
+        if pixels > max_pixels:
+            raise ExtractionError(
+                f"PDF page raster would exceed the {max_pixels} pixel limit",
+                retryable=False,
+            )
+        pixmap = page.get_pixmap(dpi=dpi)
         png: bytes = pixmap.tobytes("png")
         return png
 

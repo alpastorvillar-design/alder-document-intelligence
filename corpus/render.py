@@ -59,7 +59,9 @@ def build_pdf(pages: list[list[Line]], *, title: str) -> bytes:
                 fontsize=line.size,
             )
             y += line.size + line.space_after
-    data: bytes = doc.tobytes()
+    # PyMuPDF otherwise writes a fresh trailer identifier on each save even
+    # when metadata and page contents are identical.
+    data: bytes = doc.tobytes(reproducible=True, no_new_id=True)
     doc.close()
     return data
 

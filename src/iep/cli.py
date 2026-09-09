@@ -108,7 +108,21 @@ def process(reference: str, *, provider: str | None) -> int:
             return 1
         # Walk the same states the worker walks, so a foreground run and a
         # queued run leave the dossier in the same place.
-        if DossierStatus(dossier.status) in (DossierStatus.INGESTED, DossierStatus.NEEDS_REVIEW):
+        if DossierStatus(dossier.status) not in (
+            DossierStatus.INGESTED,
+            DossierStatus.NEEDS_REVIEW,
+            DossierStatus.FAILED,
+        ):
+            print(
+                f"dossier {reference} cannot be processed from {dossier.status}",
+                file=sys.stderr,
+            )
+            return 2
+        if DossierStatus(dossier.status) in (
+            DossierStatus.INGESTED,
+            DossierStatus.NEEDS_REVIEW,
+            DossierStatus.FAILED,
+        ):
             dossiers.transition(session, dossier, DossierStatus.QUEUED, reason="cli process")
         if DossierStatus(dossier.status) is DossierStatus.QUEUED:
             dossiers.transition(session, dossier, DossierStatus.PROCESSING, reason="cli process")

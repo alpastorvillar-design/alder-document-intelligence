@@ -10,11 +10,16 @@ from sqlalchemy.orm import Session
 
 from iep.api import idempotency
 from iep.api.deps import correlation, db_session, object_store, require_api_key, settings_dep
-from iep.api.errors import PayloadTooLargeError, UnprocessableDocumentError
+from iep.api.errors import (
+    InvalidStateTransitionError,
+    PayloadTooLargeError,
+    UnprocessableDocumentError,
+)
 from iep.audit import service as audit
 from iep.config import Settings
 from iep.db.models import Document as DocumentRow
 from iep.db.models import Dossier as DossierRow
+from iep.db.models import ProcessingJob as ProcessingJobRow
 from iep.domain.contracts import (
     Document,
     Dossier,
@@ -37,7 +42,7 @@ def create_dossier(
     payload: DossierCreate,
     response: Response,
     session: Session = Depends(db_session),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
 ) -> Dossier:
     endpoint = "POST /dossiers"
     request_fp = idempotency.fingerprint(payload.model_dump(mode="json"))
@@ -171,7 +176,7 @@ def start_processing(
     payload: ProcessingRequest | None = None,
     session: Session = Depends(db_session),
     settings: Settings = Depends(settings_dep),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
     correlation_id: str = Depends(correlation),
 ) -> ProcessingJob:
     dossier = dossiers.get(session, dossier_id)
@@ -193,6 +198,23 @@ def start_processing(
         {"dossier": str(dossier_id), "documents": document_digests}
     )
 
+    current = DossierStatus(dossier.status)
+    processable = {DossierStatus.INGESTED, DossierStatus.NEEDS_REVIEW, DossierStatus.FAILED}
+    if current not in processable:
+        existing = session.execute(
+            select(ProcessingJobRow).where(
+                ProcessingJobRow.dossier_id == dossier.id,
+                ProcessingJobRow.idempotency_key == derived_key,
+            )
+        ).scalar_one_or_none()
+        if existing is not None and current in {DossierStatus.QUEUED, DossierStatus.PROCESSING}:
+            response.status_code = status.HTTP_200_OK
+            return ProcessingJob.model_validate(existing)
+        raise InvalidStateTransitionError(
+            "Processing can only start for an ingested, review, or failed dossier.",
+            {"status": str(current)},
+        )
+
     job, created = queue.enqueue(
         session,
         dossier_id=dossier.id,
@@ -205,9 +227,7 @@ def start_processing(
     )
 
     if created:
-        dossiers.try_transition(
-            session, dossier, DossierStatus.QUEUED, reason="processing requested"
-        )
+        dossiers.transition(session, dossier, DossierStatus.QUEUED, reason="processing requested")
         audit.record(
             session,
             action=AuditAction.PROCESSING_ENQUEUED,

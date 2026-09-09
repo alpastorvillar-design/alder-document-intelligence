@@ -64,9 +64,9 @@ NUMERIC_FIELDS = {
 }
 
 RETRIEVAL_PROBES = (
-    ("periodo de ejecucion", "report"),
-    ("coste de personal declarado", "report"),
-    ("base imponible", "invoice"),
+    ("periodo de ejecucion", "memoria-tecnica"),
+    ("coste de personal declarado", "memoria-tecnica"),
+    ("base imponible", "justificante"),
 )
 
 
@@ -249,7 +249,7 @@ def evaluate_dossier(
         )
 
         retrieval_results = []
-        for query, _ in RETRIEVAL_PROBES:
+        for query, expected_name_fragment in RETRIEVAL_PROBES:
             hits = retrieval.search(session, dossier_id, query, limit=3)
             repeat = retrieval.search(session, dossier_id, query, limit=3)
             retrieval_results.append(
@@ -258,6 +258,10 @@ def evaluate_dossier(
                     "hits": len(hits),
                     "top_document": hits[0].document_name if hits else None,
                     "top_locator_kind": hits[0].locator.get("kind") if hits else None,
+                    "expected_document_name_fragment": expected_name_fragment,
+                    "correct_target": bool(
+                        hits and expected_name_fragment in hits[0].document_name.lower()
+                    ),
                     "deterministic": [h.chunk_id for h in hits] == [h.chunk_id for h in repeat],
                 }
             )
@@ -267,6 +271,7 @@ def evaluate_dossier(
         rendered = render.render_html(session, dossier_id)
         export = render.export_json(session, dossier_id)
         needs_review = sum(1 for row in all_extractions if row.status == "NEEDS_REVIEW")
+        before_replay = _state_snapshot(session, dossier_id)
 
     # Replay: the same inputs again must change nothing.
     replay_started = time.monotonic()
@@ -279,16 +284,7 @@ def evaluate_dossier(
     replay_seconds = time.monotonic() - replay_started
 
     with session_scope() as session:
-        after = len(
-            list(
-                session.execute(
-                    select(Extraction).where(Extraction.dossier_id == dossier_id)
-                ).scalars()
-            )
-        )
-        findings_after = len(
-            list(session.execute(select(Finding).where(Finding.dossier_id == dossier_id)).scalars())
-        )
+        after_replay = _state_snapshot(session, dossier_id)
         final_status = str(dossiers.get(session, dossier_id).status)
 
     detected = sorted({f.rule_id for f in findings})
@@ -321,7 +317,7 @@ def evaluate_dossier(
         missed_findings=sorted(set(expected_findings) - set(detected)),
         unexpected_findings=sorted(set(detected) - set(expected_findings)),
         retrieval=retrieval_results,
-        replay_stable=(after == len(all_extractions) and findings_after == len(findings)),
+        replay_stable=after_replay == before_replay,
         replay_seconds=round(replay_seconds, 3),
         needs_review_fields=needs_review,
         final_status=final_status,
@@ -342,6 +338,63 @@ def _display(extraction: Extraction | None) -> str | None:
     if extraction.value_date is not None:
         return extraction.value_date.isoformat()
     return extraction.value_text
+
+
+def _state_snapshot(session: Any, dossier_id: uuid.UUID) -> dict[str, object]:
+    """Stable business state used to prove replay, excluding only timestamps."""
+    extraction_rows = list(
+        session.execute(
+            select(Extraction)
+            .where(Extraction.dossier_id == dossier_id)
+            .order_by(Extraction.dedup_key)
+        ).scalars()
+    )
+    finding_rows = list(
+        session.execute(
+            select(Finding).where(Finding.dossier_id == dossier_id).order_by(Finding.fingerprint)
+        ).scalars()
+    )
+    chunk_rows = list(
+        session.execute(
+            select(DocumentChunk)
+            .where(DocumentChunk.dossier_id == dossier_id)
+            .order_by(DocumentChunk.document_id, DocumentChunk.ordinal)
+        ).scalars()
+    )
+    return {
+        "extractions": [
+            (
+                str(row.id),
+                row.dedup_key,
+                row.field_path,
+                row.value_text,
+                str(row.value_number),
+                str(row.value_date),
+                row.locator,
+                str(row.status),
+                row.revision,
+            )
+            for row in extraction_rows
+        ],
+        "findings": [
+            (
+                str(row.id),
+                row.fingerprint,
+                row.rule_id,
+                str(row.severity),
+                str(row.status),
+                row.message,
+                row.detail,
+                row.extraction_ids,
+                row.document_ids,
+            )
+            for row in finding_rows
+        ],
+        "chunks": [
+            (str(row.id), str(row.document_id), row.ordinal, row.text, row.locator)
+            for row in chunk_rows
+        ],
+    }
 
 
 def _score_invoices(
@@ -377,11 +430,11 @@ def _score_invoices(
         wrong: list[str] = []
         correct = 0
         for path, expected in checks.items():
-            row = fields.get(path) if fields else None
-            if row is None:
+            extracted = fields.get(path) if fields else None
+            if extracted is None:
                 missing.append(path)
                 continue
-            if _invoice_field_matches(path, expected, row):
+            if _invoice_field_matches(path, expected, extracted):
                 correct += 1
             else:
                 wrong.append(path)
@@ -436,7 +489,11 @@ def _estimated_tokens(documents: list[Document]) -> int:
     Four characters per token is a working approximation, and it is only ever
     used for an estimate that is labelled as one.
     """
-    characters = sum(document.size_bytes for document in documents if document.page_count)
+    characters = sum(
+        min(document.size_bytes, 12_000)
+        for document in documents
+        if document.source_kind == "UPLOAD" and document.status == "EXTRACTED"
+    )
     return max(1, characters // 4)
 
 
@@ -520,6 +577,10 @@ def _totals(results: list[DossierResult]) -> dict[str, Any]:
     expected_findings = sum(len(result.expected_findings) for result in results)
     missed = sum(len(result.missed_findings) for result in results)
     unexpected = sum(len(result.unexpected_findings) for result in results)
+    true_positives = expected_findings - missed
+    false_positives = unexpected
+    false_negatives = missed
+    retrieval_probes = [probe for result in results for probe in result.retrieval]
     return {
         "fields_checked": fields_checked,
         "fields_correct": fields_correct,
@@ -530,9 +591,19 @@ def _totals(results: list[DossierResult]) -> dict[str, Any]:
         "expected_findings": expected_findings,
         "findings_missed": missed,
         "findings_unexpected": unexpected,
-        "recall": round((expected_findings - missed) / expected_findings, 4)
+        "finding_true_positives": true_positives,
+        "finding_false_positives": false_positives,
+        "finding_false_negatives": false_negatives,
+        "rule_id_precision": round(true_positives / (true_positives + false_positives), 4)
+        if true_positives + false_positives
+        else 1.0,
+        "rule_id_recall": round(true_positives / expected_findings, 4)
         if expected_findings
         else 1.0,
+        "retrieval_probes": len(retrieval_probes),
+        "retrieval_correct_targets": sum(
+            1 for probe in retrieval_probes if probe["correct_target"]
+        ),
         "input_bytes": sum(result.input_bytes for result in results),
         "documents_processed": sum(result.documents_processed for result in results),
         "replay_stable": all(result.replay_stable for result in results),
@@ -559,8 +630,14 @@ def render_summary(payload: dict[str, Any]) -> str:
         f"({totals['ocr_field_accuracy']:.1%}) |",
         f"| Seeded defects detected | "
         f"{totals['expected_findings'] - totals['findings_missed']}/"
-        f"{totals['expected_findings']} ({totals['recall']:.1%}) |",
-        f"| Findings not in the expectation | {totals['findings_unexpected']} |",
+        f"{totals['expected_findings']} ({totals['rule_id_recall']:.1%} rule-ID recall) |",
+        f"| Rule-ID precision | {totals['finding_true_positives']}/"
+        f"{totals['finding_true_positives'] + totals['finding_false_positives']} "
+        f"({totals['rule_id_precision']:.1%}) |",
+        f"| False positives / false negatives (rule IDs) | "
+        f"{totals['finding_false_positives']} / {totals['finding_false_negatives']} |",
+        f"| Retrieval target accuracy | {totals['retrieval_correct_targets']}/"
+        f"{totals['retrieval_probes']} |",
         f"| Replay is a no-op | {'yes' if totals['replay_stable'] else 'no'} |",
         f"| Wall clock for the whole run | {payload['total_seconds']}s |",
         "",

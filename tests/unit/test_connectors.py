@@ -173,10 +173,36 @@ class TestRegistryConnector:
         with pytest.raises(ConnectorError, match="contract validation"):
             RegistryConnector(settings(), client=registry_client(handler)).fetch_personnel()
 
+    def test_a_page_number_mismatch_is_refused(self) -> None:
+        payload = page_payload(1, 10)
+        payload["page"] = 9
+        with pytest.raises(ConnectorError, match="while page 1 was requested"):
+            RegistryConnector(
+                settings(registry_api_page_size=10),
+                client=registry_client(lambda request: httpx.Response(200, json=payload)),
+            ).fetch_personnel()
+
+    def test_duplicate_registry_identifiers_are_refused(self) -> None:
+        payload = page_payload(1, 10)
+        payload["items"] = [PEOPLE[0], PEOPLE[0]]
+        payload["total"] = 2
+        with pytest.raises(ConnectorError, match="duplicate employee"):
+            RegistryConnector(
+                settings(registry_api_page_size=10),
+                client=registry_client(lambda request: httpx.Response(200, json=payload)),
+            ).fetch_personnel()
+
     def test_a_non_json_body_is_refused(self) -> None:
         handler = lambda request: httpx.Response(200, content=b"<html>nope</html>")  # noqa: E731
         with pytest.raises(ConnectorError, match="non-JSON"):
             RegistryConnector(settings(), client=registry_client(handler)).fetch_personnel()
+
+    def test_a_registry_response_has_a_byte_ceiling(self) -> None:
+        handler = lambda request: httpx.Response(200, content=b"{" + b"x" * 200 + b"}")  # noqa: E731
+        with pytest.raises(ConnectorError, match="byte ceiling"):
+            RegistryConnector(
+                settings(registry_api_max_bytes=64), client=registry_client(handler)
+            ).fetch_personnel()
 
     def test_endless_pagination_is_bounded(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -259,6 +285,17 @@ class TestPublicPageScraper:
         handler = lambda request: httpx.Response(200, text=GOOD_PAGE)  # noqa: E731
         with pytest.raises(ScraperError):
             scraper(handler).capture(url)
+
+    def test_an_allowlisted_host_cannot_pivot_to_a_private_address(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "iep.connectors.public_page.socket.getaddrinfo",
+            lambda host, port: [(2, 1, 6, "", ("10.0.0.8", 0))],
+        )
+        handler = lambda request: httpx.Response(200, text=GOOD_PAGE)  # noqa: E731
+        with pytest.raises(ScraperError, match="private address"):
+            scraper(handler).capture("http://pages.test/internal")
 
     def test_a_page_over_the_size_ceiling_is_refused(self) -> None:
         handler = lambda request: httpx.Response(200, text="x" * 9000)  # noqa: E731

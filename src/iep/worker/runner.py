@@ -20,6 +20,9 @@ import socket
 import sys
 import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from threading import Event, Thread
 from types import FrameType
 
 from sqlalchemy import select
@@ -136,7 +139,7 @@ class Worker:
             semantic = build_semantic_provider(overridden)
 
         try:
-            with session_scope() as session:
+            with self._heartbeat(job_id), session_scope() as session:
                 dossier = self._prepare(session, dossier_id)
                 audit.record(
                     session,
@@ -152,7 +155,7 @@ class Worker:
                     semantic=semantic,
                 )
                 finalise_state(session, dossier)
-                queue.succeed(session, job_id)
+                queue.succeed(session, job_id, worker_id=self.worker_id)
 
             metrics.observe_duration("iep_job_seconds", time.monotonic() - started)
             log.info(
@@ -164,8 +167,35 @@ class Worker:
                     "warnings": result.warnings,
                 },
             )
+        except queue.LostLeaseError:
+            log.warning("job_lease_lost", extra={"job_id": str(job_id)})
         except Exception as exc:
             self._fail(job_id, dossier_id, exc)
+
+    @contextmanager
+    def _heartbeat(self, job_id: uuid.UUID) -> Iterator[None]:
+        stopped = Event()
+        interval = max(1.0, self.settings.job_lease_seconds / 3)
+
+        def renew() -> None:
+            while not stopped.wait(interval):
+                with session_scope() as session:
+                    if not queue.heartbeat(
+                        session,
+                        job_id,
+                        worker_id=self.worker_id,
+                        lease_seconds=self.settings.job_lease_seconds,
+                    ):
+                        log.warning("job_heartbeat_refused", extra={"job_id": str(job_id)})
+                        return
+
+        thread = Thread(target=renew, name=f"lease-{job_id}", daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stopped.set()
+            thread.join(timeout=interval + 1.0)
 
     def _prepare(self, session: Session, dossier_id: uuid.UUID) -> Dossier:
         dossier = session.execute(select(Dossier).where(Dossier.id == dossier_id)).scalar_one()
@@ -181,9 +211,19 @@ class Worker:
             job = session.get(ProcessingJob, job_id)
             if job is None:
                 return
-            status = queue.fail(
-                session, job, error=f"{type(exc).__name__}: {exc}", retryable=bool(retryable)
-            )
+            try:
+                status = queue.fail(
+                    session,
+                    job,
+                    error=f"{type(exc).__name__}: {exc}",
+                    retryable=bool(retryable),
+                    worker_id=self.worker_id,
+                )
+            except queue.LostLeaseError:
+                log.warning(
+                    "job_failure_not_recorded_after_lease_loss", extra={"job_id": str(job_id)}
+                )
+                return
             audit.record(
                 session,
                 action=AuditAction.PROCESSING_FAILED,

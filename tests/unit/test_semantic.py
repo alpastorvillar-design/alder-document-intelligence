@@ -278,12 +278,9 @@ class TestHostedAdapter:
     def test_a_document_full_of_instructions_cannot_express_an_action(self) -> None:
         """The adversarial annex, put through the adapter.
 
-        Grounding is not the defence here and this test says so honestly: the
-        injected sentence really is in the document, so a quote of it passes
-        the grounding check. What makes the attempt inert is the shape of the
-        contract - the response has nowhere to put an instruction - and the
-        rule, asserted in the pipeline tests, that a semantic proposal never
-        becomes an extraction a validation rule compares.
+        The reply invents a value under an unrequested field and pairs it with
+        an unrelated sentence from the document. Both the requested-field
+        allowlist and value-in-quote grounding reject it before the pipeline.
         """
         text = _pdf_text(corpus_documents.injection_document(DOSSIER_B))
         assert "Ignore all previous instructions" in text
@@ -303,8 +300,8 @@ class TestHostedAdapter:
         )
         outcome = adapter([Reply(obedient)]).run(request(text))
 
-        # The quote survives grounding because it is genuinely in the document.
-        assert len(outcome.result.proposals) == 1
+        assert outcome.result.proposals == ()
+        assert outcome.warnings
         # And there is nothing in the result that could approve, dismiss or
         # delete anything: the contract has no field for an action.
         assert set(outcome.result.model_dump()) == {

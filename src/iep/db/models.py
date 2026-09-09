@@ -178,6 +178,9 @@ class Extraction(Base):
     corrected_by: Mapped[str | None] = mapped_column(String(120))
     corrected_at: Mapped[datetime | None] = mapped_column(TS)
     correction_reason: Mapped[str | None] = mapped_column(Text)
+    # Optimistic concurrency token for human review. Two reviewers editing the
+    # same reading cannot silently overwrite one another.
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Stable across re-processing of the same inputs. This is what makes replay
     # update a row instead of appending a near-duplicate.
     dedup_key: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -262,7 +265,7 @@ class ProcessingJob(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("idempotency_key", name="uq_job_idempotency_key"),
+        UniqueConstraint("dossier_id", "idempotency_key", name="uq_job_dossier_idempotency_key"),
         # The claim query filters on exactly these columns.
         Index("ix_jobs_claimable", "status", "available_at"),
     )

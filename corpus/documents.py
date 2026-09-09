@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import io
+import re
+import zipfile
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from openpyxl import Workbook
@@ -120,6 +123,11 @@ def timesheet_workbook(spec: DossierSpec) -> bytes:
     demonstrated, and the amount column is therefore a value.
     """
     workbook = Workbook()
+    fixed_time = datetime(2025, 1, 1, tzinfo=UTC)
+    workbook.properties.created = fixed_time
+    workbook.properties.modified = fixed_time
+    workbook.properties.creator = "innovation-evidence-pipeline corpus"
+    workbook.properties.lastModifiedBy = "innovation-evidence-pipeline corpus"
     sheet = workbook.active
     assert sheet is not None
     sheet.title = "Partes horarios"
@@ -152,7 +160,34 @@ def timesheet_workbook(spec: DossierSpec) -> bytes:
 
     buffer = io.BytesIO()
     workbook.save(buffer)
-    return buffer.getvalue()
+    return _normalise_xlsx(buffer.getvalue())
+
+
+def _normalise_xlsx(data: bytes) -> bytes:
+    """Rewrite OOXML with fixed member order, timestamps and compression."""
+    source = io.BytesIO(data)
+    target = io.BytesIO()
+    with (
+        zipfile.ZipFile(source) as archive,
+        zipfile.ZipFile(
+            target, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+        ) as normalised,
+    ):
+        for name in sorted(archive.namelist()):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.create_system = 0
+            info.external_attr = 0o600 << 16
+            payload = archive.read(name)
+            if name == "docProps/core.xml":
+                payload = re.sub(
+                    rb"<dcterms:modified[^>]*>.*?</dcterms:modified>",
+                    b'<dcterms:modified xsi:type="dcterms:W3CDTF">'
+                    b"2025-01-01T00:00:00Z</dcterms:modified>",
+                    payload,
+                )
+            normalised.writestr(info, payload)
+    return target.getvalue()
 
 
 def corrupt_pdf() -> bytes:

@@ -10,8 +10,9 @@ import pytest
 from corpus import documents as corpus_documents
 from corpus.dataset import DOSSIER_A
 from openpyxl import Workbook
+from PIL import Image
 
-from iep.extraction import excel, parse, pdf_text
+from iep.extraction import excel, ocr, parse, pdf_text
 from iep.extraction.base import ExtractionError
 from iep.extraction.fields import report_fields, split_period, timesheet_fields
 
@@ -112,6 +113,51 @@ class TestWorkbookReading:
         candidates = timesheet_fields(sheets, extractor_version="test/1")
         employee_ids = [c for c in candidates if c.field_path.endswith(".employee_id")]
         assert len(employee_ids) == len(DOSSIER_A.timesheet)
+
+    def test_formula_backed_hours_are_not_used_as_evidence(self) -> None:
+        row = tuple(
+            excel.Cell("Partes horarios", 2, column, value)
+            for column, value in enumerate(
+                ("EMP-0001", "Person", "Engineer", "2025-01", 160, 40, 6400),
+                start=1,
+            )
+        )
+        header = tuple(
+            excel.Cell("Partes horarios", 1, column, value)
+            for column, value in enumerate(
+                (
+                    "ID empleado",
+                    "Nombre",
+                    "Rol",
+                    "Mes",
+                    "Horas",
+                    "Tarifa EUR/h",
+                    "Importe EUR",
+                ),
+                start=1,
+            )
+        )
+        sheet = excel.Sheet(
+            name="Partes horarios",
+            rows=(header, row),
+            formula_cells=("Partes horarios!E2",),
+        )
+        assert timesheet_fields([sheet], extractor_version="test/1") == []
+
+
+class TestOcrBounds:
+    def test_tesseract_timeout_is_a_retryable_extraction_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        buffer = io.BytesIO()
+        Image.new("L", (20, 20), color=255).save(buffer, format="PNG")
+        monkeypatch.setattr(
+            "iep.extraction.ocr.pytesseract.image_to_data",
+            lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("timeout")),
+        )
+        with pytest.raises(ExtractionError, match="OCR timed out") as excinfo:
+            ocr.recognise(buffer.getvalue(), page=1, language="spa", timeout_seconds=0.1)
+        assert excinfo.value.retryable is True
 
 
 class TestPdfText:

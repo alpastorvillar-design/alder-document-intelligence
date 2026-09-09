@@ -271,7 +271,7 @@ _B_INVOICES = (
         project_code="INN-2025-042",
         concept="Desarrollo de banco de pruebas",
     ),
-    # Same invoice number as the previous one, different file and amount.
+    # Same invoice number and amount, but a separately rendered reissue.
     Invoice(
         invoice_number="FS-2025-0901",
         supplier_name="Proveedor Sintetico Gamma S.L.",
@@ -361,6 +361,7 @@ DOSSIER_B = DossierSpec(
         "CORRUPT_DOCUMENT",
         "DUPLICATE_DOCUMENT",
         "PROMPT_INJECTION_ATTEMPT",
+        "INSUFFICIENT_EVIDENCE",
     ),
     include_duplicate_report=True,
     include_corrupt_pdf=True,

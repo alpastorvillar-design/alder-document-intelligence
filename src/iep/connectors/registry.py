@@ -85,6 +85,7 @@ class RegistryConnector:
         self.page_size = settings.registry_api_page_size
         self.timeout = settings.registry_api_timeout_seconds
         self.max_attempts = max(1, settings.registry_api_max_attempts)
+        self.max_bytes = settings.registry_api_max_bytes
         self._client = client
         self._owns_client = client is None
 
@@ -130,6 +131,11 @@ class RegistryConnector:
                     f"{SUPPORTED_CONTRACT}",
                     retryable=False,
                 )
+            if parsed.page != page:
+                raise ConnectorError(
+                    f"registry returned page {parsed.page} while page {page} was requested",
+                    retryable=False,
+                )
 
             people.extend(parsed.items)
             raw_pages.append(payload)
@@ -138,6 +144,13 @@ class RegistryConnector:
             page += 1
         else:
             raise ConnectorError(f"registry paginated past {MAX_PAGES} pages", retryable=False)
+
+        identifiers = [person.employee_id for person in people]
+        if len(set(identifiers)) != len(identifiers):
+            raise ConnectorError(
+                "registry returned a duplicate employee identifier",
+                retryable=False,
+            )
 
         snapshot = {
             "source": f"{self.base_url}/api/v1/personnel",
@@ -160,14 +173,26 @@ class RegistryConnector:
         last_error: Exception | None = None
         for attempt in range(1, self.max_attempts + 1):
             try:
-                response = self._http().get(
+                with self._http().stream(
+                    "GET",
                     path,
                     params=params,
                     headers={
                         "Authorization": f"Bearer {self.token}",
                         "User-Agent": f"innovation-evidence-pipeline ({CONNECTOR_VERSION})",
                     },
-                )
+                ) as response:
+                    status_code = response.status_code
+                    retry_after = response.headers.get("Retry-After")
+                    body_bytes = bytearray()
+                    if status_code < 400:
+                        for chunk in response.iter_bytes():
+                            body_bytes.extend(chunk)
+                            if len(body_bytes) > self.max_bytes:
+                                raise ConnectorError(
+                                    f"registry response exceeds the {self.max_bytes} byte ceiling",
+                                    retryable=False,
+                                )
             except httpx.TimeoutException as exc:
                 last_error = exc
                 metrics.increment("iep_connector_errors_total", kind="timeout")
@@ -179,26 +204,24 @@ class RegistryConnector:
                 self._backoff(attempt, None)
                 continue
 
-            if response.status_code == 429 or response.status_code >= 500:
-                last_error = ConnectorError(
-                    f"registry returned {response.status_code}", retryable=True
-                )
-                metrics.increment("iep_connector_errors_total", kind=f"http_{response.status_code}")
+            if status_code == 429 or status_code >= 500:
+                last_error = ConnectorError(f"registry returned {status_code}", retryable=True)
+                metrics.increment("iep_connector_errors_total", kind=f"http_{status_code}")
                 log.warning(
                     "registry_retryable_status",
-                    extra={"status": response.status_code, "attempt": attempt},
+                    extra={"status": status_code, "attempt": attempt},
                 )
-                self._backoff(attempt, response.headers.get("Retry-After"))
+                self._backoff(attempt, retry_after)
                 continue
 
-            if response.status_code >= 400:
+            if status_code >= 400:
                 # A 4xx means the request is wrong. Retrying sends the same one.
                 raise ConnectorError(
-                    f"registry rejected the request with {response.status_code}", retryable=False
+                    f"registry rejected the request with {status_code}", retryable=False
                 )
 
             try:
-                body = response.json()
+                body = json.loads(body_bytes)
             except (json.JSONDecodeError, ValueError) as exc:
                 raise ConnectorError("registry returned a non-JSON body", retryable=False) from exc
             if not isinstance(body, dict):

@@ -11,9 +11,11 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
-from iep.domain.enums import MediaKind
-from iep.ingestion.service import safe_display_name
+from iep.config import Settings
+from iep.domain.enums import DocumentStatus, MediaKind
+from iep.ingestion.service import IngestionRejectedError, _validate_content, safe_display_name
 from iep.ingestion.sniff import CorruptFileError, UnsupportedMediaError, guess_from_name, sniff
 from iep.storage.local import LocalObjectStore, content_digest, key_for
 
@@ -46,6 +48,17 @@ class TestSignatureDetection:
     def test_extension_is_recorded_but_not_trusted(self) -> None:
         assert guess_from_name("factura.PDF") == "pdf"
         assert guess_from_name("noextension") is None
+
+    def test_image_dimensions_are_bounded_before_decode(self) -> None:
+        buffer = io.BytesIO()
+        Image.new("L", (100, 100), color=255).save(buffer, format="PNG")
+        with pytest.raises(IngestionRejectedError) as excinfo:
+            _validate_content(
+                MediaKind.PNG,
+                buffer.getvalue(),
+                Settings(max_image_pixels=9_999),
+            )
+        assert excinfo.value.status is DocumentStatus.UNSUPPORTED
 
 
 class TestZipHandling:
