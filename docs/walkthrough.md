@@ -58,7 +58,7 @@ inside the real API.
             ↓
   8. aggregate                 sum invoices, sum hours
             ↓
-  9. validate                  27 deterministic rules across every source
+  9. validate                  11 rule functions (26 possible rule IDs)
             ↓
  10. NEEDS_REVIEW              always. It never approves by itself
             ↓
@@ -238,9 +238,10 @@ versioned and tested.
 
 ## 7. Tesseract locally (optional)
 
-Without Tesseract installed, 13 tests are **skipped** on your machine; in the
-container and in CI they always run, because the image ships it. To have it
-locally:
+Without Tesseract installed, 13 tests are **skipped** on your machine. CI
+installs Tesseract and runs them. The production image also ships Tesseract so
+the application can perform real OCR, but deliberately does not ship pytest or
+the other development tools. To run the OCR tests on the host:
 
 ```powershell
 winget install --id UB-Mannheim.TesseractOCR
@@ -258,8 +259,8 @@ You need the `spa` language. The UB-Mannheim installer offers it under
 *Additional language data*; if you did not tick it, reinstall and tick it. Those
 13 tests then stop skipping.
 
-**It is not required for the demonstration**: the demo runs inside the
-container, which already has it.
+**It is not required for the demonstration**: the application runs inside the
+container, which already has the OCR engine and Spanish language data.
 
 ## 8. Where retrieval fits (and why this is not called RAG)
 

@@ -58,7 +58,7 @@ dentro de la API real.
             ↓
   8. agrega                    suma facturas, suma horas
             ↓
-  9. valida                    27 reglas deterministas cruzando todas las fuentes
+  9. valida                    11 funciones de regla (26 rule-ids posibles)
             ↓
  10. NEEDS_REVIEW              siempre. Nunca aprueba solo
             ↓
@@ -236,8 +236,10 @@ en Python, donde están versionados y probados.
 
 ## 7. Tesseract en local (opcional)
 
-Sin Tesseract instalado, 13 pruebas se **omiten** en tu máquina; en el contenedor
-y en CI se ejecutan siempre porque la imagen lo lleva. Si lo quieres en local:
+Sin Tesseract instalado, 13 pruebas se **omiten** en tu máquina. CI instala
+Tesseract y las ejecuta. La imagen de producción también incluye Tesseract para
+que la aplicación haga OCR real, pero deliberadamente no incluye pytest ni las
+demás herramientas de desarrollo. Si quieres ejecutar esas pruebas en el host:
 
 ```powershell
 winget install --id UB-Mannheim.TesseractOCR
@@ -255,8 +257,8 @@ Necesitas el idioma `spa`. El instalador de UB-Mannheim lo ofrece en
 *Additional language data*; si no lo marcaste, reinstala marcándolo. Con eso, las
 13 pruebas dejan de omitirse.
 
-**No es necesario para la demostración**: la demo corre dentro del contenedor,
-que ya lo trae.
+**No es necesario para la demostración**: la aplicación corre dentro del
+contenedor, que ya incluye el motor OCR y los datos del idioma español.
 
 ## 8. Dónde encaja el RAG (y por qué aquí no lo llamamos así)
 
