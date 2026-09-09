@@ -73,7 +73,10 @@ siquiera admite la transición `PROCESSING → APPROVED`; hay un test que lo fij
 
 ## 4. Qué es cada endpoint
 
-Cuando abras `http://127.0.0.1:8000/docs` verás esto agrupado. Traducción:
+Cuando abras `http://127.0.0.1:8000/docs`, cada grupo y cada endpoint lleva ya su
+propia explicación —para qué sirve, qué significa la respuesta y qué regla hay
+detrás—, de modo que la página se lee sola (en inglés). Esto es lo mismo en una
+pantalla:
 
 ### `system` — ¿está vivo?
 

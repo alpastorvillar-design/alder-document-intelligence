@@ -22,13 +22,18 @@ from iep.domain.enums import JobStatus
 router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(require_api_key)])
 
 
-@router.get("", response_model=list[ProcessingJob])
+@router.get("", response_model=list[ProcessingJob], summary="List processing jobs")
 def list_jobs(
     session: Session = Depends(db_session),
     job_status: JobStatus | None = None,
     dossier_id: uuid.UUID | None = None,
     limit: int = 50,
 ) -> list[ProcessingJob]:
+    """Newest first. Filter by `job_status` or by `dossier_id`.
+
+    A job carries its attempt count and its last error, so a failure is
+    something you read rather than something you deduce.
+    """
     stmt = select(JobRow).order_by(JobRow.created_at.desc()).limit(min(limit, 200))
     if job_status is not None:
         stmt = stmt.where(JobRow.status == job_status)
@@ -37,8 +42,14 @@ def list_jobs(
     return [ProcessingJob.model_validate(row) for row in session.execute(stmt).scalars()]
 
 
-@router.get("/{job_id}", response_model=ProcessingJob)
+@router.get("/{job_id}", response_model=ProcessingJob, summary="One job in detail")
 def get_job(job_id: uuid.UUID, session: Session = Depends(db_session)) -> ProcessingJob:
+    """Status, attempts, the attempt ceiling, the lease holder and the last error.
+
+    `SUCCEEDED` means the pipeline finished; the dossier is then in
+    `NEEDS_REVIEW`, never in `APPROVED`. `DEAD_LETTER` means the attempts were
+    spent on a failure that looked recoverable; `FAILED` means it never was.
+    """
     row = session.get(JobRow, job_id)
     if row is None:
         raise NotFoundError("No job with that id.", {"job_id": str(job_id)})

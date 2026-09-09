@@ -73,7 +73,10 @@ even admit the `PROCESSING → APPROVED` transition, and a test pins that.
 
 ## 4. What every endpoint is for
 
-Open `http://127.0.0.1:8000/docs` and you will see these groups. Translated:
+Open `http://127.0.0.1:8000/docs`. Every group and every endpoint there now
+carries its own explanation - what it is for, what the response means, and the
+rule behind it - so the page reads on its own. The summary below is the same
+thing in one screen:
 
 ### `system` - is it alive?
 

@@ -22,13 +22,24 @@ from iep.observability import metrics
 router = APIRouter(tags=["system"])
 
 
-@router.get("/healthz", summary="Liveness probe")
+@router.get("/healthz", summary="Is the process alive?")
 def healthz() -> dict[str, str]:
+    """Answers only "this process is running". It touches no dependency.
+
+    This is what the container health check calls. It must not consult the
+    database: a liveness probe that fails when a dependency blinks makes an
+    orchestrator kill a process that was perfectly capable of recovering.
+    """
     return {"status": "ok", "version": __version__}
 
 
-@router.get("/readyz", summary="Readiness probe")
+@router.get("/readyz", summary="Can the process actually work?")
 def readyz(response: Response) -> dict[str, Any]:
+    """Checks the things a request needs: the database and the object store.
+
+    Returns `503` with a per-check breakdown when one of them is unavailable,
+    so the answer says *what* is wrong rather than only that something is.
+    """
     checks: dict[str, str] = {}
 
     try:
@@ -54,8 +65,14 @@ def readyz(response: Response) -> dict[str, Any]:
     return {"status": "ready" if ready else "not_ready", "checks": checks}
 
 
-@router.get("/metrics", summary="Prometheus text metrics", response_class=Response)
+@router.get("/metrics", summary="Counters in Prometheus text format", response_class=Response)
 def prometheus_metrics() -> Response:
+    """Jobs by status, findings by severity and status, and process counters.
+
+    The counters live in this process, which is enough to demonstrate the
+    shape. A deployment would export them to a durable backend — see
+    `docs/operations.md`.
+    """
     gauges: dict[str, dict[tuple[tuple[str, str], ...], float]] = {}
     try:
         with session_scope() as session:

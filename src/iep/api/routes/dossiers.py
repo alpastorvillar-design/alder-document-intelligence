@@ -37,13 +37,22 @@ from iep.worker import queue
 router = APIRouter(prefix="/dossiers", tags=["dossiers"], dependencies=[Depends(require_api_key)])
 
 
-@router.post("", response_model=Dossier, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=Dossier, status_code=status.HTTP_201_CREATED, summary="Create a dossier"
+)
 def create_dossier(
     payload: DossierCreate,
     response: Response,
     session: Session = Depends(db_session),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
 ) -> Dossier:
+    """Opens a claim for review: business reference, project period, claimed total.
+
+    The reference (`INN-YYYY-NNN`) is unique, so re-submitting one is a replay
+    of an existing dossier rather than a second one. Send an `Idempotency-Key`
+    header and a retried request returns the original result instead of
+    creating a duplicate.
+    """
     endpoint = "POST /dossiers"
     request_fp = idempotency.fingerprint(payload.model_dump(mode="json"))
 
@@ -76,7 +85,7 @@ def create_dossier(
     return result
 
 
-@router.get("", response_model=list[Dossier])
+@router.get("", response_model=list[Dossier], summary="List dossiers")
 def list_dossiers(
     session: Session = Depends(db_session),
     dossier_status: DossierStatus | None = None,
@@ -84,6 +93,11 @@ def list_dossiers(
     limit: int = 50,
     offset: int = 0,
 ) -> list[Dossier]:
+    """Newest first. `reference` looks one up by its business reference.
+
+    An integrator holds `INN-2025-042`, not our uuid, so that filter is the
+    difference between one call and paging the whole list client-side.
+    """
     stmt = select(DossierRow).order_by(DossierRow.created_at.desc())
     if dossier_status is not None:
         stmt = stmt.where(DossierRow.status == dossier_status)
@@ -95,13 +109,22 @@ def list_dossiers(
     return [Dossier.model_validate(row) for row in session.execute(stmt).scalars()]
 
 
-@router.get("/{dossier_id}", response_model=Dossier)
+@router.get("/{dossier_id}", response_model=Dossier, summary="One dossier and its state")
 def get_dossier(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> Dossier:
+    """`status` is the state machine position — see `docs/workflow.md`.
+
+    A successful run always leaves it in `NEEDS_REVIEW`, whether or not
+    anything was found. `PROCESSING` cannot reach `APPROVED`: approval is a
+    human action.
+    """
     return Dossier.model_validate(dossiers.get(session, dossier_id))
 
 
 @router.post(
-    "/{dossier_id}/documents", response_model=Document, status_code=status.HTTP_201_CREATED
+    "/{dossier_id}/documents",
+    response_model=Document,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload one file",
 )
 def upload_document(
     dossier_id: uuid.UUID,
@@ -111,6 +134,17 @@ def upload_document(
     store: ObjectStore = Depends(object_store),
     settings: Settings = Depends(settings_dep),
 ) -> Document:
+    """One file per call, as `multipart/form-data`.
+
+    The file is checked by size, then by signature, then by opening it with its
+    real parser, and only then stored — under its SHA-256, so the same bytes
+    twice are one document and you get `200` instead of `201`.
+
+    The filename and the declared content type are kept as provenance and are
+    never trusted to pick a parser or a storage path. A file that is refused
+    still gets a row and an audit event, with the reason, and returns `422`:
+    what was submitted stays visible even though the bytes were not kept.
+    """
     dossier = dossiers.get(session, dossier_id)
 
     # Read with a hard ceiling rather than trusting Content-Length: the limit
@@ -156,8 +190,14 @@ def upload_document(
     return Document.model_validate(result.document)
 
 
-@router.get("/{dossier_id}/documents", response_model=list[Document])
+@router.get("/{dossier_id}/documents", response_model=list[Document], summary="What was delivered")
 def list_documents(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> list[Document]:
+    """Everything submitted, in arrival order — including what was refused and why.
+
+    `media_kind` is what the signature and the parser decided; `kind` is what
+    the classifier concluded it is. `alternate_filenames` lists the other names
+    the same bytes arrived under.
+    """
     dossiers.get(session, dossier_id)
     stmt = (
         select(DocumentRow)
@@ -168,7 +208,10 @@ def list_documents(dossier_id: uuid.UUID, session: Session = Depends(db_session)
 
 
 @router.post(
-    "/{dossier_id}/process", response_model=ProcessingJob, status_code=status.HTTP_202_ACCEPTED
+    "/{dossier_id}/process",
+    response_model=ProcessingJob,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Enqueue processing",
 )
 def start_processing(
     dossier_id: uuid.UUID,
@@ -179,6 +222,17 @@ def start_processing(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
     correlation_id: str = Depends(correlation),
 ) -> ProcessingJob:
+    """Queues the work and returns the job. A worker picks it up; this does not block.
+
+    Without an explicit `Idempotency-Key`, the key is derived from the dossier
+    plus the set of document digests it currently holds. Pressing this twice
+    with nothing changed returns the same job with `200`; adding a document
+    produces a new one.
+
+    Optional body: `{"semantic_provider": "deterministic" | "llm"}`. The
+    provider only classifies documents — no amount a rule compares ever comes
+    from it.
+    """
     dossier = dossiers.get(session, dossier_id)
 
     # Without an explicit key, the key is derived from the dossier and the set

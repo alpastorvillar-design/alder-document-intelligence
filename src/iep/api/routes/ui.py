@@ -36,8 +36,14 @@ _env.filters["number"] = format_number
 router = APIRouter(prefix="/ui", tags=["ui"], dependencies=[Depends(require_api_key)])
 
 
-@router.get("/dossiers", response_class=Response, summary="Dossier list")
+@router.get("/dossiers", response_class=Response, summary="The review queue (start here)")
 def index(session: Session = Depends(db_session)) -> Response:
+    """An HTML page listing the dossiers, newest first, with a link into each.
+
+    Open `http://127.0.0.1:8000/ui/dossiers` in a browser. This is a minimal
+    server-rendered screen so the evidence can be looked at without building
+    a client; it is not a product front end.
+    """
     rows = list(
         session.execute(select(Dossier).order_by(Dossier.created_at.desc()).limit(50)).scalars()
     )
@@ -51,8 +57,18 @@ def index_redirect() -> RedirectResponse:
     return RedirectResponse(url="/ui/dossiers", status_code=307)
 
 
-@router.get("/dossiers/{dossier_id}", response_class=Response, summary="Review one dossier")
+@router.get(
+    "/dossiers/{dossier_id}",
+    response_class=Response,
+    summary="Review one dossier: findings, fields, evidence",
+)
 def review_view(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> Response:
+    """The findings, then every extracted field with the place it came from.
+
+    The buttons post to the `review` endpoints, so anything done here is
+    recorded with an actor and a reason exactly as an API call would be.
+    Approval is refused while a blocking finding is open.
+    """
     dossier = dossiers.get(session, dossier_id)
     documents = {
         row.id: row.original_filename
