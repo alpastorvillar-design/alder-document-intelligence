@@ -40,8 +40,46 @@ score, and any human correction. Nothing in the pipeline can approve a dossier.
 
 ## Status
 
-Scaffolding. The vertical slice is being built on
-`feat/production-oriented-vertical-slice`.
+The vertical slice is implemented and exercised by unit, PostgreSQL integration,
+migration, recovery, and container smoke tests. Published measurements come
+from the evaluation harness rather than being copied into this page; see
+[measured results](docs/measured-results.md).
+
+## Quickstart
+
+Prerequisites are Docker Engine with Compose v2 and enough free space for the
+pinned base images. No external service or model credential is required.
+
+```bash
+cp .env.example .env
+docker compose -p iep-demo up -d --build --wait postgres devsources api worker
+docker compose -p iep-demo exec -T api python -m corpus.generate --out /tmp/corpus
+docker compose -p iep-demo exec -T api iep seed --corpus /tmp/corpus \
+  --call-page-url http://devsources:8080/public/convocatoria.html
+docker compose -p iep-demo exec -T api iep process --reference INN-2025-042
+docker compose -p iep-demo exec -T api iep report --reference INN-2025-042
+```
+
+On Windows, [`scripts/demo.ps1`](scripts/demo.ps1) performs those steps for
+both the consistent and deliberately defective dossiers. Stop only this stack
+with `docker compose -p iep-demo --profile n8n down`; add `--volumes` when its
+local data is no longer needed.
+
+The API, review screen, and local source simulator bind only to loopback:
+`http://127.0.0.1:8000/docs`, `http://127.0.0.1:8000/ui/dossiers`, and
+`http://127.0.0.1:8080`. The optional workflow UI is described in
+[`automation/n8n/README.md`](automation/n8n/README.md).
+
+## Documentation
+
+- [Architecture](docs/architecture.md), [domain model](docs/domain-model.md),
+  and [workflow](docs/workflow.md)
+- [Ingestion and provenance](docs/ingestion-and-provenance.md),
+  [validation](docs/validation-strategy.md), and [AI safety](docs/ai-safety.md)
+- [Threat model](docs/threat-model.md), [operations](docs/operations.md), and
+  [production gap](docs/production-gap.md)
+- [Measurements](docs/measured-results.md), [business impact](docs/business-impact.md),
+  [limitations](docs/limitations.md), and [demo guide](docs/demo.md)
 
 ## Licence
 
