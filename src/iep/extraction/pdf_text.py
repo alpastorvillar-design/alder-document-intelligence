@@ -55,6 +55,10 @@ def read_pages(data: bytes) -> PdfPages:
         with pymupdf.open(stream=data, filetype="pdf") as doc:
             if doc.needs_pass:
                 raise ExtractionError("PDF is encrypted", retryable=False)
+            if doc.page_count == 0:
+                # PyMuPDF opens a truncated file without complaining and
+                # reports no pages; that is a broken document, not an empty one.
+                raise ExtractionError("PDF has no pages", retryable=False)
             return PdfPages([doc.load_page(i).get_text("text") for i in range(doc.page_count)])
     except ExtractionError:
         raise

@@ -112,6 +112,22 @@ class RuleContext:
         return [grouped[key] for key in sorted(grouped, key=_row_ordinal)]
 
 
+def money(value: Decimal | None) -> str:
+    """Amounts in a message read like money, not like a database column.
+
+    A Numeric(16,4) column renders 83500.0000; a reviewer reads 83500.00.
+    """
+    if value is None:
+        return "-"
+    return f"{value:.2f}"
+
+
+def hours_text(value: Decimal | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:g}"
+
+
 def _row_ordinal(prefix: str) -> int:
     match = re.search(r"\[(\d+)\]", prefix)
     return int(match.group(1)) if match else 0
@@ -316,8 +332,8 @@ def rule_invoice_arithmetic(ctx: RuleContext) -> Iterator[RuleFinding]:
             rule_id="INVOICE_ARITHMETIC_MISMATCH",
             severity=Severity.WARNING,
             message=(
-                f"{document.original_filename}: base plus VAT is {expected}, but the stated "
-                f"total is {total.value_number}."
+                f"{document.original_filename}: base plus VAT is {money(expected)}, but the "
+                f"stated total is {money(total.value_number)}."
             ),
             detail={
                 "base_eur": str(base.value_number),
@@ -348,6 +364,7 @@ def rule_timesheet_rows(ctx: RuleContext) -> Iterator[RuleFinding]:
         if employee is None or hours is None or hours.value_number is None:
             continue
         employee_id = (employee.value_text or "").strip()
+        row_hours = f"{hours.value_number:g}"
         month_text = (month.value_text or "").strip() if month else ""
         subject = f"{employee_id}|{month_text}"
 
@@ -356,7 +373,7 @@ def rule_timesheet_rows(ctx: RuleContext) -> Iterator[RuleFinding]:
                 rule_id="NEGATIVE_HOURS",
                 severity=Severity.BLOCKER,
                 message=(
-                    f"{employee_id} has {hours.value_number} hours recorded for {month_text}. "
+                    f"{employee_id} has {row_hours} hours recorded for {month_text}. "
                     "Negative hours cannot be claimed."
                 ),
                 detail={"employee_id": employee_id, "month": month_text},
@@ -369,8 +386,8 @@ def rule_timesheet_rows(ctx: RuleContext) -> Iterator[RuleFinding]:
                 rule_id="HOURS_ABOVE_MONTHLY_CEILING",
                 severity=Severity.WARNING,
                 message=(
-                    f"{employee_id} has {hours.value_number} hours in {month_text}, above the "
-                    f"{MAX_MONTHLY_HOURS} hour monthly ceiling used here."
+                    f"{employee_id} has {row_hours} hours in {month_text}, above the "
+                    f"{MAX_MONTHLY_HOURS:g} hour monthly ceiling used here."
                 ),
                 detail={"employee_id": employee_id, "month": month_text},
                 extraction_ids=(hours.id,),
@@ -393,9 +410,9 @@ def rule_timesheet_rows(ctx: RuleContext) -> Iterator[RuleFinding]:
                     rule_id="TIMESHEET_ROW_ARITHMETIC",
                     severity=Severity.WARNING,
                     message=(
-                        f"{employee_id} {month_text}: {hours.value_number} hours at "
-                        f"{rate.value_number} is {expected}, but the row states "
-                        f"{amount.value_number}."
+                        f"{employee_id} {month_text}: {row_hours} hours at "
+                        f"{money(rate.value_number)} is {money(expected)}, but the row states "
+                        f"{money(amount.value_number)}."
                     ),
                     extraction_ids=(hours.id, rate.id, amount.id),
                     document_ids=_document_ids(amount),
@@ -427,8 +444,8 @@ def rule_timesheet_rows(ctx: RuleContext) -> Iterator[RuleFinding]:
                 rule_id="PERSONNEL_RATE_MISMATCH",
                 severity=Severity.BLOCKER,
                 message=(
-                    f"{employee_id} is charged at {rate.value_number} EUR/h but the registry "
-                    f"holds {person.hourly_rate_eur} EUR/h."
+                    f"{employee_id} is charged at {money(rate.value_number)} EUR/h but the "
+                    f"registry holds {money(person.hourly_rate_eur)} EUR/h."
                 ),
                 detail={
                     "employee_id": employee_id,
@@ -469,8 +486,8 @@ def rule_timesheet_rows(ctx: RuleContext) -> Iterator[RuleFinding]:
                 rule_id="HOURS_ABOVE_ANNUAL_CEILING",
                 severity=Severity.WARNING,
                 message=(
-                    f"{employee_id} accumulates {total} hours in {year}, above the "
-                    f"{MAX_ANNUAL_HOURS} hour annual ceiling used here."
+                    f"{employee_id} accumulates {hours_text(total)} hours in {year}, above the "
+                    f"{MAX_ANNUAL_HOURS:g} hour annual ceiling used here."
                 ),
                 detail={"employee_id": employee_id, "year": year, "hours": str(total)},
                 subject=f"{employee_id}|{year}",
@@ -514,8 +531,8 @@ def rule_cost_reconciliation(ctx: RuleContext) -> Iterator[RuleFinding]:
                 rule_id="CLAIMED_TOTAL_MISMATCH",
                 severity=Severity.BLOCKER,
                 message=(
-                    f"The dossier claims {claimed} but the report states a total of "
-                    f"{declared_total.value_number}."
+                    f"The dossier claims {money(claimed)} but the report states a total of "
+                    f"{money(declared_total.value_number)}."
                 ),
                 detail={
                     "claimed_total_eur": str(claimed),
@@ -621,7 +638,7 @@ def _compare(
     yield RuleFinding(
         rule_id=rule_id,
         severity=severity,
-        message=template.format(a=declared.value_number, b=computed.value_number),
+        message=template.format(a=money(declared.value_number), b=money(computed.value_number)),
         detail={
             "declared_eur": str(declared.value_number),
             "evidence_eur": str(computed.value_number),

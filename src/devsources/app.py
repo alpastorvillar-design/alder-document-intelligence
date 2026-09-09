@@ -13,6 +13,7 @@ scripts. `iep` never imports it.
 from __future__ import annotations
 
 import itertools
+from decimal import Decimal
 from typing import Any
 
 from corpus.dataset import (
@@ -118,7 +119,7 @@ def call_page() -> str:
       <dt>Fin del periodo elegible</dt>
       <dd data-field="eligible-to">{CALL_PERIOD_END.isoformat()}</dd>
       <dt>Importe maximo financiable</dt>
-      <dd data-field="max-funding">{CALL_MAX_FUNDING} EUR</dd>
+      <dd data-field="max-funding">{_spanish(CALL_MAX_FUNDING)} EUR</dd>
       <dt>Estado</dt><dd data-field="status">OPEN</dd>
     </dl>
     <p class="disclaimer">Pagina sintetica de desarrollo.
@@ -155,6 +156,16 @@ def call_page_malformed() -> str:
         "<html><body><dl><dd data-field='eligible-from'>2025-01-01"
         "<dd data-field='max-funding'><p>sin cerrar</body>"
     )
+
+
+def _spanish(amount: Decimal) -> str:
+    """Amounts on a Spanish page use dots for thousands and a comma decimal.
+
+    The reader is deliberately strict about this: guessing whether "1.234"
+    means one thousand or one-point-two-three-four is how a parser produces a
+    thousand-fold error without ever failing.
+    """
+    return f"{amount:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
 def _require_token(authorization: str | None) -> None:

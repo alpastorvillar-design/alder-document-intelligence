@@ -129,7 +129,9 @@ class PublicPageScraper:
         self._throttle(host)
 
         try:
-            with self._http().stream("GET", url) as response:
+            with self._http().stream(
+                "GET", url, headers={"User-Agent": self.user_agent}
+            ) as response:
                 if response.status_code >= 400:
                     raise ScraperError(
                         f"page returned {response.status_code}",

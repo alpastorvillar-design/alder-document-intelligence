@@ -2,10 +2,12 @@
 
 Two safety properties, both tested:
 
-* formulas are never evaluated. openpyxl does not have an evaluation engine, so
-  the risk is not code execution but silently reading a formula string as if it
-  were a value. Cells whose value is a formula are reported as unreadable
-  rather than parsed;
+* formulas are never evaluated. openpyxl has no evaluation engine, so the risk
+  is not code execution but silently reading a formula string as if it were a
+  value. Values are read from the cache the writing application left behind
+  (`data_only=True`); a second pass without that flag finds the cells that are
+  formulas, and any of them whose cached value is missing is reported rather
+  than guessed at;
 * the cell budget is capped before iteration, so a sheet declaring a million
   rows cannot pin a worker.
 
@@ -84,6 +86,38 @@ class Sheet:
         return None
 
 
+def _formula_cells(data: bytes, *, max_cells: int) -> dict[str, set[str]]:
+    """Cells holding a formula, found by reading without the value cache.
+
+    With `data_only=True` a formula cell yields its cached result, or None when
+    no cache exists - either way the formula itself is invisible. This pass
+    exists so the reader can tell a reviewer which numbers are computed
+    elsewhere rather than written down.
+    """
+    found: dict[str, set[str]] = {}
+    try:
+        workbook = load_workbook(
+            io.BytesIO(data), data_only=False, read_only=True, keep_links=False
+        )
+    except Exception:
+        return found
+    budget = max_cells
+    try:
+        for worksheet in workbook.worksheets:
+            for row_index, row in enumerate(worksheet.iter_rows(), start=1):
+                for column_index, cell in enumerate(row, start=1):
+                    budget -= 1
+                    if budget < 0:
+                        return found
+                    value = getattr(cell, "value", None)
+                    if isinstance(value, str) and value.startswith("="):
+                        reference = f"{get_column_letter(column_index)}{row_index}"
+                        found.setdefault(worksheet.title, set()).add(reference)
+    finally:
+        workbook.close()
+    return found
+
+
 def read_workbook(data: bytes, *, max_cells: int) -> list[Sheet]:
     try:
         # `data_only=True` returns the value cached by the application that last
@@ -95,6 +129,7 @@ def read_workbook(data: bytes, *, max_cells: int) -> list[Sheet]:
             f"workbook could not be opened: {type(exc).__name__}", retryable=False
         ) from exc
 
+    formulas_by_sheet = _formula_cells(data, max_cells=max_cells)
     sheets: list[Sheet] = []
     budget = max_cells
     try:
@@ -113,13 +148,13 @@ def read_workbook(data: bytes, *, max_cells: int) -> list[Sheet]:
                             f"workbook exceeds the {max_cells} cell budget", retryable=False
                         )
                     value = getattr(cell, "value", None)
-                    if isinstance(value, str) and value.startswith("="):
-                        # A formula string reached us, which means no cached
-                        # value existed. Record it and treat the cell as empty.
-                        formulas.append(
-                            f"{worksheet.title}!{get_column_letter(column_index)}{row_index}"
-                        )
-                        value = None
+                    reference = f"{get_column_letter(column_index)}{row_index}"
+                    if reference in formulas_by_sheet.get(worksheet.title, set()):
+                        formulas.append(f"{worksheet.title}!{reference}")
+                        if isinstance(value, str) and value.startswith("="):
+                            # No cached result: the value is unknown, not the
+                            # formula text.
+                            value = None
                     cells.append(
                         Cell(
                             sheet=worksheet.title,

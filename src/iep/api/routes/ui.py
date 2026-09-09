@@ -20,7 +20,7 @@ from iep.api.deps import db_session, require_api_key
 from iep.db.models import Document, Dossier, Extraction, Finding
 from iep.domain.enums import FieldStatus, FindingStatus
 from iep.dossiers import service as dossiers
-from iep.reporting.render import describe_locator
+from iep.reporting.render import describe_locator, format_number
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 
@@ -30,6 +30,7 @@ _env = Environment(
     trim_blocks=True,
     lstrip_blocks=True,
 )
+_env.filters["number"] = format_number
 
 router = APIRouter(prefix="/ui", tags=["ui"], dependencies=[Depends(require_api_key)])
 

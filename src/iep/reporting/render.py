@@ -66,6 +66,23 @@ def sanitise_cell(value: object) -> str:
     return text
 
 
+def format_number(value: Decimal | None) -> str:
+    """Fixed-point, never scientific.
+
+    `Decimal.normalize()` renders 31500.00 as 3.15E+4, which is the wrong thing
+    to put in front of an auditor. Whole numbers print without decimals,
+    everything else to the cent.
+    """
+    if value is None:
+        return ""
+    if value == value.to_integral_value():
+        return f"{value:.0f}"
+    return f"{value:.2f}"
+
+
+_env.filters["number"] = format_number
+
+
 def collect(session: Session, dossier_id: uuid.UUID) -> dict[str, Any]:
     dossier = session.get(Dossier, dossier_id)
     if dossier is None:
@@ -309,11 +326,7 @@ def describe_locator(locator: dict[str, Any]) -> str:
 
 def _display_value(extraction: Extraction) -> str:
     if extraction.value_number is not None:
-        return str(
-            extraction.value_number.normalize()
-            if isinstance(extraction.value_number, Decimal)
-            else extraction.value_number
-        )
+        return format_number(extraction.value_number)
     if extraction.value_date is not None:
         return extraction.value_date.isoformat()
     return extraction.value_text or ""

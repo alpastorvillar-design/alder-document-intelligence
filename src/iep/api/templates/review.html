@@ -7,8 +7,9 @@
 <style>
   :root { --ink:#16191d; --muted:#5b6470; --line:#d9dee5; --panel:#f6f8fa;
           --blocker:#9d1f1f; --warning:#8a5a00; --info:#3a5a7a; --ok:#1f6b3a; }
+  html { color-scheme: light; }
   * { box-sizing: border-box; }
-  body { margin:0; padding:1.75rem 1.5rem 5rem; max-width:1180px; margin-inline:auto;
+  body { background:#fff; margin:0; padding:1.75rem 1.5rem 5rem; max-width:1180px; margin-inline:auto;
          font:15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
          color:var(--ink); }
   a { color:#1b4f8a; }
@@ -99,7 +100,7 @@
       <td class="mono">{{ e.field_path }}</td>
       <td class="mono">
         {% if e.original_value_text %}<span class="was">{{ e.original_value_text }}</span><br>{% endif %}
-        {% if e.value_number is not none %}{{ e.value_number }}
+        {% if e.value_number is not none %}{{ e.value_number | number }}
         {% elif e.value_date %}{{ e.value_date }}
         {% else %}{{ e.value_text }}{% endif %}
       </td>

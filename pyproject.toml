@@ -65,7 +65,7 @@ ignore = [
 # SQLAlchemy's TypeDecorator hooks take a `dialect` argument this project has
 # no use for; the signature is fixed by the framework.
 "src/iep/db/models.py" = ["ARG002"]
-"tests/**" = ["ARG001", "ARG002", "S105", "S106", "S311"]
+"tests/**" = ["ARG001", "ARG002", "ARG005", "S105", "S106", "S311", "RUF001"]
 "corpus/**" = ["S311"]  # synthetic corpus uses random for reproducible fixtures, not for secrets
 "evaluation/**" = ["S311"]
 

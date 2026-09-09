@@ -104,7 +104,13 @@ class Dossier(Base):
         TS, server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    documents: Mapped[list[Document]] = relationship(back_populates="dossier")
+    # `passive_deletes` lets the database's ON DELETE CASCADE do the work.
+    # Without it the ORM tries to null the foreign key on delete, which the
+    # NOT NULL constraint refuses - an ORM relationship that contradicts the
+    # schema is a bug, not a style choice.
+    documents: Mapped[list[Document]] = relationship(
+        back_populates="dossier", cascade="all, delete-orphan", passive_deletes=True
+    )
 
     __table_args__ = (
         CheckConstraint("period_end >= period_start", name="ck_dossier_period_ordered"),

@@ -16,6 +16,7 @@
     --info: #3a5a7a;
     --ok: #1f6b3a;
   }
+  html { color-scheme: light; }
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 2rem 1.5rem 4rem;
@@ -140,7 +141,7 @@
     <tr>
       <td class="mono">{{ e.field_path }}</td>
       <td class="mono">
-        {% if e.value_number is not none %}{{ e.value_number }}
+        {% if e.value_number is not none %}{{ e.value_number | number }}
         {% elif e.value_date %}{{ e.value_date }}
         {% else %}{{ e.value_text }}{% endif %}
       </td>

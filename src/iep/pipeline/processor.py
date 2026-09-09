@@ -362,6 +362,15 @@ def _read_workbook(settings: Settings, data: bytes, outcome: DocumentOutcome) ->
 def _classify(
     outcome: DocumentOutcome, semantic: SemanticExtractor, document: Document
 ) -> tuple[DocumentKind, float]:
+    """Ask the semantic provider what this document is.
+
+    Only the classification is used. The provider also returns grounded field
+    proposals, and they are deliberately not persisted as extractions: every
+    value a rule compares comes from a deterministic reader with a locator. The
+    proposals are useful for a reviewer and for measuring the provider, not for
+    deciding an amount - which is why a document that tries to instruct the
+    model cannot move a number.
+    """
     try:
         result = semantic.run(
             SemanticRequest(
@@ -435,8 +444,16 @@ def _expand_period(found: list[FieldCandidate], extractor_version: str) -> list[
 
 
 def dedup_key(document_id: uuid.UUID | None, candidate: FieldCandidate) -> str:
-    """Stable across reruns: same document, same field, same place, same key."""
+    """Stable across reruns: same document, same field, same place, same key.
+
+    A derived value keys on the rule that produced it, not on the ids of the
+    extractions it summed. Those ids are evidence and stay in the locator, but
+    including them in the key made the key depend on row ordering, so a replay
+    inserted a second copy of every aggregate instead of updating the first.
+    """
     locator = candidate.locator.model_dump(mode="json")
+    if locator.get("kind") == "DERIVED":
+        locator = {"kind": "DERIVED", "rule": locator.get("rule")}
     raw = json.dumps(
         {
             "document_id": str(document_id) if document_id else None,
@@ -529,14 +546,17 @@ def _persist_chunks(
 
 
 def _aggregate_candidates(extractions: list[ExtractionRow]) -> list[FieldCandidate]:
+    # Sorted so the recorded evidence trail is stable between runs even
+    # though the database returns rows in whatever order it likes.
+    ordered = sorted(extractions, key=lambda row: (row.field_path, str(row.id)))
     invoice_totals = [
         (e, e.value_number)
-        for e in extractions
+        for e in ordered
         if e.field_path == "invoice.total_eur" and e.value_number is not None
     ]
     timesheet_amounts = [
         (e, e.value_number)
-        for e in extractions
+        for e in ordered
         if e.field_path.startswith("timesheet.rows[")
         and e.field_path.endswith(".amount_eur")
         and e.value_number is not None

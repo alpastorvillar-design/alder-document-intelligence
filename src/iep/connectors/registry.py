@@ -163,7 +163,10 @@ class RegistryConnector:
                 response = self._http().get(
                     path,
                     params=params,
-                    headers={"Authorization": f"Bearer {self.token}"},
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "User-Agent": f"innovation-evidence-pipeline ({CONNECTOR_VERSION})",
+                    },
                 )
             except httpx.TimeoutException as exc:
                 last_error = exc
