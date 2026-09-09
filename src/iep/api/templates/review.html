@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review {{ dossier.reference }}</title>
+<style>
+  :root { --ink:#16191d; --muted:#5b6470; --line:#d9dee5; --panel:#f6f8fa;
+          --blocker:#9d1f1f; --warning:#8a5a00; --info:#3a5a7a; --ok:#1f6b3a; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:1.75rem 1.5rem 5rem; max-width:1180px; margin-inline:auto;
+         font:15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         color:var(--ink); }
+  a { color:#1b4f8a; }
+  h1 { font-size:1.45rem; margin:0 0 .2rem; }
+  h2 { font-size:1.05rem; margin:2rem 0 .6rem; padding-bottom:.3rem; border-bottom:1px solid var(--line); }
+  .sub { color:var(--muted); margin:0 0 1.25rem; }
+  .bar { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; background:var(--panel);
+         border:1px solid var(--line); border-radius:6px; padding:.75rem 1rem; margin-bottom:1rem; }
+  .bar .grow { flex:1 1 auto; }
+  .pill { display:inline-block; padding:.1rem .5rem; border:1px solid currentColor; border-radius:3px;
+          font-size:.72rem; font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:.87rem; }
+  th,td { text-align:left; padding:.45rem .55rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .scroll { overflow-x:auto; }
+  .mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.85em; }
+  .evidence { color:var(--muted); font-size:.8rem; }
+  .BLOCKER{color:var(--blocker)} .WARNING{color:var(--warning)} .INFO{color:var(--info)}
+  button { font:inherit; font-size:.8rem; padding:.25rem .6rem; border:1px solid var(--line);
+           background:#fff; border-radius:4px; cursor:pointer; }
+  button:hover { background:var(--panel); }
+  button.primary { border-color:#1f6b3a; color:#1f6b3a; }
+  button.danger { border-color:var(--blocker); color:var(--blocker); }
+  input[type=text] { font:inherit; font-size:.85rem; padding:.25rem .4rem; border:1px solid var(--line);
+                     border-radius:4px; width:100%; max-width:220px; }
+  #flash { position:fixed; left:50%; bottom:1.25rem; transform:translateX(-50%); background:#16191d;
+           color:#fff; padding:.5rem .9rem; border-radius:5px; font-size:.85rem; display:none; }
+  .was { color:var(--blocker); text-decoration:line-through; }
+</style>
+</head>
+<body data-dossier="{{ dossier.id }}">
+
+<h1>{{ dossier.title }}</h1>
+<p class="sub">{{ dossier.reference }} &middot; {{ dossier.period_start }} to {{ dossier.period_end }}
+   &middot; claimed {{ dossier.claimed_total_eur }} EUR</p>
+
+<div class="bar">
+  <span class="grow">
+    <span class="pill">{{ dossier.status }}</span>
+    {{ open_findings|length }} open finding(s), {{ needs_review|length }} field(s) needing review
+  </span>
+  <input type="text" id="actor" placeholder="your name" value="reviewer">
+  <button class="primary" onclick="decide('approve')">Approve</button>
+  <button class="danger" onclick="decide('reject')">Reject</button>
+  <button onclick="makeReport()">Generate report</button>
+  <a href="/dossiers/{{ dossier.id }}/reports/latest.html" target="_blank">Latest report</a>
+  <a href="/dossiers/{{ dossier.id }}/export.json" target="_blank">JSON</a>
+  <a href="/dossiers/{{ dossier.id }}/audit" target="_blank">Audit</a>
+</div>
+
+<h2>Findings</h2>
+{% if findings %}
+<div class="scroll">
+<table>
+  <thead><tr><th>Severity</th><th>Rule</th><th>Detail</th><th>Status</th><th>Decision</th></tr></thead>
+  <tbody>
+  {% for f in findings %}
+    <tr>
+      <td><span class="pill {{ f.severity }}">{{ f.severity }}</span></td>
+      <td class="mono">{{ f.rule_id }}</td>
+      <td>{{ f.message }}<div class="evidence mono">{{ f.detail }}</div></td>
+      <td>{{ f.status }}{% if f.resolved_by %}<div class="evidence">{{ f.resolved_by }}</div>{% endif %}</td>
+      <td>
+        {% if f.status == "OPEN" %}
+        <input type="text" id="fr-{{ f.id }}" placeholder="reason">
+        <button onclick="resolve('{{ f.id }}', true)">Accept</button>
+        <button onclick="resolve('{{ f.id }}', false)">Dismiss</button>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="evidence">No rule reported anything.</p>
+{% endif %}
+
+<h2>Fields</h2>
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Field</th><th>Value</th><th>Conf.</th><th>Document</th><th>Evidence</th><th>Status</th><th>Correct</th></tr>
+  </thead>
+  <tbody>
+  {% for e in extractions %}
+    <tr>
+      <td class="mono">{{ e.field_path }}</td>
+      <td class="mono">
+        {% if e.original_value_text %}<span class="was">{{ e.original_value_text }}</span><br>{% endif %}
+        {% if e.value_number is not none %}{{ e.value_number }}
+        {% elif e.value_date %}{{ e.value_date }}
+        {% else %}{{ e.value_text }}{% endif %}
+      </td>
+      <td class="mono">{{ "%.2f"|format(e.confidence|float) }}</td>
+      <td>{{ documents.get(e.document_id, "derived") }}</td>
+      <td class="evidence">{{ describe(e.locator) }}</td>
+      <td>{{ e.status }}</td>
+      <td>
+        <input type="text" id="v-{{ e.id }}" placeholder="new value">
+        <button onclick="correct('{{ e.id }}')">Correct</button>
+        <button onclick="confirmField('{{ e.id }}')">Confirm</button>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<div id="flash"></div>
+
+<script>
+const dossierId = document.body.dataset.dossier;
+
+function flash(message) {
+  const el = document.getElementById("flash");
+  el.textContent = message;
+  el.style.display = "block";
+  setTimeout(() => { el.style.display = "none"; }, 2600);
+}
+
+function actor() {
+  return document.getElementById("actor").value.trim() || "reviewer";
+}
+
+async function post(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    let detail = response.statusText;
+    try { detail = (await response.json()).message || detail; } catch (e) { /* keep status text */ }
+    flash("Refused: " + detail);
+    return false;
+  }
+  return true;
+}
+
+async function correct(id) {
+  const value = document.getElementById("v-" + id).value.trim();
+  if (!value) { flash("Type the corrected value first."); return; }
+  const reason = prompt("Why is this value wrong?");
+  if (!reason) return;
+  if (await post(`/extractions/${id}/correct`, { actor: actor(), reason, new_value: value })) {
+    location.reload();
+  }
+}
+
+async function confirmField(id) {
+  const reason = prompt("Confirming this reading. Why?") || "checked against the source document";
+  if (await post(`/extractions/${id}/confirm`, { actor: actor(), reason })) location.reload();
+}
+
+async function resolve(id, accept) {
+  const reason = document.getElementById("fr-" + id).value.trim();
+  if (!reason) { flash("A reason is required."); return; }
+  if (await post(`/findings/${id}/resolve`, { actor: actor(), reason, accept })) location.reload();
+}
+
+async function decide(action) {
+  const reason = prompt(`Reason for ${action}:`);
+  if (!reason) return;
+  if (await post(`/dossiers/${dossierId}/${action}`, { actor: actor(), reason })) location.reload();
+}
+
+async function makeReport() {
+  if (await post(`/dossiers/${dossierId}/reports`, {})) {
+    window.open(`/dossiers/${dossierId}/reports/latest.html`, "_blank");
+  }
+}
+</script>
+</body>
+</html>

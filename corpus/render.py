@@ -36,7 +36,16 @@ def _font(bold: bool) -> str:
 def build_pdf(pages: list[list[Line]], *, title: str) -> bytes:
     """Lay out pre-split pages of text and return the PDF bytes."""
     doc = pymupdf.open()
-    doc.set_metadata({"title": title, "producer": "innovation-evidence-pipeline corpus"})
+    # A fixed creation date keeps generation deterministic: without it two
+    # renders of the same content differ in bytes and stop being duplicates.
+    doc.set_metadata(
+        {
+            "title": title,
+            "producer": "innovation-evidence-pipeline corpus",
+            "creationDate": "D:20250101000000Z",
+            "modDate": "D:20250101000000Z",
+        }
+    )
     for lines in pages:
         page = doc.new_page(width=A4.width, height=A4.height)
         y = TOP_Y

@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ dossier.reference }} - evidence review</title>
+<style>
+  :root {
+    --ink: #16191d;
+    --muted: #5b6470;
+    --line: #d9dee5;
+    --bg: #ffffff;
+    --panel: #f6f8fa;
+    --blocker: #9d1f1f;
+    --warning: #8a5a00;
+    --info: #3a5a7a;
+    --ok: #1f6b3a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1.5rem 4rem;
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink); background: var(--bg);
+    max-width: 1080px; margin-inline: auto;
+  }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.1rem; margin: 2.25rem 0 .75rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); }
+  .sub { color: var(--muted); margin: 0 0 1.5rem; }
+  .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .75rem 1.5rem; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1rem 1.25rem; }
+  .meta div { min-width: 0; }
+  .meta dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 .15rem; }
+  .meta dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85em; }
+  .tag { display: inline-block; padding: .05rem .4rem; border-radius: 3px; font-size: .72rem; font-weight: 600; letter-spacing: .02em; border: 1px solid currentColor; }
+  .BLOCKER { color: var(--blocker); }
+  .WARNING { color: var(--warning); }
+  .INFO { color: var(--info); }
+  .evidence { color: var(--muted); font-size: .82rem; }
+  .was { color: var(--blocker); text-decoration: line-through; }
+  .now { color: var(--ok); font-weight: 600; }
+  .empty { color: var(--muted); font-style: italic; }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; }
+</style>
+</head>
+<body>
+
+<h1>{{ dossier.title }}</h1>
+<p class="sub">Dossier {{ dossier.reference }} &middot; evidence review</p>
+
+<dl class="meta">
+  <div><dt>Status</dt><dd>{{ dossier.status }}</dd></div>
+  <div><dt>Period</dt><dd>{{ dossier.period_start }} to {{ dossier.period_end }}</dd></div>
+  <div><dt>Claimed</dt><dd>{{ dossier.claimed_total_eur }} EUR</dd></div>
+  <div><dt>Documents</dt><dd>{{ documents | length }}</dd></div>
+  <div><dt>Open findings</dt><dd>{{ open_findings | length }}</dd></div>
+  <div><dt>Fields needing review</dt><dd>{{ needs_review | length }}</dd></div>
+</dl>
+
+<h2>Declared against evidence</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Figure</th><th class="num">Value</th></tr></thead>
+  <tbody>
+  {% for label, value in summary_rows %}
+    <tr><td>{{ label }}</td><td class="num mono">{{ value }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<h2>Findings</h2>
+{% if findings %}
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Severity</th><th>Rule</th><th>What was found</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+  {% for finding in findings %}
+    <tr>
+      <td><span class="tag {{ finding.severity }}">{{ finding.severity }}</span></td>
+      <td class="mono">{{ finding.rule_id }}<br><span class="evidence">v{{ finding.rule_version }}</span></td>
+      <td>
+        {{ finding.message }}
+        {% if finding.detail %}
+        <div class="evidence mono">{{ finding.detail }}</div>
+        {% endif %}
+      </td>
+      <td>
+        {{ finding.status }}
+        {% if finding.resolved_by %}
+        <div class="evidence">{{ finding.resolved_by }}: {{ finding.resolution_note }}</div>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="empty">No rule reported anything against this dossier.</p>
+{% endif %}
+
+{% if corrections %}
+<h2>Human corrections</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Field</th><th>Machine read</th><th>Corrected to</th><th>By</th><th>Reason</th></tr></thead>
+  <tbody>
+  {% for e in corrections %}
+    <tr>
+      <td class="mono">{{ e.field_path }}</td>
+      <td class="was mono">{{ e.original_value_text }}</td>
+      <td class="now mono">{{ e.value_text }}</td>
+      <td>{{ e.corrected_by }}</td>
+      <td>{{ e.correction_reason }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<h2>Extracted fields and their evidence</h2>
+<div class="scroll">
+<table>
+  <thead>
+    <tr>
+      <th>Field</th><th>Value</th><th class="num">Confidence</th>
+      <th>Source</th><th>Where it came from</th><th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for e in extractions %}
+    <tr>
+      <td class="mono">{{ e.field_path }}</td>
+      <td class="mono">
+        {% if e.value_number is not none %}{{ e.value_number }}
+        {% elif e.value_date %}{{ e.value_date }}
+        {% else %}{{ e.value_text }}{% endif %}
+      </td>
+      <td class="num mono">{{ "%.2f"|format(e.confidence|float) }}</td>
+      <td>
+        {{ document_names.get(e.document_id, "derived") }}
+        <div class="evidence mono">{{ e.extractor_version }}</div>
+      </td>
+      <td class="evidence">{{ describe(e.locator) }}</td>
+      <td>{{ e.status }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<h2>Documents</h2>
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>File</th><th>Detected as</th><th>Classified as</th><th>Status</th><th>Origin</th><th class="num">Bytes</th><th>SHA-256</th></tr>
+  </thead>
+  <tbody>
+  {% for d in documents %}
+    <tr>
+      <td>{{ d.original_filename }}</td>
+      <td>{{ d.media_kind }}</td>
+      <td>{{ d.document_kind }}</td>
+      <td>{{ d.status }}</td>
+      <td>{{ d.source_kind }}{% if d.source_detail %}<div class="evidence">{{ d.source_detail }}</div>{% endif %}</td>
+      <td class="num mono">{{ d.size_bytes }}</td>
+      <td class="mono evidence">{{ d.content_sha256[:16] }}&hellip;</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if decisions %}
+<h2>Review trail</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Reason</th></tr></thead>
+  <tbody>
+  {% for d in decisions %}
+    <tr>
+      <td class="mono">{{ d.created_at.strftime("%Y-%m-%d %H:%M:%SZ") }}</td>
+      <td>{{ d.actor }}</td>
+      <td class="mono">{{ d.action }}</td>
+      <td>{{ d.reason }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<footer>
+  Generated {{ generated_at.strftime("%Y-%m-%d %H:%M:%SZ") }} by {{ report_version }}.
+  Every value above carries the document, page, cell or box it was read from.
+  Nothing here was approved automatically: approval is a recorded human action.
+</footer>
+
+</body>
+</html>

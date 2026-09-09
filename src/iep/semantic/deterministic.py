@@ -65,7 +65,7 @@ _FIELD_PATTERNS: dict[str, str] = {
     "invoice.supplier_tax_id": r"nif(?:\s*\([^)]*\))?",
     "invoice.project_code": r"referencia\s+de\s+proyecto",
     "invoice.base_eur": r"base\s+imponible",
-    "invoice.vat_eur": r"iva\s*\d{0,2}\s*%?",
+    "invoice.vat_eur": r"iva\s*\d{1,2}\s*%",
     "invoice.total_eur": r"total\s+factura",
 }
 

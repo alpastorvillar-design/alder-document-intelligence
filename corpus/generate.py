@@ -41,13 +41,11 @@ class Artefact:
 
 
 def build_artefacts(spec: DossierSpec) -> list[Artefact]:
+    # Rendered once and reused: the duplicate below has to be byte-identical,
+    # or it is a different document rather than a re-submission.
+    report_pdf = documents.technical_report(spec)
     artefacts: list[Artefact] = [
-        Artefact(
-            "memoria-tecnica.pdf",
-            "application/pdf",
-            documents.technical_report(spec),
-            "technical_report",
-        ),
+        Artefact("memoria-tecnica.pdf", "application/pdf", report_pdf, "technical_report"),
         Artefact(
             "partes-horarios.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -83,7 +81,7 @@ def build_artefacts(spec: DossierSpec) -> list[Artefact]:
             Artefact(
                 "memoria-tecnica-copia.pdf",
                 "application/pdf",
-                documents.technical_report(spec),
+                report_pdf,
                 "duplicate_of_technical_report",
             )
         )
@@ -109,7 +107,8 @@ def ground_truth(spec: DossierSpec, artefacts: list[Artefact]) -> dict[str, obje
         "title": spec.title,
         "period_start": spec.period_start.isoformat(),
         "period_end": spec.period_end.isoformat(),
-        "claimed_total_eur": str(spec.declared_total_eur),
+        "claimed_total_eur": str(spec.claimed_total_eur),
+        "report_declared_total_eur": str(spec.declared_total_eur),
         "fields": {
             "report.project_code": spec.reference,
             "report.title": spec.title,

@@ -95,6 +95,9 @@ class DossierSpec:
     # what the evidence adds up to.
     declared_personnel_cost_eur: Decimal
     declared_external_cost_eur: Decimal
+    # What the claim form says, which is not always what the report adds up to.
+    # None means the two agree.
+    claimed_total_override_eur: Decimal | None = None
     expected_findings: tuple[str, ...] = ()
     include_duplicate_report: bool = False
     include_corrupt_pdf: bool = False
@@ -106,6 +109,10 @@ class DossierSpec:
     @property
     def declared_total_eur(self) -> Decimal:
         return self.declared_personnel_cost_eur + self.declared_external_cost_eur
+
+    @property
+    def claimed_total_eur(self) -> Decimal:
+        return self.claimed_total_override_eur or self.declared_total_eur
 
     @property
     def timesheet_total_eur(self) -> Decimal:
@@ -335,6 +342,8 @@ DOSSIER_B = DossierSpec(
     # Deliberately inconsistent with the workbook and with the receipts.
     declared_personnel_cost_eur=Decimal("31500.00"),
     declared_external_cost_eur=Decimal("52000.00"),
+    # The claim form was filled in before the report was finalised.
+    claimed_total_override_eur=Decimal("85000.00"),
     expected_findings=(
         "PERSONNEL_RATE_MISMATCH",
         "HOURS_ABOVE_MONTHLY_CEILING",

@@ -24,7 +24,7 @@ WORKDIR /app
 # Dependencies are installed from an exact lock file so that an image built
 # today and an image built in six months resolve to the same tree.
 COPY requirements.lock ./requirements.lock
-RUN python -m pip install --require-hashes=false -r requirements.lock
+RUN python -m pip install --no-cache-dir -r requirements.lock
 
 COPY pyproject.toml README.md ./
 COPY src ./src

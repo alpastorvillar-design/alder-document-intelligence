@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from iep.domain.contracts import ApiError
-from iep.logging import log_context
+from iep.logging import log_context, safe_extra
 
 CORRELATION_HEADER = "X-Correlation-ID"
 
@@ -99,7 +99,10 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
     async def _domain(request: Request, exc: DomainError) -> JSONResponse:
         request.state._error_status = exc.status_code
-        log.info("domain_error", extra={"error_code": exc.error_code, "message": exc.message})
+        log.info(
+            "domain_error",
+            extra=safe_extra({"error_code": exc.error_code, "message": exc.message}),
+        )
         return _payload(request, exc.error_code, exc.message, exc.detail)
 
     @app.exception_handler(RequestValidationError)

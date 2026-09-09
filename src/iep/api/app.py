@@ -14,7 +14,7 @@ from fastapi import FastAPI
 
 from iep import __version__
 from iep.api.errors import correlation_middleware, register_error_handlers
-from iep.api.routes import dossiers, jobs, system
+from iep.api.routes import artifacts, dossiers, jobs, review, system, ui
 from iep.config import get_settings
 from iep.logging import configure_logging
 
@@ -49,6 +49,9 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(dossiers.router)
     app.include_router(jobs.router)
+    app.include_router(review.router)
+    app.include_router(artifacts.router)
+    app.include_router(ui.router)
     return app
 
 
