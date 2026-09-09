@@ -14,6 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import (
@@ -29,21 +30,49 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    types,
 )
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from iep.domain.enums import (
+    DecisionAction,
     DocumentKind,
     DocumentStatus,
     DossierStatus,
+    ExtractionMethod,
     FieldStatus,
     FindingStatus,
     JobStatus,
     JobType,
     MediaKind,
+    Severity,
     SourceKind,
 )
+
+
+class EnumString(types.TypeDecorator[Any]):
+    """Store a StrEnum as VARCHAR and read it back as the enum.
+
+    Without this the column is annotated as an enum but hands back a plain
+    string, so `value is SomeEnum.MEMBER` is silently always false. Equality
+    would still work - StrEnum compares equal to its value - but a type that
+    lies about what it returns is a bug waiting to be written twice. Storage
+    stays VARCHAR, so this needs no migration and no database enum type.
+    """
+
+    impl = String
+    cache_ok = True
+
+    def __init__(self, enum_cls: type[StrEnum], length: int) -> None:
+        super().__init__(length=length)
+        self.enum_cls = enum_cls
+
+    def process_bind_param(self, value: Any, dialect: Any) -> str | None:
+        return None if value is None else str(value)
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        return None if value is None else self.enum_cls(value)
 
 
 class Base(DeclarativeBase):
@@ -69,7 +98,7 @@ class Dossier(Base):
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
     claimed_total_eur: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     call_page_url: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[DossierStatus] = mapped_column(String(24), nullable=False)
+    status: Mapped[DossierStatus] = mapped_column(EnumString(DossierStatus, 24), nullable=False)
     created_at: Mapped[datetime] = mapped_column(TS, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         TS, server_default=func.now(), onupdate=func.now(), nullable=False
@@ -92,12 +121,12 @@ class Document(Base):
     )
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     declared_media_type: Mapped[str | None] = mapped_column(String(120))
-    media_kind: Mapped[MediaKind] = mapped_column(String(16), nullable=False)
+    media_kind: Mapped[MediaKind] = mapped_column(EnumString(MediaKind, 16), nullable=False)
     document_kind: Mapped[DocumentKind] = mapped_column(
-        String(32), nullable=False, default=DocumentKind.UNKNOWN
+        EnumString(DocumentKind, 32), nullable=False, default=DocumentKind.UNKNOWN
     )
-    status: Mapped[DocumentStatus] = mapped_column(String(16), nullable=False)
-    source_kind: Mapped[SourceKind] = mapped_column(String(16), nullable=False)
+    status: Mapped[DocumentStatus] = mapped_column(EnumString(DocumentStatus, 16), nullable=False)
+    source_kind: Mapped[SourceKind] = mapped_column(EnumString(SourceKind, 16), nullable=False)
     source_detail: Mapped[str | None] = mapped_column(Text)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -132,11 +161,13 @@ class Extraction(Base):
     value_number: Mapped[Decimal | None] = mapped_column(Numeric(16, 4))
     value_date: Mapped[date | None] = mapped_column(Date)
     locator: Mapped[dict[str, Any]] = mapped_column(postgresql.JSONB, nullable=False)
-    method: Mapped[str] = mapped_column(String(32), nullable=False)
+    method: Mapped[ExtractionMethod] = mapped_column(
+        EnumString(ExtractionMethod, 32), nullable=False
+    )
     extractor_version: Mapped[str] = mapped_column(String(32), nullable=False)
     contract_version: Mapped[str] = mapped_column(String(16), nullable=False)
     confidence: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
-    status: Mapped[FieldStatus] = mapped_column(String(16), nullable=False)
+    status: Mapped[FieldStatus] = mapped_column(EnumString(FieldStatus, 16), nullable=False)
     original_value_text: Mapped[str | None] = mapped_column(Text)
     corrected_by: Mapped[str | None] = mapped_column(String(120))
     corrected_at: Mapped[datetime | None] = mapped_column(TS)
@@ -162,8 +193,8 @@ class Finding(Base):
     )
     rule_id: Mapped[str] = mapped_column(String(64), nullable=False)
     rule_version: Mapped[str] = mapped_column(String(16), nullable=False)
-    severity: Mapped[str] = mapped_column(String(16), nullable=False)
-    status: Mapped[FindingStatus] = mapped_column(String(16), nullable=False)
+    severity: Mapped[Severity] = mapped_column(EnumString(Severity, 16), nullable=False)
+    status: Mapped[FindingStatus] = mapped_column(EnumString(FindingStatus, 16), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     detail: Mapped[dict[str, Any]] = mapped_column(postgresql.JSONB, nullable=False, default=dict)
     extraction_ids: Mapped[list[str]] = mapped_column(
@@ -191,7 +222,7 @@ class ReviewDecision(Base):
     dossier_id: Mapped[uuid.UUID] = mapped_column(
         postgresql.UUID(as_uuid=True), ForeignKey("dossiers.id", ondelete="CASCADE"), nullable=False
     )
-    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    action: Mapped[DecisionAction] = mapped_column(EnumString(DecisionAction, 32), nullable=False)
     actor: Mapped[str] = mapped_column(String(120), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     extraction_id: Mapped[uuid.UUID | None] = mapped_column(postgresql.UUID(as_uuid=True))
@@ -209,8 +240,8 @@ class ProcessingJob(Base):
     dossier_id: Mapped[uuid.UUID] = mapped_column(
         postgresql.UUID(as_uuid=True), ForeignKey("dossiers.id", ondelete="CASCADE"), nullable=False
     )
-    job_type: Mapped[JobType] = mapped_column(String(32), nullable=False)
-    status: Mapped[JobStatus] = mapped_column(String(16), nullable=False)
+    job_type: Mapped[JobType] = mapped_column(EnumString(JobType, 32), nullable=False)
+    status: Mapped[JobStatus] = mapped_column(EnumString(JobStatus, 16), nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     payload: Mapped[dict[str, Any]] = mapped_column(postgresql.JSONB, nullable=False, default=dict)

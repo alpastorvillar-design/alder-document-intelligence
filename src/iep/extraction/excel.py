@@ -103,25 +103,28 @@ def read_workbook(data: bytes, *, max_cells: int) -> list[Sheet]:
             formulas: list[str] = []
             for row_index, row in enumerate(worksheet.iter_rows(), start=1):
                 cells: list[Cell] = []
-                for cell in row:
+                # Read-only mode yields EmptyCell placeholders with no row or
+                # column attribute, so the column index comes from the position
+                # in the row rather than from the cell object.
+                for column_index, cell in enumerate(row, start=1):
                     budget -= 1
                     if budget < 0:
                         raise ExtractionError(
                             f"workbook exceeds the {max_cells} cell budget", retryable=False
                         )
-                    value = cell.value
+                    value = getattr(cell, "value", None)
                     if isinstance(value, str) and value.startswith("="):
                         # A formula string reached us, which means no cached
                         # value existed. Record it and treat the cell as empty.
                         formulas.append(
-                            f"{worksheet.title}!{get_column_letter(cell.column or 1)}{row_index}"
+                            f"{worksheet.title}!{get_column_letter(column_index)}{row_index}"
                         )
                         value = None
                     cells.append(
                         Cell(
                             sheet=worksheet.title,
                             row=row_index,
-                            column=cell.column or 1,
+                            column=column_index,
                             value=value,
                         )
                     )

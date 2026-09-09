@@ -123,16 +123,17 @@ def upload_document(
             data=data,
         )
     except IngestionRejectedError as exc:
-        audit.record(
-            session,
-            action=AuditAction.DOCUMENT_REJECTED,
-            dossier_id=dossier.id,
-            payload={"filename": file.filename, "reason": exc.reason, "status": str(exc.status)},
-        )
+        # The rejection is already recorded as a document row and an audit
+        # event, so it is committed before the error is returned: what was
+        # submitted stays visible even though the bytes were not kept.
         session.commit()
         metrics.increment("iep_documents_rejected_total", reason=str(exc.status))
         raise UnprocessableDocumentError(
-            f"The file was not accepted: {exc.reason}", {"document_status": str(exc.status)}
+            f"The file was not accepted: {exc.reason}",
+            {
+                "document_status": str(exc.status),
+                "document_id": str(exc.document_id) if exc.document_id else None,
+            },
         ) from exc
 
     if result.is_duplicate:

@@ -36,6 +36,9 @@ from iep.storage.local import content_digest
 
 MAX_FILENAME_LENGTH = 255
 
+# Storage key for a submission that was refused: recorded, never stored.
+NOT_STORED = "not-stored"
+
 
 @dataclass(frozen=True)
 class IngestResult:
@@ -48,10 +51,13 @@ class IngestResult:
 
 
 class IngestionRejectedError(Exception):
-    def __init__(self, reason: str, *, status: DocumentStatus) -> None:
+    def __init__(
+        self, reason: str, *, status: DocumentStatus, document_id: uuid.UUID | None = None
+    ) -> None:
         super().__init__(reason)
         self.reason = reason
         self.status = status
+        self.document_id = document_id
 
 
 def safe_display_name(filename: str) -> str:
@@ -91,11 +97,18 @@ def ingest_upload(
     try:
         media_kind = sniff(data, max_decompressed_bytes=settings.max_decompressed_bytes)
     except UnsupportedMediaError as exc:
-        raise IngestionRejectedError(exc.reason, status=DocumentStatus.UNSUPPORTED) from exc
+        raise _reject(
+            session, dossier, display_name, data, exc.reason, DocumentStatus.UNSUPPORTED
+        ) from exc
     except CorruptFileError as exc:
-        raise IngestionRejectedError(exc.reason, status=DocumentStatus.CORRUPT) from exc
+        raise _reject(
+            session, dossier, display_name, data, exc.reason, DocumentStatus.CORRUPT
+        ) from exc
 
-    page_count = _page_count(media_kind, data, settings)
+    try:
+        page_count = _page_count(media_kind, data, settings)
+    except IngestionRejectedError as exc:
+        raise _reject(session, dossier, display_name, data, exc.reason, exc.status) from exc
 
     digest = content_digest(data)
 
@@ -158,6 +171,63 @@ def ingest_upload(
         dossier.status = DossierStatus.INGESTED
 
     return IngestResult(document=document, duplicate_of=None)
+
+
+def _reject(
+    session: Session,
+    dossier: Dossier,
+    display_name: str,
+    data: bytes,
+    reason: str,
+    status: DocumentStatus,
+) -> IngestionRejectedError:
+    """Record what was submitted and why it was refused, without storing it.
+
+    The bytes are not written to the object store - they failed the checks that
+    decide whether they are safe to keep - but the submission is still part of
+    the dossier's history, and a validation rule can report it to a reviewer
+    instead of the file silently not existing.
+    """
+    digest = content_digest(data)
+    existing = session.execute(
+        select(Document).where(Document.dossier_id == dossier.id, Document.content_sha256 == digest)
+    ).scalar_one_or_none()
+    if existing is None:
+        document = Document(
+            id=uuid.uuid4(),
+            dossier_id=dossier.id,
+            original_filename=display_name,
+            declared_media_type=None,
+            media_kind=MediaKind.UNSUPPORTED,
+            document_kind=DocumentKind.UNKNOWN,
+            status=status,
+            source_kind=SourceKind.UPLOAD,
+            source_detail=None,
+            size_bytes=len(data),
+            content_sha256=digest,
+            storage_key=NOT_STORED,
+            page_count=None,
+            rejection_reason=reason,
+        )
+        session.add(document)
+        session.flush()
+    else:
+        document = existing
+
+    audit.record(
+        session,
+        action=AuditAction.DOCUMENT_REJECTED,
+        dossier_id=dossier.id,
+        payload={
+            "document_id": str(document.id),
+            "filename": display_name,
+            "reason": reason,
+            "status": str(status),
+            "content_sha256": digest,
+            "bytes_stored": False,
+        },
+    )
+    return IngestionRejectedError(reason, status=status, document_id=document.id)
 
 
 def _page_count(media_kind: MediaKind, data: bytes, settings: Settings) -> int | None:
