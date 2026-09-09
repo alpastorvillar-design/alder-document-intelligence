@@ -42,6 +42,21 @@ MAX_FILENAME_LENGTH = 255
 # Storage key for a submission that was refused: recorded, never stored.
 NOT_STORED = "not-stored"
 
+# A dossier under review or already approved does not take new documents:
+# late evidence would change what a reviewer already looked at.
+ACCEPTS_DOCUMENTS = frozenset(
+    {
+        DossierStatus.DRAFT,
+        DossierStatus.INGESTED,
+        DossierStatus.REJECTED,
+        DossierStatus.FAILED,
+    }
+)
+
+
+def accepts_documents(dossier: Dossier) -> bool:
+    return DossierStatus(dossier.status) in ACCEPTS_DOCUMENTS
+
 
 @dataclass(frozen=True)
 class IngestResult:
@@ -87,12 +102,7 @@ def ingest_upload(
     source_kind: SourceKind = SourceKind.UPLOAD,
     source_detail: str | None = None,
 ) -> IngestResult:
-    if DossierStatus(dossier.status) not in {
-        DossierStatus.DRAFT,
-        DossierStatus.INGESTED,
-        DossierStatus.REJECTED,
-        DossierStatus.FAILED,
-    }:
+    if not accepts_documents(dossier):
         raise InvalidStateTransitionError(
             "Documents cannot be added while the dossier is being processed or after approval.",
             {"status": str(dossier.status)},
@@ -131,6 +141,12 @@ def ingest_upload(
     if existing is not None:
         # Re-uploading the same bytes is a no-op, not an error: an automation
         # retrying a POST must not create a second copy.
+        if display_name != existing.original_filename:
+            # A second *name* for the same bytes is worth telling a reviewer
+            # about. The same name again is an idempotent retry and is not.
+            known = list(existing.alternate_filenames or [])
+            if display_name not in known:
+                existing.alternate_filenames = [*known, display_name]
         audit.record(
             session,
             action=AuditAction.DOCUMENT_DUPLICATE,
@@ -139,6 +155,7 @@ def ingest_upload(
                 "document_id": str(existing.id),
                 "content_sha256": digest,
                 "filename": display_name,
+                "recorded_as_alternate": display_name != existing.original_filename,
             },
         )
         return IngestResult(document=existing, duplicate_of=existing.id)

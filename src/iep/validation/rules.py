@@ -88,7 +88,6 @@ class RuleContext:
     call_window: CallWindow
     ocr_confidence_by_document: dict[uuid.UUID, float]
     document_text_by_id: dict[uuid.UUID, str]
-    duplicate_document_shas: tuple[str, ...] = ()
     registry_available: bool = True
     external_capture_errors: tuple[tuple[str, str], ...] = ()
     formula_cells_by_document: dict[uuid.UUID, tuple[str, ...]] = field(default_factory=dict)
@@ -220,13 +219,24 @@ def rule_document_intake(ctx: RuleContext) -> Iterator[RuleFinding]:
             subject=source,
         )
 
-    for digest in ctx.duplicate_document_shas:
+    for document in ctx.documents:
+        others = list(document.alternate_filenames or [])
+        if not others:
+            continue
+        # Derived from the documents themselves rather than from the audit
+        # trail: the trail is an append-only history, so reading it would make
+        # this finding multiply every time the same dossier was re-submitted.
         yield RuleFinding(
             rule_id="DUPLICATE_DOCUMENT",
             severity=Severity.INFO,
-            message="A document with identical content was submitted more than once.",
-            detail={"content_sha256": digest},
-            subject=digest,
+            message=(
+                f"{document.original_filename} was also submitted as "
+                f"{', '.join(others)}. The content is byte-identical, so it was "
+                "stored once."
+            ),
+            detail={"content_sha256": document.content_sha256, "also_submitted_as": others},
+            document_ids=(document.id,),
+            subject=str(document.id),
         )
 
 

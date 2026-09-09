@@ -171,6 +171,7 @@ class Document(Base):
     page_count: int | None
     received_at: datetime
     rejection_reason: str | None = None
+    alternate_filenames: tuple[str, ...] = ()
 
 
 class Extraction(Base):

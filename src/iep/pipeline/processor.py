@@ -248,8 +248,6 @@ def process_dossier(
     )
     stages["aggregate"] = time.monotonic() - stage
 
-    duplicates = _duplicate_content_digests(session, dossier.id)
-
     stage = time.monotonic()
     context = RuleContext(
         dossier=dossier,
@@ -261,7 +259,6 @@ def process_dossier(
             o.document_id: o.ocr_confidence for o in outcomes if o.ocr_confidence is not None
         },
         document_text_by_id={o.document_id: o.text for o in outcomes if o.text},
-        duplicate_document_shas=duplicates,
         registry_available=registry_warning is None,
         external_capture_errors=tuple(
             (source, warning)
@@ -702,25 +699,6 @@ def _derived(
         value_number=total,
         value_text=str(total),
     )
-
-
-def _duplicate_content_digests(session: Session, dossier_id: uuid.UUID) -> tuple[str, ...]:
-    """Digests the audit trail recorded as re-submitted."""
-    from iep.db.models import AuditEvent
-
-    rows = session.execute(
-        select(AuditEvent.payload).where(
-            AuditEvent.dossier_id == dossier_id,
-            AuditEvent.action == str(AuditAction.DOCUMENT_DUPLICATE),
-        )
-    ).scalars()
-    digests = {str(payload.get("content_sha256")) for payload in rows if payload}
-    return tuple(sorted(d for d in digests if d and d != "None"))
-
-
-# --------------------------------------------------------------------------
-# External sources
-# --------------------------------------------------------------------------
 
 
 def _capture_registry(

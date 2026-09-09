@@ -66,9 +66,11 @@ docker compose exec -T api iep report --reference INN-2025-042
 ```
 
 En Windows, [`scripts/demo.ps1`](scripts/demo.ps1) ejecuta esos pasos para el
-expediente consistente y para el que lleva defectos sembrados a propósito. Para
-parar únicamente este stack: `docker compose --profile n8n down`; añade
-`--volumes` cuando sus datos locales ya no hagan falta.
+expediente consistente y para el que lleva defectos sembrados a propósito; añade
+`-Fresh` para borrarlos antes, porque un expediente en revisión rechaza
+documentos nuevos por diseño. Para parar únicamente este stack:
+`docker compose --profile n8n down`; añade `--volumes` cuando sus datos locales
+ya no hagan falta.
 
 La API, la pantalla de revisión y el simulador local de fuentes escuchan sólo en
 loopback: `http://127.0.0.1:8000/docs`, `http://127.0.0.1:8000/ui/dossiers` y

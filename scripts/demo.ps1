@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param(
     [switch]$WithN8n,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    # Delete the demo dossiers before seeding. A dossier under review refuses
+    # new documents by design, so this is how the demo is made repeatable.
+    [switch]$Fresh
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,11 +19,19 @@ if (-not $SkipBuild) {
 }
 docker compose up -d --wait postgres devsources api worker
 
+$references = @("INN-2025-041", "INN-2025-042")
+
+if ($Fresh) {
+    foreach ($reference in $references) {
+        docker compose exec -T api iep reset --reference $reference
+    }
+}
+
 docker compose exec -T api python -m corpus.generate --out /tmp/corpus
 docker compose exec -T api iep seed --corpus /tmp/corpus `
     --call-page-url http://devsources:8080/public/convocatoria.html
 
-foreach ($reference in @("INN-2025-041", "INN-2025-042")) {
+foreach ($reference in $references) {
     docker compose exec -T api iep process --reference $reference
     docker compose exec -T api iep report --reference $reference
 }

@@ -54,6 +54,7 @@ def document(
     status: DocumentStatus = DocumentStatus.EXTRACTED,
     filename: str = "doc.pdf",
     reason: str | None = None,
+    alternate_filenames: list[str] | None = None,
 ) -> Document:
     return Document(
         id=document_id,
@@ -70,6 +71,7 @@ def document(
         storage_key="00/00/" + "0" * 64,
         page_count=1,
         rejection_reason=reason,
+        alternate_filenames=alternate_filenames or [],
     )
 
 
@@ -106,7 +108,6 @@ def context(
     registry: dict[str, RegistryPerson] | None = None,
     ocr: dict[uuid.UUID, float] | None = None,
     texts: dict[uuid.UUID, str] | None = None,
-    duplicates: tuple[str, ...] = (),
     dossier_row: Dossier | None = None,
 ) -> rules.RuleContext:
     return rules.RuleContext(
@@ -117,7 +118,6 @@ def context(
         call_window=rules.CallWindow(date(2025, 1, 1), date(2025, 12, 31), "test"),
         ocr_confidence_by_document=ocr or {},
         document_text_by_id=texts or {},
-        duplicate_document_shas=duplicates,
     )
 
 
@@ -193,10 +193,27 @@ class TestDocumentIntake:
         )
         assert ids(findings) == {"CORRUPT_DOCUMENT"}
 
-    def test_a_repeated_submission_is_reported_as_information(self) -> None:
-        findings = list(rules.rule_document_intake(context(duplicates=("ab" * 32,))))
-        assert findings[0].rule_id == "DUPLICATE_DOCUMENT"
+    def test_a_second_name_for_the_same_bytes_is_reported_as_information(self) -> None:
+        doc = document(
+            INVOICE_ID,
+            DocumentKind.TECHNICAL_REPORT,
+            filename="memoria-tecnica.pdf",
+            alternate_filenames=["memoria-tecnica-copia.pdf"],
+        )
+        findings = list(rules.rule_document_intake(context(documents=[doc])))
+        assert ids(findings) == {"DUPLICATE_DOCUMENT"}
         assert findings[0].severity is Severity.INFO
+        assert findings[0].detail["also_submitted_as"] == ["memoria-tecnica-copia.pdf"]
+
+    def test_the_same_name_twice_is_a_retry_and_is_not_reported(self) -> None:
+        """Re-uploading identical bytes under the same name is idempotency.
+
+        The previous implementation read the append-only audit trail, so this
+        finding multiplied on every re-submission of the same dossier and
+        reported a retry as a defect.
+        """
+        doc = document(INVOICE_ID, DocumentKind.TECHNICAL_REPORT, filename="memoria-tecnica.pdf")
+        assert list(rules.rule_document_intake(context(documents=[doc]))) == []
 
 
 class TestOcrConfidence:

@@ -63,9 +63,10 @@ docker compose exec -T api iep report --reference INN-2025-042
 ```
 
 On Windows, [`scripts/demo.ps1`](scripts/demo.ps1) performs those steps for
-both the consistent and deliberately defective dossiers. Stop only this stack
-with `docker compose --profile n8n down`; add `--volumes` when its
-local data is no longer needed.
+both the consistent and deliberately defective dossiers; add `-Fresh` to delete
+them first, since a dossier under review refuses new documents by design. Stop
+only this stack with `docker compose --profile n8n down`; add `--volumes` when
+its local data is no longer needed.
 
 The API, review screen, and local source simulator bind only to loopback:
 `http://127.0.0.1:8000/docs`, `http://127.0.0.1:8000/ui/dossiers`, and

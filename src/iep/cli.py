@@ -3,6 +3,7 @@
     iep seed --corpus corpus/out          create dossiers and upload their documents
     iep process --reference INN-2025-042  run the pipeline synchronously
     iep report --reference INN-2025-042   render and store the HTML report
+    iep reset --reference INN-2025-042    delete one dossier so it can be seeded again
     iep status                            what is in the database right now
 
 `process` runs the same pipeline the worker runs, in the foreground. It exists
@@ -26,7 +27,7 @@ from iep.db.session import session_scope
 from iep.domain.contracts import DossierCreate
 from iep.domain.enums import DossierStatus
 from iep.dossiers import service as dossiers
-from iep.ingestion.service import IngestionRejectedError, ingest_upload
+from iep.ingestion.service import IngestionRejectedError, accepts_documents, ingest_upload
 from iep.logging import configure_logging
 from iep.pipeline.processor import finalise_state, process_dossier
 from iep.reporting import render
@@ -67,6 +68,17 @@ def seed(corpus_dir: Path, *, call_page_url: str | None) -> int:
                 )
                 created += 1
 
+            if not accepts_documents(dossier):
+                # A dossier under review or already approved refuses new
+                # documents by design. Seeding twice is a normal thing to do
+                # while demonstrating, so say so and move on rather than
+                # failing with a traceback.
+                print(
+                    f"{reference}: already {dossier.status}; documents were not re-submitted. "
+                    "Reset with `iep reset --reference <ref>` to seed it again."
+                )
+                continue
+
             accepted = rejected = duplicates = 0
             for path in sorted((corpus_dir / reference).iterdir()):
                 if path.name == "ground_truth.json" or not path.is_file():
@@ -91,6 +103,24 @@ def seed(corpus_dir: Path, *, call_page_url: str | None) -> int:
                     accepted += 1
             print(f"{reference}: {accepted} accepted, {duplicates} duplicate, {rejected} rejected")
     print(f"{created} dossier(s) created")
+    return 0
+
+
+def reset(reference: str) -> int:
+    """Delete a dossier and everything traced to it.
+
+    Demonstrations get run more than once, and a dossier under review refuses
+    new documents by design. This is the deliberate way back to a clean start;
+    it is destructive and names exactly one dossier so it cannot be mistaken
+    for a cleanup.
+    """
+    with session_scope() as session:
+        dossier = dossiers.get_by_reference(session, reference)
+        if dossier is None:
+            print(f"no dossier with reference {reference}", file=sys.stderr)
+            return 1
+        session.delete(dossier)
+    print(f"{reference}: deleted; seed it again to start from a clean state")
     return 0
 
 
@@ -219,6 +249,11 @@ def main() -> int:
     report_parser = sub.add_parser("report", help="render and store the HTML report")
     report_parser.add_argument("--reference", required=True)
 
+    reset_parser = sub.add_parser(
+        "reset", help="delete one dossier so it can be seeded again (destructive)"
+    )
+    reset_parser.add_argument("--reference", required=True)
+
     sub.add_parser("status", help="counts currently in the database")
 
     args = parser.parse_args()
@@ -230,6 +265,8 @@ def main() -> int:
         return process(args.reference, provider=args.provider)
     if args.command == "report":
         return report(args.reference)
+    if args.command == "reset":
+        return reset(args.reference)
     return status()
 
 

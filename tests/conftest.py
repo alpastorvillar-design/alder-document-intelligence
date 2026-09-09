@@ -117,9 +117,35 @@ def engine(database_url: str):  # type: ignore[no-untyped-def]
             connection.execute(text("SELECT 1"))
     except Exception as exc:  # pragma: no cover - environment guard
         pytest.skip(f"PostgreSQL not reachable at {database_url}: {type(exc).__name__}")
-    Base.metadata.create_all(engine)
+
+    _rebuild_schema(engine)
     yield engine
     engine.dispose()
+
+
+def _rebuild_schema(engine) -> None:  # type: ignore[no-untyped-def]
+    """Build the test schema from nothing, with the migrations.
+
+    Two decisions, both deliberate:
+
+    * the schema is dropped first, so every session starts from an empty
+      database and a stale test database cannot silently keep an old shape;
+    * it is built by running the migrations rather than `create_all`.
+      `create_all` produces whatever the models currently say and never alters
+      an existing table, so a model change with no migration would pass the
+      suite and fail on deployment. This way the tests exercise the schema a
+      deployment actually gets.
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    with engine.begin() as connection:
+        connection.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        connection.execute(text("CREATE SCHEMA public"))
+
+    get_settings.cache_clear()
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    command.upgrade(config, "head")
 
 
 @pytest.fixture

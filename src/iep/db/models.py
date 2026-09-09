@@ -139,6 +139,12 @@ class Document(Base):
     storage_key: Mapped[str] = mapped_column(String(160), nullable=False)
     page_count: Mapped[int | None] = mapped_column(Integer)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
+    # Other filenames that arrived carrying byte-identical content. Two
+    # different names for the same bytes is a fact about the submission a
+    # reviewer should see; the same name arriving twice is a retry.
+    alternate_filenames: Mapped[list[str]] = mapped_column(
+        postgresql.JSONB, nullable=False, default=list
+    )
     received_at: Mapped[datetime] = mapped_column(TS, server_default=func.now(), nullable=False)
 
     dossier: Mapped[Dossier] = relationship(back_populates="documents")
