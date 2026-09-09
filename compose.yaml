@@ -109,7 +109,11 @@ services:
       N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
       N8N_RUNNERS_ENABLED: "true"
       GENERIC_TIMEZONE: Europe/Madrid
+      # The workflow reaches the API over the container network; the link it
+      # puts in a notification is opened by a person in a browser. Same
+      # service, different host, so they are separate settings.
       IEP_API_BASE_URL: http://api:8000
+      IEP_REVIEW_BASE_URL: ${IEP_REVIEW_BASE_URL:-http://127.0.0.1:8000}
     ports:
       - "127.0.0.1:5678:5678"
     volumes:

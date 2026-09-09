@@ -52,6 +52,12 @@
               "name": "correlationId",
               "value": "={{ 'n8n-' + $execution.id }}",
               "type": "string"
+            },
+            {
+              "id": "r4",
+              "name": "reviewBaseUrl",
+              "value": "={{ $env.IEP_REVIEW_BASE_URL || 'http://127.0.0.1:8000' }}",
+              "type": "string"
             }
           ]
         },
@@ -127,6 +133,12 @@
               "id": "m4",
               "name": "reference",
               "value": "={{ $('Read the request').first().json.reference }}",
+              "type": "string"
+            },
+            {
+              "id": "m5",
+              "name": "reviewBaseUrl",
+              "value": "={{ $('Read the request').first().json.reviewBaseUrl }}",
               "type": "string"
             }
           ]
@@ -387,7 +399,7 @@
             {
               "id": "n3",
               "name": "body",
-              "value": "={{ 'Open findings: ' + $input.all().length + '. Review at ' + $('Pick the dossier id').first().json.apiBaseUrl + '/ui/dossiers/' + $('Pick the dossier id').first().json.dossierId }}",
+              "value": "={{ 'Open findings: ' + $input.all().length + '. Review at ' + $('Pick the dossier id').first().json.reviewBaseUrl + '/ui/dossiers/' + $('Pick the dossier id').first().json.dossierId }}",
               "type": "string"
             },
             {

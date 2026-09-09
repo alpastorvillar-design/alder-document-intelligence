@@ -199,13 +199,17 @@ n8n **does not start by default**. It comes up under its profile:
 powershell -ExecutionPolicy Bypass -File scripts/demo.ps1 -SkipBuild -WithN8n
 ```
 
-Or by hand:
+Or by hand, in PowerShell:
 
-```bash
+```powershell
 docker compose --profile n8n run --rm --no-deps n8n import:workflow --input=/workflows/dossier-review.json
 docker compose --profile n8n run --rm --no-deps n8n update:workflow --id=iep-dossier-review --active=true
 docker compose --profile n8n up -d --wait n8n
 ```
+
+Use PowerShell rather than Git Bash for these three: Git Bash rewrites the
+container path `/workflows/...` into a Windows path and the import fails with
+`ENOENT`.
 
 The import happens **before** the server starts on purpose: n8n keeps its state
 in SQLite, and two processes writing at once produce `SQLITE_BUSY`.
