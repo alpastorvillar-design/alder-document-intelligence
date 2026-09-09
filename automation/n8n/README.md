@@ -1,3 +1,5 @@
+**English** · [Español](README.es.md)
+
 # n8n orchestration
 
 `dossier-review.json` is an importable workflow that drives the pipeline over

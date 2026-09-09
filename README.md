@@ -1,3 +1,5 @@
+**English** · [Español](README.es.md)
+
 # Innovation Evidence Pipeline
 
 Reviewing an innovation funding claim is a document problem before it is a data
@@ -52,17 +54,17 @@ pinned base images. No external service or model credential is required.
 
 ```bash
 cp .env.example .env
-docker compose -p iep-demo up -d --build --wait postgres devsources api worker
-docker compose -p iep-demo exec -T api python -m corpus.generate --out /tmp/corpus
-docker compose -p iep-demo exec -T api iep seed --corpus /tmp/corpus \
+docker compose up -d --build --wait postgres devsources api worker
+docker compose exec -T api python -m corpus.generate --out /tmp/corpus
+docker compose exec -T api iep seed --corpus /tmp/corpus \
   --call-page-url http://devsources:8080/public/convocatoria.html
-docker compose -p iep-demo exec -T api iep process --reference INN-2025-042
-docker compose -p iep-demo exec -T api iep report --reference INN-2025-042
+docker compose exec -T api iep process --reference INN-2025-042
+docker compose exec -T api iep report --reference INN-2025-042
 ```
 
 On Windows, [`scripts/demo.ps1`](scripts/demo.ps1) performs those steps for
 both the consistent and deliberately defective dossiers. Stop only this stack
-with `docker compose -p iep-demo --profile n8n down`; add `--volumes` when its
+with `docker compose --profile n8n down`; add `--volumes` when its
 local data is no longer needed.
 
 The API, review screen, and local source simulator bind only to loopback:

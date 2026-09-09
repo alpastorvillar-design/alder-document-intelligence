@@ -14,11 +14,11 @@ PostgreSQL, API readiness, simulator readiness, and worker-process liveness.
 ## Start, inspect, and stop
 
 ```bash
-docker compose -p iep-demo config --quiet
-docker compose -p iep-demo up -d --build --wait postgres devsources api worker
-docker compose -p iep-demo ps
-docker compose -p iep-demo logs --tail=100 api worker
-docker compose -p iep-demo --profile n8n down
+docker compose config --quiet
+docker compose up -d --build --wait postgres devsources api worker
+docker compose ps
+docker compose logs --tail=100 api worker
+docker compose --profile n8n down
 ```
 
 Add `--volumes` to the final command only when the local demo data should be
