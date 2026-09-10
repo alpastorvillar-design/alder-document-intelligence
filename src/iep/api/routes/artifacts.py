@@ -295,6 +295,7 @@ def answer_evidence_question(
                     query_vector,
                     embedding_config_hash=embedding_provider.config_hash(),
                     limit=request.top_k,
+                    min_similarity=settings.retrieval_min_similarity,
                 )
             else:
                 hits = retrieval.hybrid_search(
@@ -304,6 +305,7 @@ def answer_evidence_question(
                     query_vector,
                     embedding_config_hash=embedding_provider.config_hash(),
                     limit=request.top_k,
+                    min_similarity=settings.retrieval_min_similarity,
                 )
         if not hits:
             raise ServiceUnavailableError(
@@ -462,6 +464,8 @@ def rag_status(
         model=model,
         retrieval_modes=modes,  # type: ignore[arg-type]
         embedding_provider=settings.embedding_provider,
+        embedding_is_learned=settings.embedding_provider != "hashing",
+        min_similarity=settings.retrieval_min_similarity,
         unavailable_reason=reason,
         budget_used=allowance.used,
         budget_ceiling=allowance.ceiling,

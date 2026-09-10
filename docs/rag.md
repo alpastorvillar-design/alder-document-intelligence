@@ -55,6 +55,40 @@ No approximate index is present. Exact search is simpler and adequate for this
 small corpus. HNSW or IVFFlat should be introduced only after a representative
 volume and filtered-query benchmark establishes a latency need.
 
+### The relevance floor, and why it is off
+
+Vector search returns `limit` rows for any query at all, so a question about
+nothing in the dossier came back looking exactly like a question about
+something in it. `IEP_RETRIEVAL_MIN_SIMILARITY` is the floor for that: below
+it a chunk is not returned, and the filter runs in SQL so a filtered query
+does not spend its limit on rows it will discard.
+
+Its default is `0.0` - off - and that is a measurement, not caution. Top-hit
+cosine similarity from the shipped hashing provider on `INN-2025-042`:
+
+| Query | Should match | Top similarity |
+| --- | --- | --- |
+| gastos de personal declarados | yes | 0.5520 |
+| periodo de ejecucion del proyecto | yes | 0.4928 |
+| coste horario del personal | yes | 0.3793 |
+| colaboraciones externas | yes | **0.1626** |
+| instrucciones de montaje de una estanteria | no | 0.3993 |
+| horario de trenes a Valencia | no | 0.3612 |
+| receta de tortilla de patatas | no | 0.3444 |
+| campeonato de ajedrez juvenil | no | **0.1651** |
+
+The ranges overlap almost entirely, and a relevant query scores *below* an
+irrelevant one. No threshold keeps the first group and drops the second, so
+any non-zero default would discard real evidence while keeping noise. Lexical
+search, on the same eight queries, returned at least one row for every
+relevant one and zero for every irrelevant one.
+
+That is what the baseline is: a deterministic projection that demonstrates the
+pgvector path, not a semantic model. The floor becomes meaningful with a
+learned provider, which is when to set it - and a test pins the overlap, so it
+fails if a learned provider ever becomes the default without the floor being
+revisited.
+
 ## What makes the questions endpoint RAG
 
 `POST /dossiers/{dossier_id}/questions` performs all three RAG stages:

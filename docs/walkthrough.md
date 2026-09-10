@@ -198,6 +198,24 @@ byte-for-byte copy of the report.
 actually spends the day on - and between them they make three rules fire that
 had only ever been exercised by unit tests.
 
+### Where the documents are, if you want to open them
+
+The demonstration generates the corpus inside the container, so nothing lands
+on your disk unless you ask. To get the same files locally, one folder per
+dossier:
+
+```bash
+python -m corpus.generate --out corpus/out
+```
+
+That is the only place they go. `corpus/out/INN-2025-042/` then holds the
+technical report, the scanned receipts, the timesheet workbook, the duplicate
+copy, and the two files the intake refuses - so a PDF that is really plain
+text, or a scan too poor to read, can be opened and looked at rather than
+taken on trust. The directory is generated output and is not in Git: the
+generator is deterministic, so the same corpus version always produces the
+same bytes.
+
 ### The five screens
 
 Everything worth showing starts at `http://127.0.0.1:8000/ui/dossiers`, and it

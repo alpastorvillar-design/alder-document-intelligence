@@ -55,6 +55,42 @@ No hay índice aproximado. La búsqueda exacta es simple y suficiente para este
 corpus pequeño. HNSW o IVFFlat se añadirían después de que un benchmark con
 volumen y filtros representativos demostrase una necesidad de latencia.
 
+### El suelo de relevancia, y por qué está apagado
+
+La búsqueda vectorial devuelve `limit` filas para cualquier consulta, así que
+una pregunta sobre algo que no está en el expediente volvía igual que una
+pregunta sobre algo que sí. `IEP_RETRIEVAL_MIN_SIMILARITY` es el suelo para
+eso: por debajo, un fragmento no se devuelve, y el filtro se aplica en SQL
+para que una consulta filtrada no gaste su límite en filas que va a descartar.
+
+Su valor por defecto es `0.0` —apagado— y eso es una medición, no prudencia.
+Similitud coseno del primer resultado con el proveedor hashing que se
+distribuye, sobre `INN-2025-042`:
+
+| Consulta | ¿Debería encontrar algo? | Similitud |
+| --- | --- | --- |
+| gastos de personal declarados | sí | 0,5520 |
+| periodo de ejecucion del proyecto | sí | 0,4928 |
+| coste horario del personal | sí | 0,3793 |
+| colaboraciones externas | sí | **0,1626** |
+| instrucciones de montaje de una estanteria | no | 0,3993 |
+| horario de trenes a Valencia | no | 0,3612 |
+| receta de tortilla de patatas | no | 0,3444 |
+| campeonato de ajedrez juvenil | no | **0,1651** |
+
+Los rangos se solapan casi por completo, y una consulta relevante puntúa *por
+debajo* de una irrelevante. Ningún umbral conserva el primer grupo y descarta
+el segundo, así que cualquier valor distinto de cero descartaría evidencia real
+y conservaría ruido. La búsqueda léxica, sobre esas mismas ocho consultas,
+devolvió al menos una fila en todas las relevantes y cero en todas las
+irrelevantes.
+
+Eso es lo que es la línea base: una proyección determinista que demuestra la
+vía de pgvector, no un modelo semántico. El suelo cobra sentido con un
+proveedor aprendido, y ese es el momento de fijarlo — y hay una prueba que fija
+el solape, de modo que falla si algún día un proveedor aprendido pasa a ser el
+predeterminado sin revisar el suelo.
+
 ## Qué convierte el endpoint de preguntas en RAG
 
 `POST /dossiers/{dossier_id}/questions` ejecuta las tres fases:

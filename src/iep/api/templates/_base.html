@@ -363,6 +363,22 @@ async function post(url, body) {
 const askPanel = document.getElementById("ask");
 const ASK_MODES = { lexical: "Léxica", vector: "Vectorial", hybrid: "Híbrida" };
 
+/* The shipped embedding provider is a deterministic projection, not a learned
+   model, and on this corpus its similarities do not separate a relevant query
+   from an irrelevant one. Offering "vectorial" without saying so would invite
+   the reader to take a demonstration of the plumbing for semantic search. */
+function askRetrievalLine(status) {
+  if (status.embedding_is_learned) {
+    return "recuperación con embeddings «" + status.embedding_provider + "»"
+      + (status.min_similarity > 0
+        ? " y un suelo de similitud de " + status.min_similarity + "."
+        : ".");
+  }
+  return "los embeddings son la línea base «" + status.embedding_provider
+    + "», determinista y sin modelo aprendido: la búsqueda léxica es la que"
+    + " decide, y la vectorial demuestra la tubería.";
+}
+
 function askBudgetLine(status) {
   if (!status.budget_ceiling) return "Sin límite propio configurado.";
   return "Presupuesto propio de la aplicación: " + status.budget_used + " de "
@@ -393,8 +409,8 @@ if (askPanel) {
         document.getElementById("ask-body").hidden = false;
         document.getElementById("ask-meta").textContent =
           (status.provider === "cli" ? "CLI local" : "Proveedor alojado")
-          + " \u00b7 modelo " + status.model
-          + " · recuperación con embeddings «" + status.embedding_provider + "». "
+          + " · modelo " + status.model
+          + " · " + askRetrievalLine(status) + " "
           + askBudgetLine(status);
       } else {
         state.textContent = "desactivada";

@@ -24,7 +24,7 @@ from iep.domain.enums import (
 from iep.retrieval.embeddings import HashingEmbeddingProvider
 from iep.retrieval.indexing import reindex_dossier
 from iep.retrieval.rag import RagGeneration
-from iep.retrieval.search import hybrid_search, vector_search
+from iep.retrieval.search import hybrid_search, search, vector_search
 
 
 def add_chunk(db: Session, dossier: Dossier, content: str, suffix: str) -> DocumentChunk:
@@ -579,3 +579,136 @@ class TestTheBudgetRefusesBeforeSpending:
         assert status["budget_ceiling"] >= 1
         assert status["budget_stop_at"] < status["budget_ceiling"]
         assert "lexical" in status["retrieval_modes"]
+
+
+class TestTheRelevanceFloorAndWhyItIsOff:
+    """Vector search hands back `limit` rows for any query at all.
+
+    Without a floor a question about nothing in the dossier looks exactly like
+    a question about something in it, so the caller cannot tell "the closest
+    five" from "five matches". The floor exists for that. Its shipped default
+    is 0.0, and this class is the reason: with the baseline provider no
+    threshold separates a relevant query from an irrelevant one.
+    """
+
+    RELEVANT = "gastos de personal declarados"
+    IRRELEVANT = "receta de tortilla de patatas con cebolla"
+
+    def seeded(self, db: Session, settings: Settings, reference: str) -> tuple[Dossier, str]:
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, reference)
+        for ordinal, body in enumerate(
+            (
+                "Gastos de personal declarados: 31.500,00 EUR en el ejercicio",
+                "Colaboraciones externas declaradas: 52.000,00 EUR",
+                "El periodo de ejecución va del 1 de enero al 31 de diciembre de 2025",
+            )
+        ):
+            add_chunk(db, dossier, body, str(ordinal))
+        db.commit()
+        provider = HashingEmbeddingProvider(512)
+        reindex_dossier(db, dossier.id, settings)
+        db.commit()
+        return dossier, provider.config_hash()
+
+    def similarity(self, db: Session, dossier: Dossier, config_hash: str, query: str) -> float:
+        provider = HashingEmbeddingProvider(512)
+        hits = vector_search(
+            db,
+            dossier.id,
+            provider.embed([query]).vectors[0],
+            embedding_config_hash=config_hash,
+            limit=5,
+        )
+        assert hits, "vector search returns the closest rows whatever is asked"
+        assert hits[0].vector_similarity is not None
+        return float(hits[0].vector_similarity)
+
+    def test_without_a_floor_an_irrelevant_query_still_returns_rows(
+        self, db: Session, settings: Settings
+    ) -> None:
+        dossier, config_hash = self.seeded(db, settings, "INN-2025-720")
+        provider = HashingEmbeddingProvider(512)
+        hits = vector_search(
+            db,
+            dossier.id,
+            provider.embed([self.IRRELEVANT]).vectors[0],
+            embedding_config_hash=config_hash,
+            limit=5,
+        )
+        assert len(hits) == 3, "every chunk comes back, ranked by nothing meaningful"
+        # Lexical search, on the same query, correctly finds nothing.
+        assert search(db, dossier.id, self.IRRELEVANT, limit=5) == []
+
+    def test_a_floor_filters_and_can_empty_the_result(
+        self, db: Session, settings: Settings
+    ) -> None:
+        """A floor of 1.0 admits only an exact match, so the result is empty -
+        which is the answer the caller could not previously get."""
+        dossier, config_hash = self.seeded(db, settings, "INN-2025-721")
+        provider = HashingEmbeddingProvider(512)
+        hits = vector_search(
+            db,
+            dossier.id,
+            provider.embed([self.IRRELEVANT]).vectors[0],
+            embedding_config_hash=config_hash,
+            limit=5,
+            min_similarity=1.0,
+        )
+        assert hits == []
+
+    def test_the_floor_keeps_what_is_above_it(self, db: Session, settings: Settings) -> None:
+        dossier, config_hash = self.seeded(db, settings, "INN-2025-722")
+        provider = HashingEmbeddingProvider(512)
+        vector = provider.embed([self.RELEVANT]).vectors[0]
+        unfiltered = vector_search(
+            db, dossier.id, vector, embedding_config_hash=config_hash, limit=5
+        )
+        best = float(unfiltered[0].vector_similarity or 0.0)
+        # A floor just under the best hit keeps it and drops the rest.
+        filtered = vector_search(
+            db,
+            dossier.id,
+            vector,
+            embedding_config_hash=config_hash,
+            limit=5,
+            min_similarity=best - 0.0001,
+        )
+        assert [hit.chunk_id for hit in filtered] == [unfiltered[0].chunk_id]
+
+    def test_the_baseline_does_not_separate_relevant_from_irrelevant(
+        self, db: Session, settings: Settings
+    ) -> None:
+        """The measurement behind the default, kept as a test so the claim in
+        `Settings.retrieval_min_similarity` cannot quietly stop being true.
+
+        If a learned provider is ever made the default, this fails - and that
+        is the moment to set a floor.
+        """
+        dossier, config_hash = self.seeded(db, settings, "INN-2025-723")
+        relevant = self.similarity(db, dossier, config_hash, self.RELEVANT)
+        irrelevant = self.similarity(db, dossier, config_hash, self.IRRELEVANT)
+        # Not "irrelevant scores lower": they are close enough that no single
+        # threshold could keep one and drop the other with any margin.
+        assert abs(relevant - irrelevant) < 0.45, (
+            f"relevante {relevant:.4f} frente a irrelevante {irrelevant:.4f}: "
+            f"si ahora se separan, toca poner un suelo"
+        )
+        assert Settings().retrieval_min_similarity == 0.0
+
+    def test_hybrid_passes_the_floor_through(self, db: Session, settings: Settings) -> None:
+        """Otherwise the vector half would reintroduce exactly what the floor
+        was set to keep out."""
+        dossier, config_hash = self.seeded(db, settings, "INN-2025-724")
+        provider = HashingEmbeddingProvider(512)
+        hits = hybrid_search(
+            db,
+            dossier.id,
+            self.IRRELEVANT,
+            provider.embed([self.IRRELEVANT]).vectors[0],
+            embedding_config_hash=config_hash,
+            limit=5,
+            min_similarity=1.0,
+        )
+        assert hits == [], "no lexical match and no vector hit above the floor"

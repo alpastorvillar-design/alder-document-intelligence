@@ -198,6 +198,24 @@ ordinario. `043`, `044` y `045` llevan uno o dos problemas cada uno, que es en
 lo que de verdad se pasa el día quien revisa — y entre los tres hacen saltar
 tres reglas que hasta ahora sólo habían ejercitado las pruebas unitarias.
 
+### Dónde están los documentos, si quieres abrirlos
+
+La demostración genera el corpus dentro del contenedor, así que no aparece
+nada en tu disco a menos que lo pidas. Para tener los mismos ficheros en
+local, una carpeta por expediente:
+
+```bash
+python -m corpus.generate --out corpus/out
+```
+
+Es el único sitio donde van. `corpus/out/INN-2025-042/` contiene entonces la
+memoria técnica, los justificantes escaneados, el libro de partes horarios, la
+copia duplicada y los dos ficheros que la ingesta rechaza — así que un PDF que
+en realidad es texto plano, o un escaneo demasiado malo para leerse, se pueden
+abrir y mirar en lugar de creerlos. El directorio es salida generada y no está
+en Git: el generador es determinista, así que la misma versión de corpus
+produce siempre los mismos bytes.
+
 ### Las cinco pantallas
 
 Todo lo que hay que enseñar está en `http://127.0.0.1:8000/ui/dossiers`, y son

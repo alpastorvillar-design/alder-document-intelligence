@@ -394,6 +394,12 @@ class RagStatus(BaseModel):
     model: str | None = None
     retrieval_modes: list[Literal["lexical", "vector", "hybrid"]] = Field(default_factory=list)
     embedding_provider: str
+    # Whether that provider is a learned model. The shipped default is not,
+    # and on this corpus its similarities do not separate a relevant query
+    # from an irrelevant one - so a screen offering vector search has to say
+    # what it is offering.
+    embedding_is_learned: bool = False
+    min_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
     # Why it is off, in the words the screen shows. Empty when it is on.
     unavailable_reason: str = ""
     budget_used: int = Field(ge=0)

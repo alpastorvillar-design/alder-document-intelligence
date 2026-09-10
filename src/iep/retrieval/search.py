@@ -135,18 +135,34 @@ def vector_search(
     *,
     embedding_config_hash: str,
     limit: int = 5,
+    min_similarity: float = 0.0,
 ) -> list[EvidenceHit]:
-    """Exact cosine search over embeddings created with the same configuration."""
+    """Exact cosine search over embeddings created with the same configuration.
+
+    `min_similarity` is a floor, not a preference: below it a chunk is not
+    returned at all. Without one, this always hands back `limit` rows, so a
+    query about nothing in the dossier looks exactly like a query about
+    something in it - the caller cannot tell "the closest five" from "five
+    matches". The floor is applied in SQL rather than after the fact, so a
+    filtered query does not spend its limit on rows it will discard.
+
+    The shipped default is 0.0, from measurement rather than caution: see
+    `Settings.retrieval_min_similarity`.
+    """
     distance = cast(DocumentChunk.embedding.op("<=>")(list(query_vector)), Float)
     labelled_distance = distance.label("distance")
+    conditions = [
+        DocumentChunk.dossier_id == dossier_id,
+        DocumentChunk.embedding.is_not(None),
+        DocumentChunk.embedding_config_hash == embedding_config_hash,
+    ]
+    if min_similarity > 0.0:
+        # Cosine distance is 1 - similarity, so the floor is a distance ceiling.
+        conditions.append(distance <= 1.0 - min_similarity)
     stmt = (
         select(DocumentChunk, Document.original_filename, labelled_distance)
         .join(Document, Document.id == DocumentChunk.document_id)
-        .where(
-            DocumentChunk.dossier_id == dossier_id,
-            DocumentChunk.embedding.is_not(None),
-            DocumentChunk.embedding_config_hash == embedding_config_hash,
-        )
+        .where(*conditions)
         .order_by(distance.asc(), DocumentChunk.document_id.asc(), DocumentChunk.ordinal.asc())
         .limit(max(1, min(limit, 50)))
     )
@@ -173,6 +189,7 @@ def hybrid_search(
     *,
     embedding_config_hash: str,
     limit: int = 5,
+    min_similarity: float = 0.0,
 ) -> list[EvidenceHit]:
     """Fuse lexical and vector rankings with reciprocal-rank fusion.
 
@@ -187,6 +204,7 @@ def hybrid_search(
         query_vector,
         embedding_config_hash=embedding_config_hash,
         limit=candidate_limit,
+        min_similarity=min_similarity,
     )
     by_id = {hit.chunk_id: hit for hit in [*lexical, *vector]}
     scores: dict[uuid.UUID, float] = dict.fromkeys(by_id, 0.0)

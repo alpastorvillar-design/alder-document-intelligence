@@ -47,6 +47,16 @@ class Settings(BaseSettings):
     # Retrieval remains available offline. The hashing provider is a
     # deterministic engineering baseline, not a learned semantic model.
     embedding_provider: str = "hashing"
+    # Cosine similarity below which a vector hit is not returned at all.
+    #
+    # 0.0 - off - is the measured default, not a placeholder. On this corpus
+    # the hashing baseline scores relevant queries between 0.16 and 0.74 and
+    # irrelevant ones between 0.17 and 0.40: the ranges overlap, and
+    # "colaboraciones externas" scores *below* "campeonato de ajedrez
+    # juvenil". No threshold separates them, so any non-zero value here would
+    # discard real evidence while keeping noise. It becomes meaningful with a
+    # learned model, and `docs/rag.md` carries the numbers.
+    retrieval_min_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
     embedding_dimensions: int = EMBEDDING_DIMENSIONS
     embedding_batch_size: int = Field(default=64, ge=1, le=256)
     openai_base_url: str = "https://api.openai.com/v1"
