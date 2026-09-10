@@ -202,3 +202,66 @@ def test_settings_accept_a_learned_provider() -> None:
     """A validator that refused it was how the column's 512 became a ceiling."""
     settings: Any = Settings(embedding_provider="ollama", ollama_embedding_model="bge-m3")
     assert settings.ollama_embedding_model == "bge-m3"
+
+
+class TestATransientFailureIsRetriedAndExplained:
+    """A live 500 showed both halves of this were missing.
+
+    Loading `bge-m3` alongside an already-resident 9B generation model
+    returned HTTP 500 on `/api/embed`, and the same call succeeded moments
+    later. The message said "HTTP 500" and nothing else, discarding the
+    explanation the server had put in the body.
+    """
+
+    def flaky(self, *, failures: int, reason: str = "model is loading") -> httpx.MockTransport:
+        attempts = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts["n"] += 1
+            if attempts["n"] <= failures:
+                return httpx.Response(500, json={"error": reason})
+            return httpx.Response(200, json={"embeddings": [[0.1] * 1024]})
+
+        transport = httpx.MockTransport(handler)
+        transport.attempts = attempts  # type: ignore[attr-defined]
+        return transport
+
+    def test_one_transient_failure_is_survived(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("iep.retrieval.embeddings.time.sleep", lambda _: None)
+        transport = self.flaky(failures=1)
+        batch = provider(transport).embed(["gastos de personal"])
+        assert len(batch.vectors[0]) == 1024
+        assert transport.attempts["n"] == 2  # type: ignore[attr-defined]
+
+    def test_it_does_not_retry_for_ever(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A machine that cannot hold both models will not start being able
+        to, so this reports rather than waits."""
+        monkeypatch.setattr("iep.retrieval.embeddings.time.sleep", lambda _: None)
+        transport = self.flaky(failures=99)
+        with pytest.raises(EmbeddingProviderError, match="tras 2 intentos"):
+            provider(transport).embed(["gastos de personal"])
+        assert transport.attempts["n"] == 2  # type: ignore[attr-defined]
+
+    def test_the_servers_own_words_reach_the_message(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("iep.retrieval.embeddings.time.sleep", lambda _: None)
+        with pytest.raises(EmbeddingProviderError, match="no hay memoria suficiente"):
+            provider(self.flaky(failures=99, reason="no hay memoria suficiente")).embed(["a"])
+
+    def test_a_client_error_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A 400 means the request is wrong, and repeating it changes nothing."""
+        attempts = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts["n"] += 1
+            return httpx.Response(400, json={"error": "input demasiado largo"})
+
+        with pytest.raises(EmbeddingProviderError, match="input demasiado largo"):
+            provider(httpx.MockTransport(handler)).embed(["a"])
+        assert attempts["n"] == 1
+
+    def test_a_body_without_a_reason_falls_back_to_the_status(self) -> None:
+        from iep.retrieval.embeddings import ollama_reason
+
+        assert ollama_reason(httpx.Response(503, text="<html>gateway</html>")) == "HTTP 503"
+        assert ollama_reason(httpx.Response(500, json={"error": "  "})) == "HTTP 500"
+        assert ollama_reason(httpx.Response(500, json={"error": "cargando"})) == "cargando"

@@ -101,6 +101,32 @@ class HashingEmbeddingProvider:
         return tuple(value / magnitude for value in vector)
 
 
+# Loading a second model alongside one already resident is a transient
+# failure: it was observed as a 500 on `/api/embed` while `bge-m3` was being
+# brought up next to a 9B generation model, and the same call succeeded
+# moments later. One retry with a pause covers it; more than that would be
+# waiting on a machine that cannot hold both.
+OLLAMA_ATTEMPTS = 2
+OLLAMA_RETRY_PAUSE_SECONDS = 3.0
+
+
+def ollama_reason(response: httpx.Response) -> str:
+    """Ollama's own explanation, which is in the body rather than the status.
+
+    Dropping it left "HTTP 500" as the entire diagnostic for a condition the
+    server had described in words.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return f"HTTP {response.status_code}"
+    if isinstance(body, dict):
+        reason = body.get("error")
+        if isinstance(reason, str) and reason.strip():
+            return reason.strip()[:200]
+    return f"HTTP {response.status_code}"
+
+
 class OllamaEmbeddingProvider:
     """A learned embedding model on this machine, through Ollama.
 
@@ -190,38 +216,51 @@ class OllamaEmbeddingProvider:
         )
 
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
-        try:
-            with httpx.Client(
-                base_url=self.base_url,
-                timeout=self.timeout_seconds,
-                transport=self.transport,
-            ) as client:
-                response = client.post("/api/embed", json=payload)
-        except httpx.TimeoutException as exc:
-            raise EmbeddingProviderError(
-                f"Ollama no respondió en {self.timeout_seconds:.0f} segundos."
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise EmbeddingConfigurationError(
-                f"No se pudo hablar con Ollama en {self.base_url}. ¿Está arrancado?"
-            ) from exc
+        last: str = ""
+        for attempt in range(1, OLLAMA_ATTEMPTS + 1):
+            try:
+                with httpx.Client(
+                    base_url=self.base_url,
+                    timeout=self.timeout_seconds,
+                    transport=self.transport,
+                ) as client:
+                    response = client.post("/api/embed", json=payload)
+            except httpx.TimeoutException as exc:
+                raise EmbeddingProviderError(
+                    f"Ollama no respondió en {self.timeout_seconds:.0f} segundos."
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise EmbeddingConfigurationError(
+                    f"No se pudo hablar con Ollama en {self.base_url}. ¿Está arrancado?"
+                ) from exc
 
-        if response.status_code == 404:
-            raise EmbeddingConfigurationError(
-                f"Ollama no tiene el modelo «{self.model}». Descárgalo con "
-                f"`ollama pull {self.model}`."
-            )
-        if response.status_code >= 400:
-            raise EmbeddingProviderError(
-                f"Ollama rechazó la petición de embeddings (HTTP {response.status_code})."
-            )
-        try:
-            body = response.json()
-        except ValueError as exc:
-            raise EmbeddingProviderError("Ollama devolvió algo que no es JSON.") from exc
-        if not isinstance(body, dict):
-            raise EmbeddingProviderError("Ollama devolvió algo que no es JSON.")
-        return body
+            if response.status_code == 404:
+                raise EmbeddingConfigurationError(
+                    f"Ollama no tiene el modelo «{self.model}». Descárgalo con "
+                    f"`ollama pull {self.model}`."
+                )
+            if response.status_code >= 500:
+                # Usually a model being loaded. Retried once, then reported
+                # with whatever the server actually said.
+                last = ollama_reason(response)
+                if attempt < OLLAMA_ATTEMPTS:
+                    time.sleep(OLLAMA_RETRY_PAUSE_SECONDS)
+                    continue
+                raise EmbeddingProviderError(
+                    f"Ollama no pudo generar los embeddings tras {OLLAMA_ATTEMPTS} intentos: {last}"
+                )
+            if response.status_code >= 400:
+                raise EmbeddingProviderError(
+                    f"Ollama rechazó la petición de embeddings: {ollama_reason(response)}"
+                )
+            try:
+                body = response.json()
+            except ValueError as exc:
+                raise EmbeddingProviderError("Ollama devolvió algo que no es JSON.") from exc
+            if not isinstance(body, dict):
+                raise EmbeddingProviderError("Ollama devolvió algo que no es JSON.")
+            return body
+        raise EmbeddingProviderError(f"Ollama no respondió correctamente: {last}")
 
 
 class OpenAIEmbeddingProvider:

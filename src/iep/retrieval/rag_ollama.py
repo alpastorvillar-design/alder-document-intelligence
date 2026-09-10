@@ -21,6 +21,7 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
+from iep.retrieval.embeddings import ollama_reason
 from iep.retrieval.prompting import screen, user_message
 from iep.retrieval.rag import (
     RAG_PROMPT_VERSION,
@@ -141,7 +142,9 @@ class OllamaRagGenerator:
                 f"`ollama pull {self.model}`."
             )
         if response.status_code >= 400:
-            raise RagProviderError(f"Ollama rechazó la petición (HTTP {response.status_code}).")
+            # The reason is in the body, not the status. "HTTP 500" on its own
+            # was the entire diagnostic for something the server described.
+            raise RagProviderError(f"Ollama rechazó la petición: {ollama_reason(response)}")
         try:
             body = response.json()
         except ValueError as exc:
