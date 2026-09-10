@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -213,3 +214,77 @@ class TestRetrievalApi:
         assert response.json()["citations"][0]["evidence_id"] == "E1"
         assert response.json()["citations"][0]["where"] == "page 1"
         assert response.json()["generation_provider"] == "test-double"
+
+
+class TestEmbeddingColumnAcceptsWhatProvidersReturn:
+    """The providers return tuples, and the column has to take them.
+
+    `pgvector.sqlalchemy.VECTOR` binds only a list or a numpy array. Every
+    test and one of the two writers happened to call `list(...)` first, so a
+    tuple reaching the column went unnoticed until a real run of the pipeline
+    failed at the insert with `expected list or ndarray`. These write exactly
+    what `embed_in_batches` hands back.
+    """
+
+    def test_a_tuple_from_the_provider_round_trips(self, db: Session) -> None:
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db)
+        provider = HashingEmbeddingProvider(512)
+        vector = provider.embed(["periodo de ejecucion del proyecto"]).vectors[0]
+        assert isinstance(vector, tuple), "the guard only means something while this holds"
+
+        document = Document(
+            id=uuid.uuid4(),
+            dossier_id=dossier.id,
+            original_filename="memoria.pdf",
+            declared_media_type="application/pdf",
+            media_kind=MediaKind.PDF,
+            document_kind=DocumentKind.TECHNICAL_REPORT,
+            status=DocumentStatus.EXTRACTED,
+            source_kind=SourceKind.UPLOAD,
+            source_detail=None,
+            size_bytes=100,
+            content_sha256="a" * 64,
+            storage_key="sha256/aa",
+            page_count=1,
+            rejection_reason=None,
+            alternate_filenames=[],
+        )
+        chunk = DocumentChunk(
+            id=uuid.uuid4(),
+            dossier_id=dossier.id,
+            document_id=document.id,
+            ordinal=0,
+            text="periodo de ejecucion del proyecto",
+            locator={"kind": "PDF_PAGE", "page": 1},
+            embedding=vector,
+            embedding_provider=provider.name,
+            embedding_model=provider.model,
+            embedding_config_hash=provider.config_hash(),
+            embedded_at=datetime.now(UTC),
+        )
+        db.add_all([document, chunk])
+        db.flush()
+        db.expire_all()
+
+        stored = db.get(DocumentChunk, chunk.id)
+        assert stored is not None
+        assert stored.embedding is not None
+        assert len(stored.embedding) == 512
+        assert stored.embedding[0] == pytest.approx(vector[0], abs=1e-6)
+
+    def test_clearing_a_vector_still_works(self, db: Session) -> None:
+        """The pipeline nulls the vector when a chunk's text changes."""
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db)
+        chunk = add_chunk(db, dossier, "texto original", "b1")
+        chunk.embedding = None
+        chunk.embedding_provider = None
+        db.flush()
+        db.expire_all()
+
+        stored = db.get(DocumentChunk, chunk.id)
+        assert stored is not None
+        assert stored.embedding is None

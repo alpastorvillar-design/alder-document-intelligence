@@ -77,6 +77,33 @@ class EnumString(types.TypeDecorator[Any]):
         return None if value is None else self.enum_cls(value)
 
 
+class Embedding(types.TypeDecorator[Any]):
+    """A pgvector column that accepts any sequence of floats.
+
+    `pgvector.sqlalchemy.VECTOR` binds a list or a numpy array and raises
+    `ValueError: expected list or ndarray` for anything else - a tuple
+    included. Embedding providers here hand back immutable tuples, which is
+    the right shape for a value that must not be mutated in flight, so one
+    writer converted and another did not and the pipeline failed at the
+    insert. Coercing at the column removes the choice: whichever sequence a
+    caller has is the sequence the column takes.
+    """
+
+    impl = VECTOR
+    cache_ok = True
+
+    def __init__(self, dimensions: int) -> None:
+        super().__init__(dimensions)
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
+        if value is None:
+            return None
+        # A numpy array is already accepted and must not be rebuilt as a list.
+        if isinstance(value, list) or hasattr(value, "dtype"):
+            return value
+        return [float(component) for component in value]
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -346,7 +373,7 @@ class DocumentChunk(Base):
     search_vector: Mapped[str] = mapped_column(
         postgresql.TSVECTOR, Computed("to_tsvector('spanish', text)", persisted=True)
     )
-    embedding: Mapped[list[float] | None] = mapped_column(VECTOR(EMBEDDING_DIMENSIONS))
+    embedding: Mapped[list[float] | None] = mapped_column(Embedding(EMBEDDING_DIMENSIONS))
     embedding_provider: Mapped[str | None] = mapped_column(String(32))
     embedding_model: Mapped[str | None] = mapped_column(String(120))
     embedding_config_hash: Mapped[str | None] = mapped_column(String(64))
