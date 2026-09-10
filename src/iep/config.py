@@ -15,6 +15,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 EMBEDDING_DIMENSIONS = 512
 
+# Where to put the relevance floor for a learned embedding model, from the
+# measurement in `docs/rag.md`: on this corpus `bge-m3` scores the highest
+# irrelevant query at 0.4376 and the lowest relevant one at 0.5365. This sits
+# just above the first, not in the middle of the gap - erring low keeps
+# borderline evidence, and a model with nothing to work from can still say the
+# evidence is insufficient. Erring high silently deletes real evidence, which
+# nothing downstream can recover from.
+LEARNED_MIN_SIMILARITY = 0.45
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="IEP_", extra="ignore")
@@ -49,14 +58,19 @@ class Settings(BaseSettings):
     embedding_provider: str = "hashing"
     # Cosine similarity below which a vector hit is not returned at all.
     #
-    # 0.0 - off - is the measured default, not a placeholder. On this corpus
-    # the hashing baseline scores relevant queries between 0.16 and 0.74 and
-    # irrelevant ones between 0.17 and 0.40: the ranges overlap, and
-    # "colaboraciones externas" scores *below* "campeonato de ajedrez
-    # juvenil". No threshold separates them, so any non-zero value here would
-    # discard real evidence while keeping noise. It becomes meaningful with a
-    # learned model, and `docs/rag.md` carries the numbers.
-    retrieval_min_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
+    # `None` means "whatever suits the configured provider", because the right
+    # value is a property of the embedding model and not a preference. On this
+    # corpus, measured:
+    #
+    #   hashing  relevant 0.16-0.55, irrelevant 0.17-0.40 - overlapping, and
+    #            "colaboraciones externas" scores *below* "campeonato de
+    #            ajedrez juvenil". No threshold works, so the floor is off.
+    #   bge-m3   relevant 0.54-0.72, irrelevant 0.35-0.44 - a clear gap, so a
+    #            floor is possible for the first time.
+    #
+    # An explicit `0.0` still means off, for a learned provider too.
+    # `docs/rag.md` carries both tables.
+    retrieval_min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     embedding_dimensions: int = EMBEDDING_DIMENSIONS
     embedding_batch_size: int = Field(default=64, ge=1, le=256)
     openai_base_url: str = "https://api.openai.com/v1"
@@ -79,6 +93,11 @@ class Settings(BaseSettings):
     # server can enforce with a JSON schema.
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = ""
+    # A learned multilingual embedding model, locally. This is what turns the
+    # vector path from a demonstration of the plumbing into actual semantic
+    # retrieval - `bge-m3` is 1024 dimensions and the column no longer fixes
+    # a width, so it just works. See docs/rag.md for the measurements.
+    ollama_embedding_model: str = "bge-m3"
     # A model on a laptop CPU takes tens of seconds for a five-segment
     # context, so this is not the CLI's timeout.
     ollama_timeout_seconds: float = Field(default=300.0, gt=0.0, le=900.0)
@@ -131,7 +150,7 @@ class Settings(BaseSettings):
     @field_validator("embedding_provider")
     @classmethod
     def _known_embedding_provider(cls, value: str) -> str:
-        allowed = {"disabled", "hashing", "openai"}
+        allowed = {"disabled", "hashing", "openai", "ollama"}
         if value not in allowed:
             raise ValueError(f"embedding_provider must be one of {sorted(allowed)}")
         return value
@@ -154,12 +173,35 @@ class Settings(BaseSettings):
 
     @field_validator("embedding_dimensions")
     @classmethod
-    def _schema_embedding_dimensions(cls, value: int) -> int:
-        if value != EMBEDDING_DIMENSIONS:
-            raise ValueError(
-                f"embedding_dimensions is fixed at {EMBEDDING_DIMENSIONS} by the database schema"
-            )
+    def _baseline_embedding_dimensions(cls, value: int) -> int:
+        """Only the hashing baseline takes its width from configuration.
+
+        It used to be refused unless it equalled the column's fixed 512. The
+        column has no fixed width now, and a learned model's width is a
+        property of the model rather than a setting - so this bounds the one
+        provider that has a choice, and the rest report their own.
+        """
+        if not 64 <= value <= 4096:
+            raise ValueError("embedding_dimensions must be between 64 and 4096")
         return value
+
+    @property
+    def effective_min_similarity(self) -> float:
+        """The floor to apply, resolved against the provider in use.
+
+        Set explicitly, it is honoured. Unset, it is 0.0 for the baseline -
+        whose scores do not separate anything, so any threshold would discard
+        real evidence - and `LEARNED_MIN_SIMILARITY` for a learned model.
+
+        Having one global default was the trap: a number that protects a
+        learned model destroys the baseline, and a number safe for the
+        baseline does nothing at all.
+        """
+        if self.retrieval_min_similarity is not None:
+            return self.retrieval_min_similarity
+        if self.embedding_provider in ("hashing", "disabled"):
+            return 0.0
+        return LEARNED_MIN_SIMILARITY
 
     @property
     def scraper_allowed_hosts(self) -> frozenset[str]:

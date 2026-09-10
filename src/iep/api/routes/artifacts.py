@@ -328,7 +328,7 @@ def answer_evidence_question(
                     query_vector,
                     embedding_config_hash=embedding_provider.config_hash(),
                     limit=request.top_k,
-                    min_similarity=settings.retrieval_min_similarity,
+                    min_similarity=settings.effective_min_similarity,
                 )
             else:
                 hits = retrieval.hybrid_search(
@@ -338,7 +338,7 @@ def answer_evidence_question(
                     query_vector,
                     embedding_config_hash=embedding_provider.config_hash(),
                     limit=request.top_k,
-                    min_similarity=settings.retrieval_min_similarity,
+                    min_similarity=settings.effective_min_similarity,
                 )
         if not hits:
             # Two situations were being reported as one, and the message told a
@@ -559,7 +559,7 @@ def rag_status(
         retrieval_modes=cast(list[SearchModeName], modes),
         embedding_provider=settings.embedding_provider,
         embedding_is_learned=settings.embedding_provider != "hashing",
-        min_similarity=settings.retrieval_min_similarity,
+        min_similarity=settings.effective_min_similarity,
         unavailable_reason=reason,
         budget_used=allowance.used,
         budget_ceiling=allowance.ceiling,

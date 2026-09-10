@@ -55,41 +55,78 @@ No hay índice aproximado. La búsqueda exacta es simple y suficiente para este
 corpus pequeño. HNSW o IVFFlat se añadirían después de que un benchmark con
 volumen y filtros representativos demostrase una necesidad de latencia.
 
-### El suelo de relevancia, y por qué está apagado
+### Un modelo de embeddings aprendido, en local
+
+La línea base que se distribuye es una proyección determinista de trigramas de
+caracteres. Demuestra la vía de pgvector y nada más, y la medición de abajo
+explica por qué. `IEP_EMBEDDING_PROVIDER=ollama` la sustituye por un modelo
+multilingüe real en la misma máquina: sin clave, sin salida de datos y sin
+factura.
+
+```text
+IEP_EMBEDDING_PROVIDER=ollama
+IEP_OLLAMA_EMBEDDING_MODEL=bge-m3
+```
+
+Después, `iep reindex --reference INN-2025-042` para cada expediente. El
+reindexado se identifica con un hash de configuración que cubre proveedor,
+modelo y anchura, así que las filas antiguas no se reutilizan ni se comparan
+con las nuevas: simplemente dejan de seleccionarse.
+
+La anchura la decide el modelo, no la configuración: `bge-m3` devuelve 1024
+dimensiones y `qwen3-embedding` 2560. La columna era `vector(512)`, que era la
+anchura de la línea base haciéndose pasar por el esquema y dejaba inservible
+cualquier modelo aprendido; ahora no lleva modificador de dimensión, así que
+conviven filas de anchuras distintas y `vector_dims()` informa de cada una. Lo
+que se renuncia es a indexar —HNSW e IVFFlat necesitan anchura fija— y hoy no
+se pierde nada, porque este proyecto hace búsqueda exacta con recorrido
+secuencial por decisión deliberada.
+
+### El suelo de relevancia, y las dos mediciones detrás
 
 La búsqueda vectorial devuelve `limit` filas para cualquier consulta, así que
 una pregunta sobre algo que no está en el expediente volvía igual que una
-pregunta sobre algo que sí. `IEP_RETRIEVAL_MIN_SIMILARITY` es el suelo para
-eso: por debajo, un fragmento no se devuelve, y el filtro se aplica en SQL
-para que una consulta filtrada no gaste su límite en filas que va a descartar.
+sobre algo que sí. `IEP_RETRIEVAL_MIN_SIMILARITY` es el suelo para eso,
+aplicado en SQL para que una consulta filtrada no gaste su límite en filas que
+va a descartar.
 
-Su valor por defecto es `0.0` —apagado— y eso es una medición, no prudencia.
-Similitud coseno del primer resultado con el proveedor hashing que se
-distribuye, sobre `INN-2025-042`:
+Su valor por defecto no es un número único, porque el valor correcto es una
+propiedad del modelo de embeddings. Similitud coseno del primer resultado
+sobre `INN-2025-042`, las mismas ocho consultas, los dos proveedores:
 
-| Consulta | ¿Debería encontrar algo? | Similitud |
-| --- | --- | --- |
-| gastos de personal declarados | sí | 0,5520 |
-| periodo de ejecucion del proyecto | sí | 0,4928 |
-| coste horario del personal | sí | 0,3793 |
-| colaboraciones externas | sí | **0,1626** |
-| instrucciones de montaje de una estanteria | no | 0,3993 |
-| horario de trenes a Valencia | no | 0,3612 |
-| receta de tortilla de patatas | no | 0,3444 |
-| campeonato de ajedrez juvenil | no | **0,1651** |
+| Consulta | ¿Debería encontrar algo? | `hashing` | `bge-m3` |
+| --- | --- | --- | --- |
+| total de la factura | sí | 0,7416 | 0,7200 |
+| gastos de personal declarados | sí | 0,5520 | 0,6012 |
+| periodo de ejecucion del proyecto | sí | 0,4928 | 0,5754 |
+| coste horario del personal | sí | 0,3793 | 0,5891 |
+| colaboraciones externas | sí | **0,1626** | 0,5365 |
+| instrucciones de montaje de una estanteria | no | 0,3993 | 0,4376 |
+| horario de trenes a Valencia | no | 0,3612 | 0,3618 |
+| receta de tortilla de patatas | no | 0,3444 | 0,3921 |
+| campeonato de ajedrez juvenil | no | **0,1651** | 0,3469 |
 
-Los rangos se solapan casi por completo, y una consulta relevante puntúa *por
-debajo* de una irrelevante. Ningún umbral conserva el primer grupo y descarta
-el segundo, así que cualquier valor distinto de cero descartaría evidencia real
-y conservaría ruido. La búsqueda léxica, sobre esas mismas ocho consultas,
-devolvió al menos una fila en todas las relevantes y cero en todas las
-irrelevantes.
+Con la línea base los rangos se solapan casi por completo, y una consulta
+relevante puntúa *por debajo* de una irrelevante: ningún umbral conserva el
+primer grupo y descarta el segundo, así que el suelo es 0. Con `bge-m3` la
+relevante más baja es 0,5365 y la irrelevante más alta 0,4376: un hueco de
+unos 0,10, y por primera vez un suelo tiene sentido. El valor por defecto es
+**0,45**, justo por encima del ruido medido y no en el centro del hueco:
+conservar evidencia dudosa se puede corregir después, borrarla no.
 
-Eso es lo que es la línea base: una proyección determinista que demuestra la
-vía de pgvector, no un modelo semántico. El suelo cobra sentido con un
-proveedor aprendido, y ese es el momento de fijarlo — y hay una prueba que fija
-el solape, de modo que falla si algún día un proveedor aprendido pasa a ser el
-predeterminado sin revisar el suelo.
+Medido de punta a punta con el suelo puesto, lo que antes era
+estructuralmente imposible:
+
+```text
+relevante    gastos de personal declarados     -> 5 resultados, mejor 0,6012
+relevante    colaboraciones externas           -> 5 resultados, mejor 0,5365
+irrelevante  receta de tortilla de patatas     -> 0 resultados
+irrelevante  campeonato de ajedrez juvenil     -> 0 resultados
+```
+
+Un `IEP_RETRIEVAL_MIN_SIMILARITY=0.0` explícito sigue apagándolo, también con
+un proveedor aprendido, y hay una prueba que falla si el valor por defecto se
+sale del hueco medido.
 
 ## Qué convierte el endpoint de preguntas en RAG
 

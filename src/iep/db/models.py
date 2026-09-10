@@ -36,7 +36,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from iep.config import EMBEDDING_DIMENSIONS
 from iep.domain.enums import (
     DecisionAction,
     DocumentKind,
@@ -92,7 +91,9 @@ class Embedding(types.TypeDecorator[Any]):
     impl = VECTOR
     cache_ok = True
 
-    def __init__(self, dimensions: int) -> None:
+    def __init__(self, dimensions: int | None = None) -> None:
+        # `None` leaves the width to the column, which is how the schema takes
+        # whatever a provider returns instead of one provider's number.
         super().__init__(dimensions)
 
     def process_bind_param(self, value: Any, dialect: Any) -> Any:
@@ -373,7 +374,11 @@ class DocumentChunk(Base):
     search_vector: Mapped[str] = mapped_column(
         postgresql.TSVECTOR, Computed("to_tsvector('spanish', text)", persisted=True)
     )
-    embedding: Mapped[list[float] | None] = mapped_column(Embedding(EMBEDDING_DIMENSIONS))
+    # No fixed width: the column takes whatever the configured provider
+    # returns, and `embedding_config_hash` is what guarantees a query only
+    # ever compares vectors made the same way. See the migration for why the
+    # 512 was one provider masquerading as the schema.
+    embedding: Mapped[list[float] | None] = mapped_column(Embedding())
     embedding_provider: Mapped[str | None] = mapped_column(String(32))
     embedding_model: Mapped[str | None] = mapped_column(String(120))
     embedding_config_hash: Mapped[str | None] = mapped_column(String(64))

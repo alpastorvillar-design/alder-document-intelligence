@@ -711,7 +711,9 @@ class TestTheRelevanceFloorAndWhyItIsOff:
             f"relevante {relevant:.4f} frente a irrelevante {irrelevant:.4f}: "
             f"si ahora se separan, toca poner un suelo"
         )
-        assert Settings().retrieval_min_similarity == 0.0
+        # The floor's default follows the provider now: nothing for the
+        # baseline, because of exactly this overlap.
+        assert Settings(embedding_provider="hashing").effective_min_similarity == 0.0
 
     def test_hybrid_passes_the_floor_through(self, db: Session, settings: Settings) -> None:
         """Otherwise the vector half would reintroduce exactly what the floor

@@ -55,39 +55,76 @@ No approximate index is present. Exact search is simpler and adequate for this
 small corpus. HNSW or IVFFlat should be introduced only after a representative
 volume and filtered-query benchmark establishes a latency need.
 
-### The relevance floor, and why it is off
+### A learned embedding model, locally
+
+The shipped baseline is a deterministic projection of character trigrams. It
+proves the pgvector path and nothing else, and the measurement below says why.
+`IEP_EMBEDDING_PROVIDER=ollama` replaces it with a real multilingual model on
+the same machine - no key, no egress, no bill:
+
+```text
+IEP_EMBEDDING_PROVIDER=ollama
+IEP_OLLAMA_EMBEDDING_MODEL=bge-m3
+```
+
+Then `iep reindex --reference INN-2025-042` for each dossier. Re-indexing is
+keyed by a configuration hash covering provider, model and width, so old rows
+are neither reused nor compared against the new ones - they simply stop being
+selected.
+
+The width comes from the model, not from configuration: `bge-m3` returns 1024
+dimensions and `qwen3-embedding` 2560. The column used to be `vector(512)`,
+which was the baseline's width standing in for the schema and made every
+learned model unusable; it now carries no dimension modifier, so rows of
+different widths coexist and `vector_dims()` reports each. What that gives up
+is indexability - HNSW and IVFFlat need a fixed width - and nothing is lost
+today, because this project does exact search on a sequential scan by
+deliberate decision.
+
+### The relevance floor, and the two measurements behind it
 
 Vector search returns `limit` rows for any query at all, so a question about
 nothing in the dossier came back looking exactly like a question about
-something in it. `IEP_RETRIEVAL_MIN_SIMILARITY` is the floor for that: below
-it a chunk is not returned, and the filter runs in SQL so a filtered query
-does not spend its limit on rows it will discard.
+something in it. `IEP_RETRIEVAL_MIN_SIMILARITY` is the floor for that, applied
+in SQL so a filtered query does not spend its limit on rows it will discard.
 
-Its default is `0.0` - off - and that is a measurement, not caution. Top-hit
-cosine similarity from the shipped hashing provider on `INN-2025-042`:
+Its default is not a single number, because the right value is a property of
+the embedding model. Top-hit cosine similarity on `INN-2025-042`, same eight
+queries, both providers:
 
-| Query | Should match | Top similarity |
-| --- | --- | --- |
-| gastos de personal declarados | yes | 0.5520 |
-| periodo de ejecucion del proyecto | yes | 0.4928 |
-| coste horario del personal | yes | 0.3793 |
-| colaboraciones externas | yes | **0.1626** |
-| instrucciones de montaje de una estanteria | no | 0.3993 |
-| horario de trenes a Valencia | no | 0.3612 |
-| receta de tortilla de patatas | no | 0.3444 |
-| campeonato de ajedrez juvenil | no | **0.1651** |
+| Query | Should match | `hashing` | `bge-m3` |
+| --- | --- | --- | --- |
+| total de la factura | yes | 0.7416 | 0.7200 |
+| gastos de personal declarados | yes | 0.5520 | 0.6012 |
+| periodo de ejecucion del proyecto | yes | 0.4928 | 0.5754 |
+| coste horario del personal | yes | 0.3793 | 0.5891 |
+| colaboraciones externas | yes | **0.1626** | 0.5365 |
+| instrucciones de montaje de una estanteria | no | 0.3993 | 0.4376 |
+| horario de trenes a Valencia | no | 0.3612 | 0.3618 |
+| receta de tortilla de patatas | no | 0.3444 | 0.3921 |
+| campeonato de ajedrez juvenil | no | **0.1651** | 0.3469 |
 
-The ranges overlap almost entirely, and a relevant query scores *below* an
-irrelevant one. No threshold keeps the first group and drops the second, so
-any non-zero default would discard real evidence while keeping noise. Lexical
-search, on the same eight queries, returned at least one row for every
-relevant one and zero for every irrelevant one.
+With the baseline the ranges overlap almost entirely, and a relevant query
+scores *below* an irrelevant one - so no threshold keeps the first group and
+drops the second, and the floor is 0. With `bge-m3` the lowest relevant query
+is 0.5365 and the highest irrelevant one 0.4376: a gap of about 0.10, and a
+floor is possible for the first time. The default sits at **0.45**, just above
+the measured noise rather than in the middle of the gap - keeping borderline
+evidence is recoverable, deleting it is not.
 
-That is what the baseline is: a deterministic projection that demonstrates the
-pgvector path, not a semantic model. The floor becomes meaningful with a
-learned provider, which is when to set it - and a test pins the overlap, so it
-fails if a learned provider ever becomes the default without the floor being
-revisited.
+Measured end to end with the floor on, the thing that was structurally
+impossible before:
+
+```text
+relevante    gastos de personal declarados     -> 5 resultados, mejor 0.6012
+relevante    colaboraciones externas           -> 5 resultados, mejor 0.5365
+irrelevante  receta de tortilla de patatas     -> 0 resultados
+irrelevante  campeonato de ajedrez juvenil     -> 0 resultados
+```
+
+An explicit `IEP_RETRIEVAL_MIN_SIMILARITY=0.0` still turns it off for a
+learned provider too, and a test fails if the shipped default ever leaves the
+measured gap.
 
 ## What makes the questions endpoint RAG
 

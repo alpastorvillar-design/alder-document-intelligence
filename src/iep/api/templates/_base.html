@@ -335,9 +335,10 @@ tbody tr:last-child td { border-bottom: none; }
 
 <header class="top">
   <a class="brand" href="/ui/dossiers">
-    {# A page with the read value boxed on it: the mark is the product's own
-       idea rather than decoration. Inline SVG so it scales, follows the
-       theme, and needs no network. #}
+    {# A page with the read value boxed on it. That box is the product's whole
+       idea - every figure traces back to the exact place it was read from -
+       so the mark is the idea rather than decoration. Inline SVG so it
+       scales, follows the theme, and needs no network. #}
     <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
       <g fill="none" stroke="var(--brand)" stroke-width="2.1"
          stroke-linecap="round" stroke-linejoin="round">
@@ -355,7 +356,7 @@ tbody tr:last-child td { border-bottom: none; }
       <path d="M22.1 23.7l1.7 1.7 3-3.4" fill="none" stroke="var(--seal)"
             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
-    <span class="wordmark">Cotejo</span>
+    <span class="wordmark">Trazia</span>
   </a>
   {% block topactions %}{% endblock %}
 </header>

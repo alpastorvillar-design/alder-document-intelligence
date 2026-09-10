@@ -16,7 +16,7 @@ import re
 import time
 import unicodedata
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 
@@ -44,7 +44,18 @@ class EmbeddingBatch:
 class EmbeddingProvider(Protocol):
     name: str
     model: str
-    dimensions: int
+
+    @property
+    def dimensions(self) -> int:
+        """How wide this provider's vectors are.
+
+        Read-only on purpose. For the hashing baseline it comes from
+        configuration; for a learned model it is a property of the model and
+        is discovered from its first response. Nothing should be able to
+        assign it, and declaring it as a plain attribute here meant a provider
+        that computed it did not satisfy this protocol.
+        """
+        ...
 
     def config_hash(self) -> str: ...
 
@@ -88,6 +99,129 @@ class HashingEmbeddingProvider:
             vector[index] += sign
         magnitude = math.sqrt(sum(value * value for value in vector))
         return tuple(value / magnitude for value in vector)
+
+
+class OllamaEmbeddingProvider:
+    """A learned embedding model on this machine, through Ollama.
+
+    This is what the vector path was missing. The hashing baseline is a
+    deterministic projection of character trigrams: it proves the pgvector
+    plumbing, and `docs/rag.md` carries the measurement showing it cannot
+    separate a relevant query from an irrelevant one. A learned multilingual
+    model can, the corpus is Spanish, and running it locally costs nothing and
+    sends nothing anywhere.
+
+    The dimension is whatever the model returns - 1024 for `bge-m3`, 2560 for
+    `qwen3-embedding` - which is why the column no longer fixes one. It is
+    discovered from the first response rather than configured, because a
+    configured number that disagrees with the model is a silent corruption:
+    every vector would be written at the wrong width and every comparison
+    would fail or, worse, succeed against the wrong rows.
+    """
+
+    name = "ollama"
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        timeout_seconds: float,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        if not model:
+            raise EmbeddingConfigurationError(
+                "El proveedor de embeddings de Ollama necesita un modelo "
+                "(IEP_OLLAMA_EMBEDDING_MODEL), por ejemplo bge-m3."
+            )
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.timeout_seconds = timeout_seconds
+        self.transport = transport
+        # Filled in from the first response. Part of `config_hash`, so a model
+        # that ever changed width would produce a different hash and its old
+        # rows would simply stop being selected rather than be compared
+        # against vectors of another shape.
+        self._dimensions = 0
+
+    @property
+    def dimensions(self) -> int:
+        if not self._dimensions:
+            self.embed(["dimension probe"])
+        return self._dimensions
+
+    def config_hash(self) -> str:
+        return _config_hash(self.name, self.model, self.dimensions)
+
+    def embed(self, texts: list[str]) -> EmbeddingBatch:
+        if not texts:
+            return EmbeddingBatch(vectors=())
+        body = self._post({"model": self.model, "input": texts})
+        raw = body.get("embeddings")
+        if not isinstance(raw, list) or len(raw) != len(texts):
+            raise EmbeddingProviderError(
+                "Ollama devolvió un número de vectores distinto al de textos enviados."
+            )
+        vectors: list[tuple[float, ...]] = []
+        for entry in raw:
+            if not isinstance(entry, list) or not entry:
+                raise EmbeddingProviderError("Ollama devolvió un vector vacío.")
+            vectors.append(tuple(float(value) for value in entry))
+
+        widths = {len(vector) for vector in vectors}
+        if len(widths) != 1:
+            raise EmbeddingProviderError(
+                f"Ollama devolvió vectores de anchuras distintas: {sorted(widths)}."
+            )
+        width = widths.pop()
+        if self._dimensions and width != self._dimensions:
+            # The same configuration returning a different width mid-run would
+            # write rows that can never be compared with the ones before them.
+            raise EmbeddingProviderError(
+                f"El modelo «{self.model}» ha cambiado de {self._dimensions} a {width} "
+                f"dimensiones a mitad de ejecución."
+            )
+        self._dimensions = width
+        return EmbeddingBatch(
+            vectors=tuple(vectors),
+            input_tokens=body.get("prompt_eval_count")
+            if isinstance(body.get("prompt_eval_count"), int)
+            else None,
+        )
+
+    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+                transport=self.transport,
+            ) as client:
+                response = client.post("/api/embed", json=payload)
+        except httpx.TimeoutException as exc:
+            raise EmbeddingProviderError(
+                f"Ollama no respondió en {self.timeout_seconds:.0f} segundos."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise EmbeddingConfigurationError(
+                f"No se pudo hablar con Ollama en {self.base_url}. ¿Está arrancado?"
+            ) from exc
+
+        if response.status_code == 404:
+            raise EmbeddingConfigurationError(
+                f"Ollama no tiene el modelo «{self.model}». Descárgalo con "
+                f"`ollama pull {self.model}`."
+            )
+        if response.status_code >= 400:
+            raise EmbeddingProviderError(
+                f"Ollama rechazó la petición de embeddings (HTTP {response.status_code})."
+            )
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise EmbeddingProviderError("Ollama devolvió algo que no es JSON.") from exc
+        if not isinstance(body, dict):
+            raise EmbeddingProviderError("Ollama devolvió algo que no es JSON.")
+        return body
 
 
 class OpenAIEmbeddingProvider:
@@ -216,6 +350,15 @@ def build_embedding_provider(settings: Settings) -> EmbeddingProvider | None:
         return None
     if settings.embedding_provider == "hashing":
         return HashingEmbeddingProvider(settings.embedding_dimensions)
+    if settings.embedding_provider == "ollama":
+        # No egress opt-in: the model runs on this machine, so there is
+        # nothing to consent to. Requiring the flag anyway would only teach
+        # people to set it.
+        return OllamaEmbeddingProvider(
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_embedding_model,
+            timeout_seconds=settings.ollama_timeout_seconds,
+        )
     if not settings.allow_external_ai:
         raise EmbeddingConfigurationError(
             "Hosted embeddings require IEP_ALLOW_EXTERNAL_AI=true "
