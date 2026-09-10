@@ -370,3 +370,34 @@ class RagAnswer(BaseModel):
     output_tokens: int | None = None
     prompt_version: str
     prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class RagStatus(BaseModel):
+    """What the answer box is allowed to offer, and why.
+
+    The screen asks for this instead of deciding for itself: a panel that
+    offers a model the process cannot reach produces a failure the reviewer
+    has to interpret, and one that hides the option teaches nothing about
+    where a model fits.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    provider: Literal["disabled", "openai", "cli"]
+    # Which assistant CLI is configured, and whether this process can launch
+    # it. Both matter: the API runs in a container by default and the CLI is
+    # installed on the host.
+    cli_tool: str | None = None
+    cli_available: bool = False
+    available_cli_tools: list[str] = Field(default_factory=list)
+    model: str | None = None
+    retrieval_modes: list[Literal["lexical", "vector", "hybrid"]] = Field(default_factory=list)
+    embedding_provider: str
+    # Why it is off, in the words the screen shows. Empty when it is on.
+    unavailable_reason: str = ""
+    budget_used: int = Field(ge=0)
+    budget_ceiling: int = Field(ge=0)
+    budget_stop_at: int = Field(ge=0)
+    budget_window_days: int = Field(ge=1)
+    budget_exhausted: bool = False

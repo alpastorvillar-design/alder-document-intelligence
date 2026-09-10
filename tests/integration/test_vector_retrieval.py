@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from iep.config import Settings
+from iep.config import Settings, get_settings
 from iep.db.models import Document, DocumentChunk, Dossier, Finding
 from iep.domain.enums import (
     DocumentKind,
@@ -214,7 +214,9 @@ class TestRetrievalApi:
 
         assert response.status_code == 200
         assert response.json()["citations"][0]["evidence_id"] == "E1"
-        assert response.json()["citations"][0]["where"] == "page 1"
+        # Spanish, because it is shown on a Spanish screen. This was the
+        # last English string left in the answer panel.
+        assert response.json()["citations"][0]["where"] == "PDF · página 1"
         assert response.json()["generation_provider"] == "test-double"
 
 
@@ -419,3 +421,161 @@ class TestAHostileDocumentNeverReachesTheGenerator:
         finding.status = FindingStatus.DISMISSED
         db.flush()
         assert hostile_document_ids(db, dossier.id) == frozenset()
+
+
+class TestAnAnsweredQuestionLeavesATrace:
+    """A read-only call is the easiest one to leave unrecorded.
+
+    It changes nothing, so nothing forces a write - and then the single place
+    a language model touched the dossier is the only place with no record, and
+    the call budget, which counts these events, has nothing to count.
+    """
+
+    def double(self) -> Any:
+        class Generator:
+            def generate(self, question: str, hits: object) -> RagGeneration:
+                return RagGeneration(
+                    answer="Termina el 31 de diciembre de 2025.",
+                    citation_ids=("E1",),
+                    sufficient_evidence=True,
+                    provider="cli:claude",
+                    model="a-model",
+                    input_tokens=18_000,
+                    output_tokens=120,
+                    prompt_version="rag-grounded-answer/1.0.0",
+                    prompt_sha256="b" * 64,
+                )
+
+        return Generator()
+
+    def ask(self, client: TestClient, dossier_id: Any) -> Any:
+        return client.post(
+            f"/dossiers/{dossier_id}/questions",
+            json={"question": "cuando termina el periodo", "retrieval_mode": "lexical"},
+        )
+
+    def test_the_question_the_model_and_the_citations_are_recorded(
+        self, db: Session, wired_settings: Settings, monkeypatch: Any
+    ) -> None:
+        from iep.api.app import create_app
+        from iep.api.routes import artifacts
+        from iep.db.models import AuditEvent
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-710")
+        add_chunk(db, dossier, "El periodo termina el 31 de diciembre de 2025", "20")
+        db.commit()
+        monkeypatch.setattr(artifacts, "build_rag_generator", lambda _: self.double())
+
+        with TestClient(create_app()) as client:
+            assert self.ask(client, dossier.id).status_code == 200
+
+        events = [
+            row
+            for row in db.execute(select(AuditEvent)).scalars()
+            if row.action == "EVIDENCE_QUESTION_ANSWERED"
+        ]
+        assert len(events) == 1
+        payload = events[0].payload
+        assert payload["question"] == "cuando termina el periodo"
+        assert payload["provider"] == "cli:claude"
+        assert payload["model"] == "a-model"
+        assert payload["citations"] == ["E1"]
+        assert payload["sufficient_evidence"] is True
+        assert payload["segments_retrieved"] >= 1
+        assert events[0].dossier_id == dossier.id
+
+    def test_a_refused_call_records_nothing(self, db: Session, wired_settings: Settings) -> None:
+        """Generation is disabled by default, and a refusal is not a call."""
+        from iep.api.app import create_app
+        from iep.db.models import AuditEvent
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-711")
+        add_chunk(db, dossier, "El periodo termina el 31 de diciembre de 2025", "21")
+        db.commit()
+
+        with TestClient(create_app(), raise_server_exceptions=False) as client:
+            assert self.ask(client, dossier.id).status_code == 503
+
+        actions = [row.action for row in db.execute(select(AuditEvent)).scalars()]
+        assert "EVIDENCE_QUESTION_ANSWERED" not in actions
+
+
+class TestTheBudgetRefusesBeforeSpending:
+    def test_a_full_budget_blocks_the_call_and_says_why(
+        self, db: Session, wired_settings: Settings, monkeypatch: Any
+    ) -> None:
+        """Checked before retrieval and before generation: refusing after the
+        model has answered would spend the call it was meant to prevent."""
+        import uuid as _uuid
+
+        from iep.api.app import create_app
+        from iep.api.routes import artifacts
+        from iep.db.models import AuditEvent
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-712")
+        add_chunk(db, dossier, "El periodo termina el 31 de diciembre de 2025", "22")
+        # Two calls already recorded, and a ceiling of two: the stop is at 1.
+        for _ in range(2):
+            db.add(
+                AuditEvent(
+                    id=_uuid.uuid4(),
+                    dossier_id=dossier.id,
+                    action="EVIDENCE_QUESTION_ANSWERED",
+                    actor="system",
+                    payload={},
+                )
+            )
+        db.commit()
+
+        monkeypatch.setenv("IEP_RAG_CALL_BUDGET", "2")
+        get_settings.cache_clear()
+
+        called = False
+
+        def should_not_run(_: Any) -> Any:
+            nonlocal called
+            called = True
+            raise AssertionError("the generator was reached past the budget")
+
+        monkeypatch.setattr(artifacts, "build_rag_generator", should_not_run)
+        try:
+            with TestClient(create_app(), raise_server_exceptions=False) as client:
+                response = client.post(
+                    f"/dossiers/{dossier.id}/questions",
+                    json={"question": "cuando termina", "retrieval_mode": "lexical"},
+                )
+            assert response.status_code == 503
+            assert not called
+            body = response.json()["message"]
+            assert "presupuesto" in body.lower()
+            assert "2" in body
+        finally:
+            get_settings.cache_clear()
+
+    def test_the_status_endpoint_answers_while_generation_is_off(
+        self, db: Session, wired_settings: Settings
+    ) -> None:
+        """ "Off, and here is the switch" is the answer a reviewer needs when
+        the box in front of them is greyed out."""
+        from iep.api.app import create_app
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-713")
+        db.commit()
+
+        with TestClient(create_app()) as client:
+            response = client.get(f"/dossiers/{dossier.id}/questions")
+
+        assert response.status_code == 200
+        status = response.json()
+        assert status["enabled"] is False
+        assert status["provider"] == "disabled"
+        assert "IEP_RAG_PROVIDER" in status["unavailable_reason"]
+        # The budget is reported whether or not generation is on, because the
+        # screen shows it either way.
+        assert status["budget_ceiling"] >= 1
+        assert status["budget_stop_at"] < status["budget_ceiling"]
+        assert "lexical" in status["retrieval_modes"]

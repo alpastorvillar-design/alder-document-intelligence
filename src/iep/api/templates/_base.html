@@ -231,6 +231,62 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .empty { color: var(--muted); font-style: italic; padding: .8rem 0; }
 
+/* ---- the answer box --------------------------------------------------- */
+/* Lives in the shell because two screens include the same partial, and a
+   second copy of these rules would let the two drift apart. */
+.ask {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--card); padding: .9rem 1rem; margin: 1.6rem 0 0;
+}
+.ask-head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+.ask-head h2 { margin: 0; font-size: 1rem; }
+.ask-state {
+  margin-left: auto; font-size: .74rem; font-weight: 620;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+}
+.ask-state.on { color: var(--ok); }
+.ask-state.off { color: var(--warning); }
+.ask-off {
+  margin: .7rem 0 0; padding: .7rem .9rem; font-size: .85rem;
+  color: var(--ink-soft); background: var(--card-sunk);
+  border: 1px solid var(--line-soft); border-left: 3px solid var(--warning);
+  border-radius: 6px;
+}
+.ask-row { display: flex; gap: .5rem; align-items: flex-end; flex-wrap: wrap; margin-top: .8rem; }
+.ask-row > input[type=text] { flex: 1 1 22rem; min-width: 0; }
+.ask-mode { flex: 0 0 auto; }
+.ask-mode span {
+  display: block; font-size: .7rem; font-weight: 600; color: var(--muted);
+  margin-bottom: .25rem; text-transform: uppercase; letter-spacing: .05em;
+}
+.ask-mode select { width: auto; min-width: 8rem; }
+.ask-meta { margin: .5rem 0 0; font-size: .78rem; color: var(--muted); }
+.ask-answer { margin-top: .8rem; background: var(--card-sunk); }
+.ask-verdict {
+  margin: 0 0 .4rem; font-size: .74rem; font-weight: 620;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.ask-verdict.enough { color: var(--ok); }
+.ask-verdict.thin { color: var(--warning); }
+.ask-text { margin: 0 0 .8rem; white-space: pre-wrap; }
+.ask-cite {
+  border: 1px solid var(--line-soft); border-radius: 7px;
+  background: var(--card); padding: .55rem .7rem; font-size: .84rem;
+}
+.ask-cite + .ask-cite { margin-top: .4rem; }
+.ask-cite .who {
+  display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; margin-bottom: .3rem;
+}
+.ask-cite .who .tag {
+  font-family: var(--mono); font-size: .72rem; font-weight: 700; color: var(--accent);
+}
+.ask-cite .who .where { color: var(--muted); font-size: .78rem; }
+.ask-cite blockquote {
+  margin: 0; padding-left: .7rem; border-left: 2px solid var(--line);
+  color: var(--ink-soft); font-size: .83rem;
+}
+.ask-trace { margin: .7rem 0 0; font-size: .74rem; }
+
 #flash {
   position: fixed; left: 50%; bottom: 1.4rem; transform: translateX(-50%);
   background: var(--ink); color: var(--paper); padding: .6rem 1rem;
@@ -297,6 +353,131 @@ async function post(url, body) {
   try { detail = (await response.json()).message || detail; } catch (e) { /* keep status text */ }
   flash("Rechazado: " + detail);
   return null;
+}
+
+/* ---- the answer box --------------------------------------------------- */
+/* Only wired when a page included the partial. The panel asks the API what it
+   is allowed to offer rather than deciding from a template variable: the
+   provider, whether the CLI is on this process's PATH, and the call budget are
+   properties of the running process, not of the page. */
+const askPanel = document.getElementById("ask");
+const ASK_MODES = { lexical: "Léxica", vector: "Vectorial", hybrid: "Híbrida" };
+
+function askBudgetLine(status) {
+  if (!status.budget_ceiling) return "Sin límite propio configurado.";
+  return "Presupuesto propio de la aplicación: " + status.budget_used + " de "
+    + status.budget_ceiling + " consultas en " + status.budget_window_days
+    + " días, y se detiene al llegar a " + status.budget_stop_at
+    + ". No es el cupo restante de ninguna suscripción: eso no lo publica ninguna"
+    + " API, y este contador sólo mide lo que ha gastado esta aplicación.";
+}
+
+if (askPanel) {
+  const state = document.getElementById("ask-state");
+  fetch("/dossiers/" + document.body.dataset.dossier + "/questions")
+    .then(r => (r.ok ? r.json() : null))
+    .then(status => {
+      if (!status) throw new Error("sin estado");
+      const select = document.getElementById("ask-mode");
+      for (const mode of status.retrieval_modes) {
+        const option = document.createElement("option");
+        option.value = mode;
+        option.textContent = ASK_MODES[mode] || mode;
+        select.append(option);
+      }
+      select.value = status.retrieval_modes.includes("hybrid") ? "hybrid" : "lexical";
+
+      if (status.enabled) {
+        state.textContent = "activa";
+        state.className = "ask-state on";
+        document.getElementById("ask-body").hidden = false;
+        document.getElementById("ask-meta").textContent =
+          (status.provider === "cli" ? "CLI local" : "Proveedor alojado")
+          + " \u00b7 modelo " + status.model
+          + " · recuperación con embeddings «" + status.embedding_provider + "». "
+          + askBudgetLine(status);
+      } else {
+        state.textContent = "desactivada";
+        state.className = "ask-state off";
+        const off = document.getElementById("ask-off");
+        off.hidden = false;
+        off.textContent = status.unavailable_reason + " " + askBudgetLine(status);
+      }
+    })
+    .catch(() => { state.textContent = "no disponible"; state.className = "ask-state off"; });
+}
+
+async function askEvidence() {
+  const question = document.getElementById("ask-q").value.trim();
+  if (question.length < 2) { flash("Escribe una pregunta."); return; }
+
+  const button = document.getElementById("ask-go");
+  button.disabled = true;
+  button.textContent = "Preguntando…";
+
+  const result = await post("/dossiers/" + document.body.dataset.dossier + "/questions", {
+    question,
+    retrieval_mode: document.getElementById("ask-mode").value,
+    top_k: 5,
+  });
+
+  button.disabled = false;
+  button.textContent = "Preguntar";
+  if (!result) return;
+
+  const verdict = document.getElementById("ask-verdict");
+  verdict.textContent = result.sufficient_evidence
+    ? "La evidencia recuperada sostiene la respuesta"
+    : "La evidencia recuperada no basta: trátalo como una pista, no como un dato";
+  verdict.className = "ask-verdict " + (result.sufficient_evidence ? "enough" : "thin");
+  document.getElementById("ask-text").textContent = result.answer;
+
+  /* The model never supplies a link. It names an evidence id, and the id is
+     resolved here against what was actually sent to it, so a claim in the
+     answer is one click from the page it came from. */
+  const citations = document.getElementById("ask-citations");
+  citations.innerHTML = "";
+  for (const cite of result.citations) {
+    const box = document.createElement("div");
+    box.className = "ask-cite";
+
+    const who = document.createElement("div");
+    who.className = "who";
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = cite.evidence_id;
+    const name = document.createElement("span");
+    name.className = "mono";
+    name.textContent = cite.document;
+    const where = document.createElement("span");
+    where.className = "where";
+    where.textContent = cite.where;
+    who.append(tag, name, where);
+
+    const quote = document.createElement("blockquote");
+    quote.textContent = cite.text;
+
+    box.append(who, quote);
+    citations.append(box);
+  }
+
+  if (result.withheld_hostile_segments) {
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.style.fontSize = ".8rem";
+    note.textContent = result.withheld_hostile_segments
+      + " fragmento(s) recuperados no se enviaron al modelo: su documento está marcado"
+      + " por llevar instrucciones dirigidas a un lector automático.";
+    citations.append(note);
+  }
+
+  document.getElementById("ask-trace").textContent =
+    result.generation_provider + " · " + result.generation_model
+    + " · recuperación " + result.retrieval_mode
+    + " · " + result.citations.length + " cita(s)"
+    + " · prompt " + result.prompt_version
+    + " (" + result.prompt_sha256.slice(0, 12) + "…)";
+  document.getElementById("ask-answer").hidden = false;
 }
 </script>
 {% block scripts %}{% endblock %}

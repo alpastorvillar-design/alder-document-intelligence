@@ -50,6 +50,8 @@
 <a class="btn" href="/ui/dossiers/{{ dossier.id }}">Volver a {{ dossier.reference }}</a>
 {% endblock %}
 
+{% block bodyattrs %} data-dossier="{{ dossier.id }}"{% endblock %}
+
 {% block content %}
 <p class="eyebrow">{{ dossier.reference }} · de dónde sale este dato</p>
 <h1 style="font-size:1.3rem">{{ field_label(extraction.field_path) }}</h1>
@@ -212,6 +214,11 @@
     </dl>
   </aside>
 </div>
+
+{# Seeded with the field being looked at: the reviewer is already asking
+   "where else does this appear", so the box starts on that question. #}
+{% set ask_hint = field_label(extraction.field_path) %}
+{% include "_ask.html" %}
 {% endblock %}
 
 {% block scripts %}

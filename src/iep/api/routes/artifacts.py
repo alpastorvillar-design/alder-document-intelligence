@@ -8,17 +8,28 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from iep.api import vocabulary as vocab
 from iep.api.deps import db_session, require_api_key, settings_dep
 from iep.api.errors import NotFoundError, ServiceUnavailableError
 from iep.audit import service as audit
 from iep.config import Settings
 from iep.db.models import Report as ReportRow
-from iep.domain.contracts import AuditEvent, DossierReport, RagAnswer, RagCitation, RagQuestion
+from iep.domain.contracts import (
+    AuditEvent,
+    DossierReport,
+    RagAnswer,
+    RagCitation,
+    RagQuestion,
+    RagStatus,
+)
+from iep.domain.enums import AuditAction
 from iep.dossiers import service as dossiers
 from iep.reporting import render
+from iep.retrieval import budget as rag_budget
 from iep.retrieval import search as retrieval
 from iep.retrieval.embeddings import EmbeddingProviderError, build_embedding_provider
 from iep.retrieval.rag import RagProviderError, build_rag_generator
+from iep.retrieval.rag_cli import available_tools
 
 router = APIRouter(tags=["artifacts"], dependencies=[Depends(require_api_key)])
 
@@ -260,6 +271,13 @@ def answer_evidence_question(
     is treated as untrusted data. A model answer is a draft, never a decision.
     """
     dossiers.get(session, dossier_id)
+    # Checked before any work: refusing after the model has already answered
+    # would spend the call it was meant to prevent.
+    try:
+        allowance = rag_budget.guard(session, settings)
+    except rag_budget.BudgetExhaustedError as exc:
+        raise ServiceUnavailableError(str(exc)) from exc
+
     try:
         if request.retrieval_mode == "lexical":
             hits = retrieval.search(session, dossier_id, request.question, limit=request.top_k)
@@ -304,8 +322,12 @@ def answer_evidence_question(
             )
         generation = build_rag_generator(settings).generate(request.question, hits)
     except (EmbeddingProviderError, RagProviderError) as exc:
+        # The provider's own reason travels with the refusal. Swallowing it
+        # left a reviewer with "unavailable" and no way to tell a missing key
+        # from a timeout from a CLI that is not on this process's PATH - and
+        # these messages are about configuration, not about a dossier.
         raise ServiceUnavailableError(
-            "The optional grounded-answer provider is unavailable."
+            f"El proveedor opcional de respuestas no está disponible: {exc}"
         ) from exc
 
     by_evidence_id = {f"E{position}": hit for position, hit in enumerate(hits, start=1)}
@@ -320,9 +342,38 @@ def answer_evidence_question(
                 ordinal=hit.ordinal,
                 text=hit.text,
                 locator=hit.locator,
-                where=render.describe_locator(hit.locator),
+                # `vocabulary`, not `render.describe_locator`: the citation is
+                # shown on a Spanish screen, and "page 1, characters 874-1772"
+                # was the last English string left in the answer panel.
+                where=vocab.locator_summary(hit.locator),
             )
         )
+    # A read-only answer still leaves a trace: which question, which provider
+    # and model, how much evidence it saw, and whether it claimed the evidence
+    # was enough. Without this the one place a language model touched the
+    # dossier is the only place with no record - and the call budget, which
+    # counts these events, would have nothing to count.
+    audit.record(
+        session,
+        action=AuditAction.EVIDENCE_QUESTION_ANSWERED,
+        dossier_id=dossier_id,
+        payload={
+            "question": request.question,
+            "retrieval_mode": request.retrieval_mode,
+            "provider": generation.provider,
+            "model": generation.model,
+            "segments_retrieved": len(hits),
+            "segments_withheld": withheld,
+            "citations": list(generation.citation_ids),
+            "sufficient_evidence": generation.sufficient_evidence,
+            "prompt_version": generation.prompt_version,
+            "prompt_sha256": generation.prompt_sha256,
+            "budget_used_before": allowance.used,
+            "budget_ceiling": allowance.ceiling,
+        },
+    )
+    session.commit()
+
     return RagAnswer(
         question=request.question,
         answer=generation.answer,
@@ -336,4 +387,85 @@ def answer_evidence_question(
         output_tokens=generation.output_tokens,
         prompt_version=generation.prompt_version,
         prompt_sha256=generation.prompt_sha256,
+    )
+
+
+@router.get(
+    "/dossiers/{dossier_id}/questions",
+    response_model=RagStatus,
+    summary="Whether a grounded answer can be produced, and on what terms",
+)
+def rag_status(
+    dossier_id: uuid.UUID,
+    session: Session = Depends(db_session),
+    settings: Settings = Depends(settings_dep),
+) -> RagStatus:
+    """The state of the optional generation boundary, for a screen to render.
+
+    Deliberately answerable while generation is disabled: "off, and here is
+    the switch" is the more useful answer, and it is the one a reviewer needs
+    when the box in front of them is greyed out.
+    """
+    dossiers.get(session, dossier_id)
+    allowance = rag_budget.current(session, settings)
+    provider = settings.rag_provider
+
+    modes: list[str] = ["lexical"]
+    if settings.embedding_provider != "disabled":
+        modes += ["vector", "hybrid"]
+
+    reason = ""
+    cli_tool: str | None = None
+    cli_available = False
+    model: str | None = None
+    available = available_tools()
+
+    if provider == "disabled":
+        reason = (
+            "La generación está desactivada. Se enciende con "
+            "IEP_RAG_PROVIDER=cli (un CLI de asistente en esta máquina) o "
+            "IEP_RAG_PROVIDER=openai con clave e IEP_ALLOW_EXTERNAL_AI=true."
+        )
+    elif provider == "cli":
+        cli_tool = settings.rag_cli_tool
+        cli_available = available.get(cli_tool, False)
+        model = settings.rag_cli_model or f"por defecto de {cli_tool}"
+        if not cli_available:
+            reason = (
+                f"El CLI «{cli_tool}» no está en el PATH de este proceso. La API se "
+                f"ejecuta en un contenedor por defecto y el CLI está instalado en el "
+                f"host, así que hay que arrancar la API en el host para usarlo."
+            )
+    else:
+        model = settings.openai_rag_model
+        if not settings.allow_external_ai:
+            reason = (
+                "Falta IEP_ALLOW_EXTERNAL_AI=true, que es el consentimiento "
+                "explícito de salida de datos."
+            )
+        elif not settings.openai_api_key:
+            reason = "Falta la clave de API del proveedor alojado."
+
+    if not reason and allowance.exhausted:
+        reason = (
+            f"El presupuesto local de consultas está agotado: {allowance.used} de "
+            f"{allowance.ceiling} en los últimos {allowance.window_days} días, y se "
+            f"detiene al llegar a {allowance.stop_at}."
+        )
+
+    return RagStatus(
+        enabled=not reason,
+        provider=provider,  # type: ignore[arg-type]
+        cli_tool=cli_tool,
+        cli_available=cli_available,
+        available_cli_tools=sorted(name for name, present in available.items() if present),
+        model=model,
+        retrieval_modes=modes,  # type: ignore[arg-type]
+        embedding_provider=settings.embedding_provider,
+        unavailable_reason=reason,
+        budget_used=allowance.used,
+        budget_ceiling=allowance.ceiling,
+        budget_stop_at=allowance.stop_at,
+        budget_window_days=allowance.window_days,
+        budget_exhausted=allowance.exhausted,
     )

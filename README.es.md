@@ -135,6 +135,24 @@ utilizable, con un recuadro rotulado en el encabezado para quien lo archive.
 
 ![El informe de justificación, con la tabla de reconciliación primero](docs/img/05-report.png)
 
+**Preguntar a las evidencias** — la pantalla de revisión y la de evidencia
+llevan el mismo buzón de preguntas, de sólo lectura. Recupera los fragmentos
+más cercanos a la pregunta y pide a un modelo que redacte una respuesta
+*citándolos*; cada cita se comprueba contra lo que realmente se envió, y un
+identificador que el modelo no recibió tumba la respuesta entera en lugar de
+aparecer como nota al pie. No puede aprobar, rechazar ni cambiar un campo, y
+preguntar queda en la auditoría.
+
+![El buzón de preguntas, con el modelo y el presupuesto de llamadas](docs/img/06-ask.png)
+
+La generación viene apagada. `IEP_RAG_PROVIDER=cli` responde con `claude` o
+`codex` en esta misma máquina —un proveedor sólo para desarrollo, para poder
+mostrar el punto de integración sin clave de API— y `IEP_RAG_PROVIDER=openai`
+es la vía alojada que usaría un despliegue. En cualquier caso el buzón dice qué
+interruptor falta cuando está apagado, y cuántas llamadas ha gastado la
+aplicación frente al techo que se impone a sí misma. Véase [recuperación
+híbrida y RAG opcional](docs/es/rag.md).
+
 ## Documentación
 
 Toda la documentación existe en español y en inglés, con un selector de idioma en

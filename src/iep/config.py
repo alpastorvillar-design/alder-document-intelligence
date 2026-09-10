@@ -60,6 +60,21 @@ class Settings(BaseSettings):
     rag_max_context_chars: int = Field(default=12_000, ge=1000, le=50_000)
     allow_external_ai: bool = False
 
+    # `rag_provider="cli"` answers through an assistant CLI on the same host
+    # instead of a metered API. Development only - see `retrieval/rag_cli.py`
+    # for what that costs in exchange.
+    rag_cli_tool: str = "claude"
+    rag_cli_model: str = ""
+    rag_cli_timeout_seconds: float = Field(default=120.0, gt=0.0, le=600.0)
+    # A ceiling this process enforces on itself, counted from the audit trail
+    # over a rolling window. It is not the subscription's remaining quota: no
+    # API reports that, and inventing a number for it would be worse than
+    # saying so. 0 means no ceiling.
+    rag_call_budget: int = Field(default=40, ge=0, le=10_000)
+    rag_budget_window_days: int = Field(default=7, ge=1, le=90)
+    # The fraction of the ceiling at which calls stop rather than warn.
+    rag_budget_stop_fraction: float = Field(default=0.90, gt=0.0, le=1.0)
+
     registry_api_base_url: str = "http://localhost:8080"
     # Development default. A deployment supplies this from the environment;
     # the value here only ever reaches the local source simulator.
@@ -106,9 +121,17 @@ class Settings(BaseSettings):
     @field_validator("rag_provider")
     @classmethod
     def _known_rag_provider(cls, value: str) -> str:
-        allowed = {"disabled", "openai"}
+        allowed = {"disabled", "openai", "cli"}
         if value not in allowed:
             raise ValueError(f"rag_provider must be one of {sorted(allowed)}")
+        return value
+
+    @field_validator("rag_cli_tool")
+    @classmethod
+    def _known_rag_cli_tool(cls, value: str) -> str:
+        allowed = {"claude", "codex"}
+        if value not in allowed:
+            raise ValueError(f"rag_cli_tool must be one of {sorted(allowed)}")
         return value
 
     @field_validator("embedding_dimensions")

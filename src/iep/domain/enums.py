@@ -136,3 +136,7 @@ class AuditAction(StrEnum):
     DOSSIER_APPROVED = "DOSSIER_APPROVED"
     DOSSIER_REJECTED = "DOSSIER_REJECTED"
     REPORT_GENERATED = "REPORT_GENERATED"
+    # A read-only grounded answer. It changes nothing, which is exactly why it
+    # has to be recorded: otherwise the one thing a language model touched in
+    # this system leaves no trace, and the call budget has nothing to count.
+    EVIDENCE_QUESTION_ANSWERED = "EVIDENCE_QUESTION_ANSWERED"

@@ -64,7 +64,9 @@ def shell_vocabulary() -> set[str]:
 
 
 def pages() -> list[Path]:
-    return sorted(p for p in TEMPLATE_DIR.glob("*.html") if p.name != "_base.html")
+    """The screens. A leading underscore marks the shell and its partials,
+    which are included into a screen rather than served as one."""
+    return sorted(p for p in TEMPLATE_DIR.glob("*.html") if not p.name.startswith("_"))
 
 
 class TestNoPageRedefinesAShellClass:

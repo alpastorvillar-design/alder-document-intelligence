@@ -9,9 +9,10 @@ deletes an audit row.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from iep.db.models import AuditEvent
@@ -40,6 +41,21 @@ def record(
     )
     session.add(event)
     return event
+
+
+def count_since(session: Session, action: AuditAction, *, since: datetime) -> int:
+    """How many times this happened in a window, read from the trail itself.
+
+    The trail is append-only, so it is the one place a count cannot drift from
+    what actually occurred - no separate counter to keep in step, and nothing
+    to reset by restarting the process.
+    """
+    stmt = (
+        select(func.count())
+        .select_from(AuditEvent)
+        .where(AuditEvent.action == str(action), AuditEvent.created_at >= since)
+    )
+    return int(session.execute(stmt).scalar_one())
 
 
 def history(session: Session, dossier_id: uuid.UUID, *, limit: int = 500) -> list[AuditEvent]:

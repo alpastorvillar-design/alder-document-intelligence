@@ -127,6 +127,23 @@ whoever files it.
 
 ![The justification report, with the reconciliation table first](docs/img/05-report.png)
 
+**Asking the evidence** — the review and evidence screens carry the same
+read-only answer box. It retrieves the segments closest to the question and
+asks a model to draft an answer *citing them*; every citation is checked
+against what was actually sent, and an id the model was not given rejects the
+whole answer rather than appearing as a footnote. It cannot approve, reject or
+change a field, and asking is recorded in the audit trail.
+
+![The answer box, with the model and the call budget it runs under](docs/img/06-ask.png)
+
+Generation is off by default. `IEP_RAG_PROVIDER=cli` answers through `claude`
+or `codex` on the same host — a development-only provider, so the integration
+point can be shown without an API key — and `IEP_RAG_PROVIDER=openai` is the
+hosted path a deployment would use. Either way the box says which switch is
+missing when it is off, and how many calls the application has spent against
+the ceiling it enforces on itself. See [hybrid retrieval and optional
+RAG](docs/rag.md).
+
 ## Documentation
 
 Every document exists in English and Spanish, with a switcher on its first line.

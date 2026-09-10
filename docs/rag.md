@@ -94,6 +94,114 @@ querying. Re-indexing is idempotent: rows with the current configuration hash ar
 not billed or written again. Changing model or dimensions is a data migration
 and requires a fresh representative retrieval evaluation.
 
+## The answer box on the screen
+
+Both the review screen and the evidence screen carry the same panel, because
+they include the same partial and send the same request to the same read-only
+endpoint. It renders whether or not generation is switched on, and when it is
+off it says which switch is missing. That is deliberate: a hidden feature
+teaches nothing, and "off, and here is the switch" is what somebody seeing the
+boundary for the first time actually needs.
+
+![The answer box on the evidence screen](img/06-ask.png)
+
+What the panel shows, once an answer comes back:
+
+- whether the model considered the retrieved evidence **sufficient**, in those
+  words, because an answer drawn from thin evidence is a lead rather than a
+  fact;
+- every citation as its own block, with the document, the place inside it, and
+  the quoted fragment. The model never supplies a link - it names an evidence
+  id, and the id is resolved against what was actually sent to it;
+- how many retrieved segments were **withheld** because their document is
+  flagged as carrying instructions aimed at an automated reader;
+- the provider, the model, the retrieval mode, the citation count and the
+  prompt hash, so the answer on screen can be matched to the audit row.
+
+Asking a question is recorded. `EVIDENCE_QUESTION_ANSWERED` carries the
+question, the provider and model, how many segments were retrieved and
+withheld, the citations, whether the model claimed sufficiency, and the prompt
+version and hash. A read-only call is the easiest one to leave untraced, and
+then the one place a model touched the dossier is the only place with no
+record.
+
+## Answering through an assistant CLI
+
+`IEP_RAG_PROVIDER=cli` answers through `claude` or `codex` running on the same
+host, instead of a metered endpoint. It exists so the integration point can be
+demonstrated without an API key, it is **development only**, and it is off by
+default.
+
+```text
+IEP_RAG_PROVIDER=cli
+IEP_RAG_CLI_TOOL=claude          # or codex
+IEP_RAG_CLI_MODEL=              # empty means the CLI's own default
+IEP_RAG_CLI_TIMEOUT_SECONDS=120
+```
+
+The API runs in a container and the CLI is installed on the host, so **the API
+has to run on the host for this to work**. With the stack already up and
+seeded:
+
+```bash
+IEP_DATABASE_URL=postgresql+psycopg://iep:iep@127.0.0.1:55432/iep IEP_STORAGE_ROOT=var/objects IEP_REPORT_ROOT=var/reports IEP_REGISTRY_API_BASE_URL=http://127.0.0.1:8080 IEP_RAG_PROVIDER=cli IEP_RAG_CLI_TOOL=claude python -m uvicorn iep.api.app:create_app --factory --host 127.0.0.1 --port 8010
+```
+
+The object store lives in a Docker volume, so copy it out once if the evidence
+viewer should work in this mode too:
+
+```bash
+docker compose cp api:/var/lib/iep/objects var/
+docker compose cp api:/var/lib/iep/reports var/
+```
+
+`GET /dossiers/{id}/questions` reports whether the configured CLI is on this
+process's `PATH`, and the panel repeats it, so a misconfiguration reads as a
+sentence rather than as a failure to interpret.
+
+### What a subprocess costs, and what is done about it
+
+A subprocess is a wider door than an HTTP call. What the provider keeps:
+
+- `argv` is a list and the shell is never used, so no document text can become
+  a command;
+- the prompt travels on **stdin**, so nothing from a document lands in `argv`
+  either;
+- each call runs in an empty temporary directory, deleted afterwards - an
+  assistant started inside a repository takes that repository as context;
+- the CLI's own tools are disabled by flag, and its sandbox set to read-only
+  where it has one;
+- the call is bounded by a wall clock and the process is killed when it
+  expires.
+
+What it does not have is what a hosted endpoint gives for free: a
+schema-constrained reply. Asked for "the required structured output" the CLI
+answered correctly - in Markdown, with the fields written out in prose -
+because nothing had told it the shape. So the shape is spelled out in the
+instructions the CLI receives, and only there: the *rules* stay in the single
+prompt both providers share, where they cannot drift apart. Prose instead of
+JSON is then a failure rather than a guess, because accepting it would mean
+inventing the citations it never gave.
+
+### The call budget
+
+A ceiling this application enforces on itself, counted from the audit trail
+over a rolling window:
+
+```text
+IEP_RAG_CALL_BUDGET=40           # 0 means no ceiling
+IEP_RAG_BUDGET_WINDOW_DAYS=7
+IEP_RAG_BUDGET_STOP_FRACTION=0.90
+```
+
+At 90 % of the ceiling the next call is **refused**, not warned about, and the
+check runs before retrieval and before generation - refusing afterwards would
+spend the call it was meant to prevent.
+
+It is not the remaining quota of a subscription. Neither CLI publishes that,
+and a counter labelled as if it were would be worse than none, so the panel
+says what it is measuring: what this application has spent.
+
 ## What is and is not demonstrated
 
 Demonstrated locally: the pgvector extension and migration, 512-dimensional

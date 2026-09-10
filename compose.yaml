@@ -28,6 +28,12 @@ x-app: &app
     IEP_OPENAI_API_KEY: ${IEP_OPENAI_API_KEY:-}
     IEP_OPENAI_EMBEDDING_MODEL: ${IEP_OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
     IEP_RAG_PROVIDER: ${IEP_RAG_PROVIDER:-disabled}
+    # The `cli` provider needs the binary on the process's PATH, which a
+    # container does not have - it is passed through so the screen can say so
+    # rather than fail obscurely. docs/rag.md explains the host-side run.
+    IEP_RAG_CLI_TOOL: ${IEP_RAG_CLI_TOOL:-claude}
+    IEP_RAG_CLI_MODEL: ${IEP_RAG_CLI_MODEL:-}
+    IEP_RAG_CALL_BUDGET: ${IEP_RAG_CALL_BUDGET:-40}
     IEP_OPENAI_RAG_MODEL: ${IEP_OPENAI_RAG_MODEL:-gpt-4o-mini}
     IEP_ALLOW_EXTERNAL_AI: ${IEP_ALLOW_EXTERNAL_AI:-false}
     IEP_API_KEY: ${IEP_API_KEY:-}

@@ -12,7 +12,7 @@ import json
 import time
 from dataclasses import dataclass
 from importlib import resources
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -31,7 +31,7 @@ class RagConfigurationError(RagProviderError):
     retryable = False
 
 
-class _ProviderAnswer(BaseModel):
+class ProviderAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     answer: str = Field(min_length=1, max_length=2000)
@@ -39,7 +39,7 @@ class _ProviderAnswer(BaseModel):
     sufficient_evidence: bool
 
     @model_validator(mode="after")
-    def _citations_when_sufficient(self) -> _ProviderAnswer:
+    def _citations_when_sufficient(self) -> ProviderAnswer:
         if self.sufficient_evidence and not self.citations:
             raise ValueError("a supported answer needs at least one citation")
         return self
@@ -85,12 +85,12 @@ class OpenAIResponsesRagGenerator:
         self.transport = transport
 
     def generate(self, question: str, hits: list[EvidenceHit]) -> RagGeneration:
-        evidence = _bounded_evidence(hits, self.max_context_chars)
+        evidence = bounded_evidence(hits, self.max_context_chars)
         allowed_ids = {item["evidence_id"] for item in evidence}
-        system_prompt = _system_prompt()
+        instructions = system_prompt()
         payload: dict[str, object] = {
             "model": self.model,
-            "instructions": system_prompt,
+            "instructions": instructions,
             "input": json.dumps(
                 {"question": question, "EVIDENCE_JSON": evidence},
                 ensure_ascii=False,
@@ -123,7 +123,7 @@ class OpenAIResponsesRagGenerator:
         body = self._post(payload)
         raw_text = _output_text(body)
         try:
-            parsed = _ProviderAnswer.model_validate_json(raw_text)
+            parsed = ProviderAnswer.model_validate_json(raw_text)
         except ValidationError as exc:
             raise RagProviderError("The RAG provider returned an invalid answer contract.") from exc
         citation_ids = tuple(dict.fromkeys(parsed.citations))
@@ -142,7 +142,7 @@ class OpenAIResponsesRagGenerator:
             input_tokens=input_tokens if isinstance(input_tokens, int) else None,
             output_tokens=output_tokens if isinstance(output_tokens, int) else None,
             prompt_version=RAG_PROMPT_VERSION,
-            prompt_sha256=hashlib.sha256(system_prompt.encode("utf-8")).hexdigest(),
+            prompt_sha256=hashlib.sha256(instructions.encode("utf-8")).hexdigest(),
         )
 
     def _post(self, payload: dict[str, object]) -> dict[str, Any]:
@@ -189,9 +189,29 @@ class OpenAIResponsesRagGenerator:
         raise RagProviderError(f"The RAG provider failed after retries (HTTP {last_status}).")
 
 
-def build_rag_generator(settings: Settings) -> OpenAIResponsesRagGenerator:
+class RagGenerator(Protocol):
+    """What the endpoint needs from a generator, whatever it talks to."""
+
+    name: str
+
+    def generate(self, question: str, hits: list[EvidenceHit]) -> RagGeneration: ...
+
+
+def build_rag_generator(settings: Settings) -> RagGenerator:
     if settings.rag_provider == "disabled":
         raise RagConfigurationError("RAG generation is disabled.")
+    if settings.rag_provider == "cli":
+        # Imported here so the hosted path never pays for the subprocess
+        # module, and so a deployment that never enables this does not carry
+        # a development-only provider in its import graph.
+        from iep.retrieval.rag_cli import build_cli_generator
+
+        return build_cli_generator(
+            tool_name=settings.rag_cli_tool,
+            model=settings.rag_cli_model,
+            timeout_seconds=settings.rag_cli_timeout_seconds,
+            max_context_chars=settings.rag_max_context_chars,
+        )
     if not settings.allow_external_ai:
         raise RagConfigurationError(
             "Hosted RAG requires IEP_ALLOW_EXTERNAL_AI=true as an explicit data-egress opt-in."
@@ -207,7 +227,7 @@ def build_rag_generator(settings: Settings) -> OpenAIResponsesRagGenerator:
     )
 
 
-def _bounded_evidence(hits: list[EvidenceHit], max_chars: int) -> list[dict[str, object]]:
+def bounded_evidence(hits: list[EvidenceHit], max_chars: int) -> list[dict[str, object]]:
     remaining = max_chars
     evidence: list[dict[str, object]] = []
     for position, hit in enumerate(hits, start=1):
@@ -246,7 +266,7 @@ def _output_text(body: dict[str, Any]) -> str:
     raise RagProviderError("The RAG provider returned no output text.")
 
 
-def _system_prompt() -> str:
+def system_prompt() -> str:
     return (
         resources.files("iep.retrieval.prompts")
         .joinpath("rag_system.txt")

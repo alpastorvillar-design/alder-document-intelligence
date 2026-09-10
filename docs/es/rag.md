@@ -94,6 +94,112 @@ idempotente: un chunk con el hash actual no se factura ni escribe otra vez.
 Cambiar modelo o dimensión es una migración de datos y exige repetir la evaluación
 representativa de recuperación.
 
+## El buzón de preguntas en la pantalla
+
+La pantalla de revisión y la de evidencia llevan el mismo panel, porque
+incluyen el mismo fragmento y envían la misma petición al mismo endpoint de
+sólo lectura. Se muestra esté encendida o apagada la generación, y cuando está
+apagada dice qué interruptor falta. Es a propósito: una funcionalidad oculta no
+enseña nada, y «está apagada, y este es el interruptor» es justo lo que
+necesita quien ve esta frontera por primera vez.
+
+![El buzón de preguntas en la pantalla de evidencia](img/06-ask.png)
+
+Lo que muestra el panel cuando llega una respuesta:
+
+- si el modelo consideró **suficiente** la evidencia recuperada, con esas
+  palabras, porque una respuesta sacada de evidencia escasa es una pista y no
+  un dato;
+- cada cita en su propio bloque, con el documento, el sitio dentro de él y el
+  fragmento citado. El modelo nunca da el enlace: nombra un `evidence_id`, y
+  ese identificador se resuelve contra lo que realmente se le envió;
+- cuántos fragmentos recuperados se **retiraron** porque su documento está
+  marcado por llevar instrucciones dirigidas a un lector automático;
+- el proveedor, el modelo, el modo de recuperación, el número de citas y el
+  hash del prompt, para poder emparejar la respuesta de la pantalla con la
+  fila de la auditoría.
+
+Preguntar queda registrado. `EVIDENCE_QUESTION_ANSWERED` lleva la pregunta, el
+proveedor y el modelo, cuántos fragmentos se recuperaron y se retiraron, las
+citas, si el modelo declaró suficiencia, y la versión y el hash del prompt. Una
+llamada de sólo lectura es la más fácil de dejar sin rastro, y entonces el
+único sitio donde un modelo ha tocado el expediente es el único sin registro.
+
+## Responder a través de un CLI de asistente
+
+`IEP_RAG_PROVIDER=cli` responde usando `claude` o `codex` en esta misma
+máquina, en lugar de un endpoint de pago. Existe para poder demostrar el punto
+de integración sin clave de API, es **sólo para desarrollo**, y viene apagado.
+
+```text
+IEP_RAG_PROVIDER=cli
+IEP_RAG_CLI_TOOL=claude          # o codex
+IEP_RAG_CLI_MODEL=              # vacío = el modelo por defecto del CLI
+IEP_RAG_CLI_TIMEOUT_SECONDS=120
+```
+
+La API se ejecuta en un contenedor y el CLI está instalado en el host, así que
+**la API tiene que arrancarse en el host** para que esto funcione. Con el stack
+ya levantado y sembrado:
+
+```bash
+IEP_DATABASE_URL=postgresql+psycopg://iep:iep@127.0.0.1:55432/iep IEP_STORAGE_ROOT=var/objects IEP_REPORT_ROOT=var/reports IEP_REGISTRY_API_BASE_URL=http://127.0.0.1:8080 IEP_RAG_PROVIDER=cli IEP_RAG_CLI_TOOL=claude python -m uvicorn iep.api.app:create_app --factory --host 127.0.0.1 --port 8010
+```
+
+El almacén de objetos vive en un volumen de Docker, así que cópialo una vez si
+además quieres que funcione el visor de evidencias en este modo:
+
+```bash
+docker compose cp api:/var/lib/iep/objects var/
+docker compose cp api:/var/lib/iep/reports var/
+```
+
+`GET /dossiers/{id}/questions` dice si el CLI configurado está en el `PATH` de
+este proceso, y el panel lo repite, para que una mala configuración se lea como
+una frase en lugar de como un fallo que hay que interpretar.
+
+### Lo que cuesta un subproceso, y qué se hace al respecto
+
+Un subproceso es una puerta más ancha que una llamada HTTP. Lo que el proveedor
+mantiene:
+
+- `argv` es una lista y nunca se usa el shell, así que ningún texto de un
+  documento puede convertirse en un comando;
+- el prompt viaja por **stdin**, así que nada de un documento llega a `argv`;
+- cada llamada se ejecuta en un directorio temporal vacío que se borra después:
+  un asistente arrancado dentro de un repositorio se lo lleva como contexto;
+- las herramientas propias del CLI se desactivan por flag, y su sandbox se pone
+  en sólo lectura cuando lo tiene;
+- la llamada está acotada por reloj y el proceso se mata al expirar.
+
+Lo que no tiene es lo que un endpoint alojado da gratis: una respuesta
+restringida por esquema. Pidiéndole «la salida estructurada requerida», el CLI
+respondió correctamente —en Markdown, con los campos escritos en prosa— porque
+nada le había dicho cuál era la forma. Así que la forma se detalla en las
+instrucciones que recibe el CLI, y sólo ahí: las *reglas* siguen en el único
+prompt que comparten los dos proveedores, donde no pueden separarse. Prosa en
+lugar de JSON es entonces un fallo y no una suposición, porque aceptarla
+significaría inventar las citas que nunca dio.
+
+### El presupuesto de llamadas
+
+Un techo que la propia aplicación se impone, contado desde la auditoría sobre
+una ventana móvil:
+
+```text
+IEP_RAG_CALL_BUDGET=40           # 0 = sin techo
+IEP_RAG_BUDGET_WINDOW_DAYS=7
+IEP_RAG_BUDGET_STOP_FRACTION=0.90
+```
+
+Al 90 % del techo la siguiente llamada se **rechaza**, no se avisa, y la
+comprobación va antes de la recuperación y antes de la generación: rechazar
+después sería gastar la llamada que se pretendía evitar.
+
+No es el cupo restante de una suscripción. Ninguno de los dos CLI publica eso,
+y un contador etiquetado como si lo fuera sería peor que ninguno, así que el
+panel dice qué está midiendo: lo que ha gastado esta aplicación.
+
 ## Qué se demuestra y qué no
 
 Se demuestra localmente: extensión y migración pgvector, vectores de 512
