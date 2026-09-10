@@ -9,8 +9,12 @@
   y las fotos malas de móvil necesitan un banco de pruebas más amplio.
 - Los patrones de extracción apuntan a este contrato de fixture. No se afirma
   comprensión genérica de documentos.
-- La recuperación léxica se mide sobre unas pocas consultas conocidas. No hay
-  índice vectorial ni se afirma generación aumentada por recuperación.
+- Existen recuperación léxica, vectorial exacta e híbrida, pero el proveedor
+  determinista por hashing no es un modelo semántico aprendido. Todavía no se
+  ha publicado un benchmark representativo de recuperación semántica.
+- El adaptador RAG y sus controles de citas y salida de datos se prueban contra
+  dobles. No se afirma haber evaluado calidad con un modelo alojado ni ejecutado
+  una llamada de producción.
 - El proveedor semántico determinista no es la ejecución de un modelo alojado. El
   adaptador alojado opcional sólo tiene pruebas de contrato locales.
 - La clave de API es una guarda de demostración por secreto compartido; no hay

@@ -22,7 +22,7 @@ A modular monolith. One codebase, one container image, two processes:
  ┌─────────────┐        ┌──────────────┐        ┌──────────────┐
  │ PostgreSQL  │        │ object store │        │  external    │
  │ state, queue│        │ content-     │        │  sources     │
- │ audit, FTS  │        │ addressed    │        │ registry API │
+ │ FTS, vectors│        │ addressed    │        │ registry API │
  └─────────────┘        └──────────────┘        │ public page  │
                                                 └──────────────┘
 ```
@@ -56,7 +56,7 @@ already a separate process that can be run N times against the same queue.
 | `iep.pipeline` | the per-dossier orchestration | everything above |
 | `iep.review` | human decisions | domain, db |
 | `iep.reporting` | HTML report, JSON and CSV export | domain, db |
-| `iep.retrieval` | lexical evidence lookup | db |
+| `iep.retrieval` | lexical/vector/hybrid lookup; optional grounded generation | db |
 | `iep.worker` | queue and the worker loop | pipeline |
 | `iep.api` | HTTP surface, errors, idempotency, minimal review view | everything |
 
@@ -86,14 +86,17 @@ contract change is visible everywhere it matters and nowhere it does not.
 7. **Classify.** The semantic provider says what the document is. Only the
    classification is used; the provider's field proposals are not persisted as
    extractions.
-8. **Aggregate.** Sums are computed from stored extractions and recorded with a
+8. **Index.** Evidence chunks keep their locators, a Spanish full-text vector,
+   and—when configured—a 512-dimensional pgvector embedding. Unchanged chunks
+   with the same provider configuration are not embedded again.
+9. **Aggregate.** Sums are computed from stored extractions and recorded with a
    derived locator naming the rule and the inputs.
-9. **Validate.** Deterministic rules compare the report, the workbook, the
+10. **Validate.** Deterministic rules compare the report, the workbook, the
    receipts, the registry and the call page against each other.
-10. **Review.** The dossier moves to `NEEDS_REVIEW` — always, whether or not
+11. **Review.** The dossier moves to `NEEDS_REVIEW` — always, whether or not
     anything was found. A person corrects, confirms, accepts, dismisses,
     approves or rejects, each with a reason, each recorded.
-11. **Report.** HTML for a human, JSON and CSV for a system, both showing the
+12. **Report.** HTML for a human, JSON and CSV for a system, both showing the
     evidence and any correction next to the original reading.
 
 ## Decisions worth arguing about
@@ -105,10 +108,12 @@ Recorded as ADRs in [`adr/`](adr/):
 - [0003](adr/0003-deterministic-rules-not-a-model.md) — the model does not do arithmetic
 - [0004](adr/0004-lexical-retrieval-not-rag.md) — lexical search, and what would change that
 - [0005](adr/0005-no-agent-in-the-approval-path.md) — no agent between a document and an approval
+- [0006](adr/0006-hybrid-retrieval-and-opt-in-rag.md) — pgvector, hybrid ranking and the disabled-by-default RAG boundary
 
 ## What is not here
 
-No message broker, no vector database, no orchestration engine in the critical
-path, no microservices, no cloud. Each of those was considered and rejected in
-the ADRs or in [limitations.md](limitations.md), and adding one without a
-measured need would make the system harder to explain for no gain.
+No message broker, no agent, no orchestration engine in the critical path, no
+microservices, and no cloud deployment. pgvector shares the existing relational
+database; optional hosted embeddings and generation are outside the default
+offline path. The remaining omissions are recorded in the ADRs and in
+[limitations.md](limitations.md).

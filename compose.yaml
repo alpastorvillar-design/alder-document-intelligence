@@ -19,6 +19,17 @@ x-app: &app
     IEP_LLM_BASE_URL: ${IEP_LLM_BASE_URL:-http://devsources:8080}
     IEP_LLM_API_KEY: ${IEP_LLM_API_KEY:-}
     IEP_LLM_MODEL: ${IEP_LLM_MODEL:-claude-haiku-4-5}
+    # The deterministic hashing provider exercises the vector storage and
+    # hybrid-retrieval path offline. It is explicitly not described as a
+    # semantic model. Set both external-AI opt-in and an API key before using
+    # the hosted embedding or RAG providers.
+    IEP_EMBEDDING_PROVIDER: ${IEP_EMBEDDING_PROVIDER:-hashing}
+    IEP_OPENAI_BASE_URL: ${IEP_OPENAI_BASE_URL:-https://api.openai.com/v1}
+    IEP_OPENAI_API_KEY: ${IEP_OPENAI_API_KEY:-}
+    IEP_OPENAI_EMBEDDING_MODEL: ${IEP_OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+    IEP_RAG_PROVIDER: ${IEP_RAG_PROVIDER:-disabled}
+    IEP_OPENAI_RAG_MODEL: ${IEP_OPENAI_RAG_MODEL:-gpt-4o-mini}
+    IEP_ALLOW_EXTERNAL_AI: ${IEP_ALLOW_EXTERNAL_AI:-false}
     IEP_API_KEY: ${IEP_API_KEY:-}
     IEP_LOG_LEVEL: ${IEP_LOG_LEVEL:-INFO}
   volumes:
@@ -29,7 +40,7 @@ x-app: &app
 
 services:
   postgres:
-    image: postgres:17.11-bookworm
+    image: pgvector/pgvector:0.8.6-pg17-bookworm
     environment:
       POSTGRES_USER: iep
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iep}

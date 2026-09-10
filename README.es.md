@@ -33,6 +33,8 @@ Por eso el pipeline reparte el trabajo:
 | --- | --- |
 | Localizar texto, celdas y palabras en un escaneo | Extractores deterministas (PyMuPDF, openpyxl, Tesseract) |
 | Interpretar prosa, clasificar, proponer campos candidatos | Un proveedor semántico intercambiable |
+| Encontrar fragmentos de soporte | Recuperación léxica, pgvector exacta o híbrida |
+| Redactar desde fragmentos recuperados | Proveedor RAG opcional de solo lectura con ids de cita verificados |
 | Aritmética, elegibilidad, duplicados, cruce entre fuentes | Reglas deterministas y versionadas |
 | Cualquier cosa ambigua, de baja confianza o contradictoria | Una persona revisora, con la evidencia delante |
 | Aprobar o rechazar | Una persona, registrado en una auditoría append-only |
@@ -88,7 +90,8 @@ qué se está ejecutando, qué hace cada endpoint, cómo lanzar la demostración
 abrir n8n, y dónde encajan —y dónde no— el RAG y un modelo de lenguaje.
 
 - [Recorrido guiado](docs/es/recorrido.md) y
-  [demostración del LLM](docs/es/demostracion-llm.md)
+  [demostración del LLM](docs/es/demostracion-llm.md), además de
+  [recuperación híbrida y RAG opcional](docs/es/rag.md)
 - [Arquitectura](docs/es/arquitectura.md),
   [modelo de dominio](docs/es/modelo-de-dominio.md) y
   [flujo de trabajo](docs/es/workflow.md)

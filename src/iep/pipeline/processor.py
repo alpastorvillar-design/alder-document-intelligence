@@ -22,7 +22,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from sqlalchemy import delete, select
@@ -64,6 +64,7 @@ from iep.extraction.base import ExtractionError, FieldCandidate, TextChunk
 from iep.extraction.excel import EXTRACTOR_VERSION as EXCEL_EXTRACTOR_VERSION
 from iep.extraction.excel import Sheet, read_workbook
 from iep.observability import metrics
+from iep.retrieval.embeddings import build_embedding_provider, embed_in_batches
 from iep.semantic.protocol import (
     SemanticExtractor,
     SemanticFieldSpec,
@@ -221,7 +222,7 @@ def process_dossier(
         document_of_candidate,
         review_threshold=settings.review_confidence_threshold,
     )
-    chunks_written = _persist_chunks(session, dossier.id, outcomes)
+    chunks_written = _persist_chunks(session, dossier.id, outcomes, settings)
     stages["persist"] = time.monotonic() - stage
 
     session.flush()
@@ -588,30 +589,92 @@ def _persist_extractions(
 
 
 def _persist_chunks(
-    session: Session, dossier_id: uuid.UUID, outcomes: list[DocumentOutcome]
+    session: Session,
+    dossier_id: uuid.UUID,
+    outcomes: list[DocumentOutcome],
+    settings: Settings,
 ) -> int:
+    provider = build_embedding_provider(settings)
+    document_ids = [outcome.document_id for outcome in outcomes]
+    existing = {
+        (row.document_id, row.ordinal): row
+        for row in session.execute(
+            select(DocumentChunk).where(
+                DocumentChunk.dossier_id == dossier_id,
+                DocumentChunk.document_id.in_(document_ids),
+            )
+        ).scalars()
+    }
+    pending: list[tuple[uuid.UUID, TextChunk]] = []
+    provider_hash = provider.config_hash() if provider is not None else None
+    if provider is not None:
+        for outcome in outcomes:
+            for chunk in outcome.chunks:
+                current = existing.get((outcome.document_id, chunk.ordinal))
+                if (
+                    current is None
+                    or current.text != chunk.text
+                    or current.embedding_config_hash != provider_hash
+                    or current.embedding is None
+                ):
+                    pending.append((outcome.document_id, chunk))
+    vectors = (
+        embed_in_batches(
+            provider,
+            [chunk.text for _, chunk in pending],
+            batch_size=settings.embedding_batch_size,
+        )
+        if provider is not None
+        else []
+    )
+    pending_vectors = {
+        (document_id, chunk.ordinal): vector
+        for (document_id, chunk), vector in zip(pending, vectors, strict=True)
+    }
+
     total = 0
     for outcome in outcomes:
         active_ordinals: list[int] = []
         for chunk in outcome.chunks:
             active_ordinals.append(chunk.ordinal)
+            key = (outcome.document_id, chunk.ordinal)
+            values: dict[str, object] = {
+                "id": uuid.uuid4(),
+                "dossier_id": dossier_id,
+                "document_id": outcome.document_id,
+                "ordinal": chunk.ordinal,
+                "text": chunk.text,
+                "locator": chunk.locator.model_dump(mode="json"),
+            }
+            updates: dict[str, object] = {
+                "text": chunk.text,
+                "locator": chunk.locator.model_dump(mode="json"),
+            }
+            if key in pending_vectors and provider is not None:
+                embedded = {
+                    "embedding": pending_vectors[key],
+                    "embedding_provider": provider.name,
+                    "embedding_model": provider.model,
+                    "embedding_config_hash": provider_hash,
+                    "embedded_at": datetime.now(UTC),
+                }
+                values.update(embedded)
+                updates.update(embedded)
+            elif provider is None and (current := existing.get(key)) is not None:
+                if current.text != chunk.text:
+                    # A vector for old text must never survive a content change.
+                    cleared = {
+                        "embedding": None,
+                        "embedding_provider": None,
+                        "embedding_model": None,
+                        "embedding_config_hash": None,
+                        "embedded_at": None,
+                    }
+                    updates.update(cleared)
             session.execute(
                 pg_insert(DocumentChunk)
-                .values(
-                    id=uuid.uuid4(),
-                    dossier_id=dossier_id,
-                    document_id=outcome.document_id,
-                    ordinal=chunk.ordinal,
-                    text=chunk.text,
-                    locator=chunk.locator.model_dump(mode="json"),
-                )
-                .on_conflict_do_update(
-                    index_elements=["document_id", "ordinal"],
-                    set_={
-                        "text": chunk.text,
-                        "locator": chunk.locator.model_dump(mode="json"),
-                    },
-                )
+                .values(**values)
+                .on_conflict_do_update(index_elements=["document_id", "ordinal"], set_=updates)
             )
             total += 1
         stale = delete(DocumentChunk).where(DocumentChunk.document_id == outcome.document_id)

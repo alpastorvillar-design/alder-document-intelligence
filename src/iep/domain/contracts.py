@@ -327,3 +327,41 @@ class ProcessingRequest(BaseModel):
     # Absent means "use whatever the deployment is configured with". Present
     # means an operator is deliberately overriding it for one run.
     semantic_provider: Literal["deterministic", "llm"] | None = None
+
+
+class RagQuestion(BaseModel):
+    """A read-only grounded question over one dossier's indexed evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=2, max_length=500)
+    retrieval_mode: Literal["lexical", "vector", "hybrid"] = "hybrid"
+    top_k: int = Field(default=5, ge=1, le=10)
+
+
+class RagCitation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_id: str = Field(pattern=r"^E[1-9][0-9]*$")
+    document: str
+    document_id: UUID
+    ordinal: int = Field(ge=0)
+    text: str
+    locator: dict[str, Any]
+    where: str
+
+
+class RagAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str
+    answer: str
+    sufficient_evidence: bool
+    citations: list[RagCitation]
+    retrieval_mode: Literal["lexical", "vector", "hybrid"]
+    generation_provider: str
+    generation_model: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    prompt_version: str
+    prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")

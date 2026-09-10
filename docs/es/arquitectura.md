@@ -57,7 +57,7 @@ cola.
 | `iep.pipeline` | la orquestación por expediente | todo lo anterior |
 | `iep.review` | decisiones humanas | domain, db |
 | `iep.reporting` | informe HTML, exportación JSON y CSV | domain, db |
-| `iep.retrieval` | búsqueda léxica de evidencia | db |
+| `iep.retrieval` | búsqueda léxica/vectorial/híbrida; generación fundamentada opcional | db |
 | `iep.worker` | cola y bucle del worker | pipeline |
 | `iep.api` | superficie HTTP, errores, idempotencia, vista mínima de revisión | todo |
 
@@ -89,14 +89,18 @@ y en ninguno donde no.
 7. **Clasificar.** El proveedor semántico dice qué es el documento. Sólo se usa
    la clasificación; las propuestas de campo del proveedor no se persisten como
    extracciones.
-8. **Agregar.** Las sumas se calculan desde extracciones guardadas y se registran
+8. **Indexar.** Los fragmentos conservan sus localizadores, un vector de texto
+   completo en español y, si se configura, un embedding pgvector de 512
+   dimensiones. Un fragmento sin cambios y con la misma configuración no se
+   vuelve a embeber.
+9. **Agregar.** Las sumas se calculan desde extracciones guardadas y se registran
    con un localizador derivado que nombra la regla y las entradas.
-9. **Validar.** Reglas deterministas comparan la memoria, el Excel, los
+10. **Validar.** Reglas deterministas comparan la memoria, el Excel, los
    justificantes, el registro y la convocatoria entre sí.
-10. **Revisar.** El expediente pasa a `NEEDS_REVIEW` — siempre, se haya
+11. **Revisar.** El expediente pasa a `NEEDS_REVIEW` — siempre, se haya
     encontrado algo o no. Una persona corrige, confirma, acepta, descarta,
     aprueba o rechaza, cada acción con motivo y registrada.
-11. **Informar.** HTML para una persona, JSON y CSV para un sistema, ambos
+12. **Informar.** HTML para una persona, JSON y CSV para un sistema, ambos
     mostrando la evidencia y cualquier corrección junto a la lectura original.
 
 ## Decisiones que merece la pena discutir
@@ -108,11 +112,12 @@ Registradas como ADR en [`adr/`](adr/):
 - [0003](adr/0003-reglas-deterministas-no-un-modelo.md) — el modelo no hace aritmética
 - [0004](adr/0004-recuperacion-lexica-no-rag.md) — búsqueda léxica, y qué lo cambiaría
 - [0005](adr/0005-sin-agente-en-la-aprobacion.md) — ningún agente entre un documento y una aprobación
+- [0006](adr/0006-recuperacion-hibrida-y-rag-opcional.md) — pgvector, ranking híbrido y frontera RAG desactivada por defecto
 
 ## Lo que no hay
 
-Ni broker de mensajes, ni base de datos vectorial, ni motor de orquestación en
-el camino crítico, ni microservicios, ni nube. Cada una de esas piezas se
-consideró y se descartó en los ADR o en [limitaciones.md](limitaciones.md), y
-añadir una sin una necesidad medida haría el sistema más difícil de explicar sin
-ganar nada.
+Ni broker de mensajes, ni agente, ni motor de orquestación en el camino crítico,
+ni microservicios, ni despliegue en nube. pgvector comparte la base relacional;
+los embeddings alojados y la generación son opcionales y quedan fuera del camino
+offline predeterminado. Las ausencias restantes se registran en las ADR y en
+[limitaciones.md](limitaciones.md).

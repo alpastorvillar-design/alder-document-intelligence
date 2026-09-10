@@ -7,7 +7,7 @@
 The reference implementation protects document bytes, extracted business data,
 human decisions, reports, connector credentials, and the integrity of the audit
 trail. Its actors are an API caller, a reviewer, an operator, the worker, the
-local registry/page simulator, and an optional semantic provider.
+local registry/page simulator, and optional embedding and generation providers.
 
 The demonstration boundary is one trusted local operator and synthetic data.
 This is not an authorisation or multi-tenant design.
@@ -23,6 +23,7 @@ This is not an authorisation or multi-tenant design.
 | Server-side request forgery | scheme/port/host allowlist plus resolved-address checks | egress firewall, DNS pinning or proxy |
 | HTML structure drift | required selectors fail visibly; raw capture is hashed | monitored contract ownership and change alerts |
 | Prompt injection or invented fields | untrusted-data delimiters, typed schema, grounding, deterministic rules, human approval | provider governance, redaction, adversarial evaluation |
+| RAG data leakage or invented citation | explicit egress opt-in, dossier-scoped top-k, context cap, no tools, strict output, citation allowlist | per-user authorisation, DLP, provider residency/retention controls, groundedness evaluation |
 | Duplicate/concurrent actions | scoped idempotency keys, database uniqueness, conditional transitions, row locks, leases and fencing | distributed load testing and SLOs |
 | Cross-dossier data mixing | every query and uniqueness boundary carries dossier id; dedicated tests | tenant-level database policies |
 | Secret or personal-data leakage | no committed secrets, structured errors, local-only ports, synthetic corpus, history scan | secret manager, redaction/DLP, access logging |

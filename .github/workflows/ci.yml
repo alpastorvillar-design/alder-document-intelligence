@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       postgres:
-        image: postgres:17.11-bookworm
+        image: pgvector/pgvector:0.8.6-pg17-bookworm
         env:
           POSTGRES_USER: iep
           POSTGRES_PASSWORD: iep
@@ -90,7 +90,7 @@ jobs:
     needs: integration
     services:
       postgres:
-        image: postgres:17.11-bookworm
+        image: pgvector/pgvector:0.8.6-pg17-bookworm
         env:
           POSTGRES_USER: iep
           POSTGRES_PASSWORD: iep

@@ -40,6 +40,7 @@ from iep.extraction.base import ExtractionError
 from iep.logging import configure_logging, log_context
 from iep.observability import metrics
 from iep.pipeline.processor import finalise_state, process_dossier
+from iep.retrieval.embeddings import EmbeddingProviderError
 from iep.semantic.protocol import SemanticExtractor, SemanticProviderError
 from iep.storage.local import LocalObjectStore
 from iep.worker import queue
@@ -47,7 +48,14 @@ from iep.worker import queue
 log = logging.getLogger(__name__)
 
 # Errors worth another attempt. Anything else is a property of the input.
-RETRYABLE = (ConnectorError, ScraperError, SemanticProviderError, ExtractionError, OSError)
+RETRYABLE = (
+    ConnectorError,
+    ScraperError,
+    SemanticProviderError,
+    EmbeddingProviderError,
+    ExtractionError,
+    OSError,
+)
 
 
 def build_semantic_provider(settings: Settings) -> SemanticExtractor:

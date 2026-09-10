@@ -31,6 +31,8 @@ from iep.ingestion.service import IngestionRejectedError, accepts_documents, ing
 from iep.logging import configure_logging
 from iep.pipeline.processor import finalise_state, process_dossier
 from iep.reporting import render
+from iep.retrieval.embeddings import EmbeddingProviderError
+from iep.retrieval.indexing import reindex_dossier
 from iep.semantic.protocol import SemanticProviderError
 from iep.storage.local import LocalObjectStore
 from iep.worker.runner import build_semantic_provider
@@ -138,34 +140,40 @@ def process(reference: str, *, provider: str | None) -> int:
         print(f"cannot use the '{settings.semantic_provider}' provider: {exc}", file=sys.stderr)
         return 3
 
-    with session_scope() as session:
-        dossier = dossiers.get_by_reference(session, reference)
-        if dossier is None:
-            print(f"no dossier with reference {reference}", file=sys.stderr)
-            return 1
-        # Walk the same states the worker walks, so a foreground run and a
-        # queued run leave the dossier in the same place.
-        if DossierStatus(dossier.status) not in (
-            DossierStatus.INGESTED,
-            DossierStatus.NEEDS_REVIEW,
-            DossierStatus.FAILED,
-        ):
-            print(
-                f"dossier {reference} cannot be processed from {dossier.status}",
-                file=sys.stderr,
-            )
-            return 2
-        if DossierStatus(dossier.status) in (
-            DossierStatus.INGESTED,
-            DossierStatus.NEEDS_REVIEW,
-            DossierStatus.FAILED,
-        ):
-            dossiers.transition(session, dossier, DossierStatus.QUEUED, reason="cli process")
-        if DossierStatus(dossier.status) is DossierStatus.QUEUED:
-            dossiers.transition(session, dossier, DossierStatus.PROCESSING, reason="cli process")
+    try:
+        with session_scope() as session:
+            dossier = dossiers.get_by_reference(session, reference)
+            if dossier is None:
+                print(f"no dossier with reference {reference}", file=sys.stderr)
+                return 1
+            # Walk the same states the worker walks, so a foreground run and a
+            # queued run leave the dossier in the same place.
+            if DossierStatus(dossier.status) not in (
+                DossierStatus.INGESTED,
+                DossierStatus.NEEDS_REVIEW,
+                DossierStatus.FAILED,
+            ):
+                print(
+                    f"dossier {reference} cannot be processed from {dossier.status}",
+                    file=sys.stderr,
+                )
+                return 2
+            if DossierStatus(dossier.status) in (
+                DossierStatus.INGESTED,
+                DossierStatus.NEEDS_REVIEW,
+                DossierStatus.FAILED,
+            ):
+                dossiers.transition(session, dossier, DossierStatus.QUEUED, reason="cli process")
+            if DossierStatus(dossier.status) is DossierStatus.QUEUED:
+                dossiers.transition(
+                    session, dossier, DossierStatus.PROCESSING, reason="cli process"
+                )
 
-        result = process_dossier(session, store, settings, dossier=dossier, semantic=semantic)
-        status = finalise_state(session, dossier)
+            result = process_dossier(session, store, settings, dossier=dossier, semantic=semantic)
+            status = finalise_state(session, dossier)
+    except EmbeddingProviderError as exc:
+        print(f"cannot index evidence with '{settings.embedding_provider}': {exc}", file=sys.stderr)
+        return 3
 
     print(
         json.dumps(
@@ -216,6 +224,35 @@ def report(reference: str) -> int:
     return 0
 
 
+def reindex(reference: str) -> int:
+    """Refresh only evidence vectors; extraction, rules and state do not run."""
+    settings = get_settings()
+    try:
+        with session_scope() as session:
+            dossier = dossiers.get_by_reference(session, reference)
+            if dossier is None:
+                print(f"no dossier with reference {reference}", file=sys.stderr)
+                return 1
+            result = reindex_dossier(session, dossier.id, settings)
+    except EmbeddingProviderError as exc:
+        print(f"cannot index evidence with '{settings.embedding_provider}': {exc}", file=sys.stderr)
+        return 3
+    print(
+        json.dumps(
+            {
+                "reference": reference,
+                "chunks_seen": result.chunks_seen,
+                "chunks_updated": result.chunks_updated,
+                "embedding_provider": result.provider,
+                "embedding_model": result.model,
+                "embedding_config_hash": result.config_hash,
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
 def status() -> int:
     with session_scope() as session:
         counts = {
@@ -256,6 +293,11 @@ def main() -> int:
     report_parser = sub.add_parser("report", help="render and store the HTML report")
     report_parser.add_argument("--reference", required=True)
 
+    reindex_parser = sub.add_parser(
+        "reindex", help="refresh evidence vectors without re-running document extraction"
+    )
+    reindex_parser.add_argument("--reference", required=True)
+
     reset_parser = sub.add_parser(
         "reset", help="delete one dossier so it can be seeded again (destructive)"
     )
@@ -272,6 +314,8 @@ def main() -> int:
         return process(args.reference, provider=args.provider)
     if args.command == "report":
         return report(args.reference)
+    if args.command == "reindex":
+        return reindex(args.reference)
     if args.command == "reset":
         return reset(args.reference)
     return status()

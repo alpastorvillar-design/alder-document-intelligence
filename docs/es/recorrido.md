@@ -260,36 +260,35 @@ Necesitas el idioma `spa`. El instalador de UB-Mannheim lo ofrece en
 **No es necesario para la demostración**: la aplicación corre dentro del
 contenedor, que ya incluye el motor OCR y los datos del idioma español.
 
-## 8. Dónde encaja el RAG (y por qué aquí no lo llamamos así)
+## 8. Recuperación y frontera RAG opcional
 
 **RAG** = *Retrieval-Augmented Generation*: recuperas fragmentos relevantes y se
 los das a un modelo **para que genere** una respuesta apoyada en ellos.
 
-Este proyecto hace la primera mitad y **no** la segunda:
+El índice de evidencia ofrece tres modos:
 
 - Trocea cada documento en segmentos, **cada uno con su localizador**.
-- Los indexa con búsqueda de texto completo de PostgreSQL (`tsvector`, en español).
-- `GET /dossiers/{id}/evidence?q=periodo de ejecucion` devuelve los k mejores
-  segmentos, de forma reproducible.
+- texto completo de PostgreSQL en español para términos exactos;
+- coseno exacto sobre un `vector(512)` almacenado con pgvector;
+- fusión por rango recíproco de las listas lexical y vectorial.
 
-Nada genera texto a partir de eso. Por eso el documento se llama *recuperación
-de evidencia* y no RAG: llamarlo RAG sería afirmar algo que el código no hace, y
-cualquiera que lea el código lo detecta en una pregunta.
+`GET /dossiers/{id}/evidence?q=periodo de ejecucion&mode=hybrid` devuelve los
+top-k con sus localizadores. Eso es solo recuperación.
 
-**Cuándo sería RAG de verdad aquí.** Si añadiéramos "redacta el borrador del
-informe de justificación citando la evidencia": recuperas los segmentos, se los
-pasas al modelo, y el modelo escribe un texto **citando** localizadores. Eso sí
-es generación aumentada por recuperación, y sería una extensión natural.
+`POST /dossiers/{id}/questions` sí es RAG: recupera evidencia, entrega fragmentos
+acotados a un generador alojado y devuelve un borrador con ids de cita. Está
+desactivado por defecto, es de solo lectura, no tiene herramientas y no puede
+aprobar ni cambiar un expediente.
 
-**Cuándo harían falta embeddings.** La búsqueda léxica falla cuando el usuario
-pregunta con palabras distintas a las del documento ("plazo de ejecución" contra
-"periodo de ejecución"). Con un corpus controlado y vocabulario administrativo
-estable, léxico basta y es más barato, más rápido y explicable. En cuanto haya
-consultas en lenguaje natural sobre miles de expedientes con redacciones
-heterogéneas, los embeddings se justifican — y `pgvector` los pondría en la
-misma base de datos, sin infraestructura nueva.
+Los vectores por hashing predeterminados prueban offline la base y el ranking,
+pero no son un modelo semántico aprendido. El proveedor alojado de embeddings se
+activa aparte y debe evaluarse con paráfrasis representativas antes de afirmar
+calidad. Se usa búsqueda exacta porque este corpus no justifica un índice
+aproximado.
 
-Está razonado en [ADR 0004](adr/0004-recuperacion-lexica-no-rag.md).
+Los comandos, controles y límites están en
+[Recuperación híbrida y RAG opcional](rag.md); el cambio se registra en la
+[ADR 0006](adr/0006-recuperacion-hibrida-y-rag-opcional.md).
 
 ## 9. Ver el modelo de lenguaje funcionando
 
@@ -305,10 +304,10 @@ contra dobles inyectados. Se puede activar, y en
 [`docs/es/demostracion-llm.md`](demostracion-llm.md) está el procedimiento
 exacto, con lo que cuesta y con qué mirar.
 
-Lo importante: **el modelo sólo clasifica**. Sus propuestas
-de campo no se guardan como extracciones, y ninguna regla compara nunca contra
-algo que haya producido un modelo. Por eso un documento que intente dar
-instrucciones al sistema no puede mover una cifra — hay una prueba que lo fija.
+El modelo de extracción semántica solo clasifica; sus campos propuestos no se
+persisten y ninguna regla compara cifras producidas por él. El modelo RAG
+separado puede redactar un borrador con citas, pero no tiene herramientas ni
+ruta de escritura. Ninguno puede mover cifras ni aprobar un expediente.
 
 ## 10. Si algo va mal
 

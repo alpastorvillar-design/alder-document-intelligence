@@ -8,7 +8,7 @@ La implementación de referencia protege los bytes de los documentos, los datos
 de negocio extraídos, las decisiones humanas, los informes, las credenciales de
 los conectores y la integridad del registro de auditoría. Sus actores son un
 cliente de la API, quien revisa, quien opera, el worker, el simulador local de
-registro y página, y un proveedor semántico opcional.
+registro y página, y proveedores opcionales de embeddings y generación.
 
 La frontera de la demostración es **un operador local de confianza y datos
 sintéticos**. Esto no es un diseño de autorización ni multi-cliente.
@@ -24,6 +24,7 @@ sintéticos**. Esto no es un diseño de autorización ni multi-cliente.
 | Falsificación de petición desde el servidor (SSRF) | lista de permitidos de esquema, puerto y host más comprobación de la dirección resuelta | cortafuegos de salida, fijación de DNS o proxy |
 | Deriva de la estructura HTML | los selectores obligatorios fallan de forma visible; la captura cruda se hashea | propiedad del contrato monitorizada y alertas de cambio |
 | Inyección de prompt o campos inventados | delimitadores de dato no confiable, esquema tipado, fundamentación, reglas deterministas, aprobación humana | gobernanza del proveedor, redacción, evaluación adversarial |
+| Fuga RAG o cita inventada | consentimiento explícito de salida, top-k acotado al expediente, límite de contexto, sin herramientas, salida estricta y allowlist de citas | autorización por usuario, DLP, residencia/retención del proveedor y evaluación de fundamentación |
 | Acciones duplicadas o concurrentes | claves de idempotencia con ámbito, unicidad en base de datos, transiciones condicionales, bloqueos de fila, leases y vallado | pruebas de carga distribuida y SLO |
 | Mezcla de datos entre expedientes | cada consulta y cada frontera de unicidad llevan el id de expediente; pruebas dedicadas | políticas de base de datos a nivel de cliente |
 | Fuga de secretos o datos personales | sin secretos en el repositorio, errores estructurados, puertos sólo locales, corpus sintético, escaneo del historial | gestor de secretos, redacción/DLP, registro de accesos |

@@ -2,7 +2,7 @@
 
 # ADR 0004: Empezar por recuperación léxica de evidencia
 
-**Estado:** aceptado
+**Estado:** reemplazado por [ADR 0006](0006-recuperacion-hibrida-y-rag-opcional.md)
 
 ## Contexto
 
@@ -22,3 +22,7 @@ El sistema es barato, local, determinista y fácil de inspeccionar. Se le
 escaparán las paráfrasis semánticas. Añadir embeddings sólo después de que un
 conjunto representativo de consultas muestre fallos léxicos materiales, y después
 de diseñar los controles de privacidad, ciclo de vida y evaluación.
+
+La ruta léxica sigue siendo el baseline para términos exactos. La ADR 0006
+registra la incorporación posterior de pgvector y de una generación fundamentada
+que se habilita por separado.

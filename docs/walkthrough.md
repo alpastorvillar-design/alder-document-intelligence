@@ -262,36 +262,35 @@ You need the `spa` language. The UB-Mannheim installer offers it under
 **It is not required for the demonstration**: the application runs inside the
 container, which already has the OCR engine and Spanish language data.
 
-## 8. Where retrieval fits (and why this is not called RAG)
+## 8. Retrieval and the optional RAG boundary
 
 **RAG** = *Retrieval-Augmented Generation*: you retrieve relevant fragments and
 hand them to a model **so that it generates** an answer grounded in them.
 
-This project does the first half and **not** the second:
+The evidence index supports three retrieval modes:
 
 - It splits each document into segments, **each with its locator**.
-- It indexes them with PostgreSQL full-text search (`tsvector`, Spanish).
-- `GET /dossiers/{id}/evidence?q=periodo de ejecucion` returns the top-k
-  segments, reproducibly.
+- PostgreSQL Spanish full-text search for exact terms;
+- exact cosine search over a `vector(512)` stored by pgvector;
+- reciprocal-rank fusion of the lexical and vector lists.
 
-Nothing generates text from that. So the document calls it *evidence retrieval*
-rather than RAG: calling it RAG would claim something the code does not do, and
-anyone reading the code would catch it in one question.
+`GET /dossiers/{id}/evidence?q=periodo de ejecucion&mode=hybrid` returns the
+top-k segments with locators. It is retrieval only.
 
-**When it would genuinely be RAG here.** If we added "draft the justification
-report citing the evidence": retrieve the segments, pass them to the model, and
-the model writes prose **citing** locators. That is retrieval-augmented
-generation, and it is a natural extension.
+`POST /dossiers/{id}/questions` is RAG: it retrieves evidence and passes those
+bounded fragments to a hosted generator, which returns a draft plus citation
+ids. It is disabled by default, read-only, tool-free and cannot approve or change
+an expediente.
 
-**When embeddings would be justified.** Lexical search fails when the user asks
-with different words from the document ("plazo de ejecución" against "periodo de
-ejecución"). With a controlled corpus and stable administrative vocabulary,
-lexical is enough and is cheaper, faster and explainable. As soon as there are
-natural-language questions across thousands of dossiers with heterogeneous
-wording, embeddings earn their place - and `pgvector` would put them in the same
-database, with no new infrastructure.
+The default feature-hashing vectors prove the database and ranking path offline,
+but are not a learned semantic model. A hosted embedding provider is separately
+opted in and must be evaluated on representative paraphrases before any quality
+claim. Exact search is used because this corpus does not justify an approximate
+index.
 
-The reasoning is in [ADR 0004](adr/0004-lexical-retrieval-not-rag.md).
+The commands, controls and honest claim boundary are in
+[Hybrid retrieval and optional RAG](rag.md); the change is recorded by
+[ADR 0006](adr/0006-hybrid-retrieval-and-opt-in-rag.md).
 
 ## 9. Seeing the language model run
 
@@ -307,10 +306,10 @@ injected doubles and executed against a local simulator.
 [`docs/llm-demo.md`](llm-demo.md) has the exact procedure, the cost, and what to
 watch.
 
-The point that matters: **the model only classifies.** Its field proposals are
-not persisted as extractions, and no rule ever compares against something a
-model produced. That is why a document that tries to instruct the system cannot
-move a figure - a test pins it.
+The semantic-extraction model only classifies; its proposed fields are not
+persisted and no rule compares model-produced figures. The separate RAG model
+may draft a cited answer, but it has no tools and no write path. Neither model
+can move a figure or approve a dossier.
 
 ## 10. If something goes wrong
 

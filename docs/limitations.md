@@ -8,8 +8,11 @@
   multi-page tables, rotations, and poor mobile photos need a broader benchmark.
 - Extraction patterns target this fixture contract. There is no generic document
   understanding claim.
-- Lexical retrieval is measured on a few known queries. There is no vector index
-  and no retrieval-augmented generation claim.
+- Lexical, exact vector and hybrid retrieval exist, but the deterministic
+  feature-hashing provider is not a learned semantic model. No representative
+  semantic-retrieval benchmark has been published yet.
+- The RAG adapter and its citation/egress controls are tested against doubles.
+  No hosted answer-quality evaluation or production call is claimed.
 - The deterministic semantic provider is not a hosted model run. The optional
   hosted adapter has only local contract tests.
 - The API key is a shared-secret demo guard; there is no user, role, tenant, or

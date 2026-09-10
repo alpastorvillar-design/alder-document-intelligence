@@ -32,6 +32,8 @@ So the pipeline splits the work:
 | --- | --- |
 | Locating text, cells, and words on a scan | Deterministic extractors (PyMuPDF, openpyxl, Tesseract) |
 | Interpreting prose, classifying, proposing candidate fields | A pluggable semantic provider |
+| Finding supporting passages | Lexical, exact pgvector, or hybrid retrieval |
+| Drafting an answer from retrieved passages | Optional read-only RAG provider with verified citation ids |
 | Arithmetic, eligibility, duplicates, cross-source reconciliation | Deterministic, versioned rules |
 | Anything ambiguous, low-confidence or contradictory | A human reviewer, with the evidence in front of them |
 | Approving or rejecting | A human, recorded in an append-only audit trail |
@@ -83,7 +85,8 @@ running, what every endpoint does, how to launch the demo, how to open n8n, and
 where retrieval and a language model do and do not fit.
 
 - [Guided walkthrough](docs/walkthrough.md) and
-  [LLM demonstration](docs/llm-demo.md)
+  [LLM demonstration](docs/llm-demo.md), plus
+  [hybrid retrieval and optional RAG](docs/rag.md)
 - [Architecture](docs/architecture.md), [domain model](docs/domain-model.md),
   and [workflow](docs/workflow.md)
 - [Ingestion and provenance](docs/ingestion-and-provenance.md),

@@ -27,6 +27,7 @@ dependencies = [
   "openpyxl==3.1.5",
   "beautifulsoup4==4.14.2",
   "anthropic==1.4.0",
+  "pgvector==0.5.0",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +47,12 @@ iep = "iep.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-iep = ["reporting/templates/*.html", "semantic/prompts/*.txt", "api/templates/*.html"]
+iep = [
+  "reporting/templates/*.html",
+  "semantic/prompts/*.txt",
+  "retrieval/prompts/*.txt",
+  "api/templates/*.html",
+]
 devsources = ["templates/*.html", "data/*.json"]
 
 [tool.ruff]

@@ -10,6 +10,7 @@ on its first line.
 | Document | What it answers |
 | --- | --- |
 | [Guided walkthrough](walkthrough.md) | What is running, what every endpoint does, how to launch the demo, how to open n8n, where retrieval fits |
+| [Hybrid retrieval and optional RAG](rag.md) | pgvector, embeddings, retrieval modes, grounded answers and safe hosted testing |
 | [LLM demonstration](llm-demo.md) | How to watch the hosted-model path run — free against a local simulator, or against a real model for cents |
 | [Five-minute demo script](demo.md) | What to show, in what order, and what to say about it |
 
@@ -44,6 +45,7 @@ on its first line.
 | [0003](adr/0003-deterministic-rules-not-a-model.md) | The model does not do arithmetic |
 | [0004](adr/0004-lexical-retrieval-not-rag.md) | Lexical search, and what would change that |
 | [0005](adr/0005-no-agent-in-the-approval-path.md) | No agent between a document and an approval |
+| [0006](adr/0006-hybrid-retrieval-and-opt-in-rag.md) | Hybrid retrieval and an opt-in grounded-generation boundary |
 
 Also: [`automation/n8n/README.md`](../automation/n8n/README.md) for the optional
 workflow.

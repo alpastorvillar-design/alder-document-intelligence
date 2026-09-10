@@ -88,6 +88,13 @@ leave a record claiming something happened.
 A rendered HTML report with its content hash, the dossier state at the time, and
 the counts it was generated from.
 
+### Document chunk
+
+A bounded text segment tied to a dossier and document, with its original
+locator, Spanish full-text search vector and an optional `vector(512)` embedding.
+Provider, model, configuration hash and timestamp make re-indexing inspectable
+and prevent queries from mixing incompatible vector spaces.
+
 ### API error
 
 The only failure shape a client sees: `error`, `message`, `correlation_id`, and

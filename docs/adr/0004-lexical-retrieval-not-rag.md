@@ -2,7 +2,7 @@
 
 # ADR 0004: Start with lexical evidence retrieval
 
-**Status:** accepted
+**Status:** superseded by [ADR 0006](0006-hybrid-retrieval-and-opt-in-rag.md)
 
 ## Context
 
@@ -21,3 +21,6 @@ The system is cheap, local, deterministic, and easy to inspect. It will miss
 semantic paraphrases. Add embeddings only after a representative query set shows
 material lexical failures and after privacy, lifecycle, and evaluation controls
 are designed.
+
+The lexical path remains the exact-term baseline. ADR 0006 records the later
+addition of pgvector and a separately enabled grounded-generation path.

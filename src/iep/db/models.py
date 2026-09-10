@@ -17,6 +17,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
+from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     CheckConstraint,
     Computed,
@@ -35,6 +36,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from iep.config import EMBEDDING_DIMENSIONS
 from iep.domain.enums import (
     DecisionAction,
     DocumentKind,
@@ -325,11 +327,7 @@ class IdempotencyRecord(Base):
 
 
 class DocumentChunk(Base):
-    """Text segments with locators, used for evidence lookup.
-
-    This is lexical search over the dossier's own documents. It is not RAG:
-    nothing generates text from these rows.
-    """
+    """Text segments with locators, lexical terms and an optional vector."""
 
     __tablename__ = "document_chunks"
 
@@ -348,6 +346,11 @@ class DocumentChunk(Base):
     search_vector: Mapped[str] = mapped_column(
         postgresql.TSVECTOR, Computed("to_tsvector('spanish', text)", persisted=True)
     )
+    embedding: Mapped[list[float] | None] = mapped_column(VECTOR(EMBEDDING_DIMENSIONS))
+    embedding_provider: Mapped[str | None] = mapped_column(String(32))
+    embedding_model: Mapped[str | None] = mapped_column(String(120))
+    embedding_config_hash: Mapped[str | None] = mapped_column(String(64))
+    embedded_at: Mapped[datetime | None] = mapped_column(TS)
 
     __table_args__ = (
         UniqueConstraint("document_id", "ordinal", name="uq_chunk_document_ordinal"),

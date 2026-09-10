@@ -9,14 +9,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from iep.api.deps import db_session, require_api_key, settings_dep
-from iep.api.errors import NotFoundError
+from iep.api.errors import NotFoundError, ServiceUnavailableError
 from iep.audit import service as audit
 from iep.config import Settings
 from iep.db.models import Report as ReportRow
-from iep.domain.contracts import AuditEvent, DossierReport
+from iep.domain.contracts import AuditEvent, DossierReport, RagAnswer, RagCitation, RagQuestion
 from iep.dossiers import service as dossiers
 from iep.reporting import render
 from iep.retrieval import search as retrieval
+from iep.retrieval.embeddings import EmbeddingProviderError, build_embedding_provider
+from iep.retrieval.rag import RagProviderError, build_rag_generator
 
 router = APIRouter(tags=["artifacts"], dependencies=[Depends(require_api_key)])
 
@@ -162,28 +164,75 @@ def find_evidence(
     q: str = Query(min_length=2, max_length=200),
     limit: int = Query(default=5, ge=1, le=50),
     session: Session = Depends(db_session),
+    settings: Settings = Depends(settings_dep),
+    mode: retrieval.SearchMode = Query(default="lexical"),
 ) -> dict[str, object]:
-    """PostgreSQL Spanish full-text search over the dossier's own segments.
+    """Search only this dossier, returning the original evidence locators.
 
-    Every hit comes back with its locator and a readable `where`, so the
-    answer is a place in a document rather than a paraphrase.
-
-    This is **retrieval, not RAG**: nothing generates text from the result.
-    Calling it retrieval-augmented generation would claim something the code
-    does not do. What would justify embeddings, and what would make this RAG,
-    is argued in `docs/adr/0004-lexical-retrieval-not-rag.md`.
+    `lexical` uses Spanish PostgreSQL full-text search. `vector` uses exact
+    pgvector cosine distance. `hybrid` combines both rankings with RRF. This
+    endpoint is retrieval, not generation; the separate questions endpoint is
+    the optional RAG boundary.
     """
     dossiers.get(session, dossier_id)
-    hits = retrieval.search(session, dossier_id, q, limit=limit)
+    provider = None
+    if mode == "lexical":
+        hits = retrieval.search(session, dossier_id, q, limit=limit)
+        method = "postgresql Spanish full-text search"
+    else:
+        try:
+            provider = build_embedding_provider(settings)
+            if provider is None:
+                raise ServiceUnavailableError(
+                    "Vector retrieval is disabled. Configure an embedding provider first."
+                )
+            query_vector = provider.embed([q]).vectors[0]
+            if mode == "vector":
+                hits = retrieval.vector_search(
+                    session,
+                    dossier_id,
+                    query_vector,
+                    embedding_config_hash=provider.config_hash(),
+                    limit=limit,
+                )
+                method = "exact pgvector cosine search"
+            else:
+                hits = retrieval.hybrid_search(
+                    session,
+                    dossier_id,
+                    q,
+                    query_vector,
+                    embedding_config_hash=provider.config_hash(),
+                    limit=limit,
+                )
+                method = "reciprocal-rank fusion of lexical and pgvector search"
+        except EmbeddingProviderError as exc:
+            raise ServiceUnavailableError("Vector retrieval is unavailable.") from exc
     return {
         "query": q,
-        "method": "postgresql full-text search over document segments",
+        "mode": mode,
+        "method": method,
+        "embedding": (
+            {
+                "provider": provider.name,
+                "model": provider.model,
+                "learned_model": provider.name != "hashing",
+            }
+            if provider is not None
+            else None
+        ),
         "results": [
             {
                 "document": hit.document_name,
                 "document_id": str(hit.document_id),
                 "ordinal": hit.ordinal,
                 "rank": round(hit.rank, 6),
+                "lexical_rank": (
+                    round(hit.lexical_rank, 6) if hit.lexical_rank is not None else None
+                ),
+                "vector_similarity": (
+                    round(hit.vector_similarity, 6) if hit.vector_similarity is not None else None
+                ),
                 "text": hit.text,
                 "locator": hit.locator,
                 "where": render.describe_locator(hit.locator),
@@ -191,3 +240,88 @@ def find_evidence(
             for hit in hits
         ],
     }
+
+
+@router.post(
+    "/dossiers/{dossier_id}/questions",
+    response_model=RagAnswer,
+    summary="Draft a cited answer from this dossier's evidence",
+)
+def answer_evidence_question(
+    dossier_id: uuid.UUID,
+    request: RagQuestion,
+    session: Session = Depends(db_session),
+    settings: Settings = Depends(settings_dep),
+) -> RagAnswer:
+    """Optional RAG boundary; disabled by default and never changes dossier state.
+
+    Only the top-k chunks leave the process. The generator receives no tools,
+    every returned citation is checked against those chunks, and document text
+    is treated as untrusted data. A model answer is a draft, never a decision.
+    """
+    dossiers.get(session, dossier_id)
+    try:
+        if request.retrieval_mode == "lexical":
+            hits = retrieval.search(session, dossier_id, request.question, limit=request.top_k)
+        else:
+            embedding_provider = build_embedding_provider(settings)
+            if embedding_provider is None:
+                raise ServiceUnavailableError(
+                    "Vector retrieval is disabled. Configure an embedding provider first."
+                )
+            query_vector = embedding_provider.embed([request.question]).vectors[0]
+            if request.retrieval_mode == "vector":
+                hits = retrieval.vector_search(
+                    session,
+                    dossier_id,
+                    query_vector,
+                    embedding_config_hash=embedding_provider.config_hash(),
+                    limit=request.top_k,
+                )
+            else:
+                hits = retrieval.hybrid_search(
+                    session,
+                    dossier_id,
+                    request.question,
+                    query_vector,
+                    embedding_config_hash=embedding_provider.config_hash(),
+                    limit=request.top_k,
+                )
+        if not hits:
+            raise ServiceUnavailableError(
+                "No indexed evidence matches this retrieval configuration. Reprocess the dossier."
+            )
+        generation = build_rag_generator(settings).generate(request.question, hits)
+    except (EmbeddingProviderError, RagProviderError) as exc:
+        raise ServiceUnavailableError(
+            "The optional grounded-answer provider is unavailable."
+        ) from exc
+
+    by_evidence_id = {f"E{position}": hit for position, hit in enumerate(hits, start=1)}
+    citations = []
+    for evidence_id in generation.citation_ids:
+        hit = by_evidence_id[evidence_id]
+        citations.append(
+            RagCitation(
+                evidence_id=evidence_id,
+                document=hit.document_name,
+                document_id=hit.document_id,
+                ordinal=hit.ordinal,
+                text=hit.text,
+                locator=hit.locator,
+                where=render.describe_locator(hit.locator),
+            )
+        )
+    return RagAnswer(
+        question=request.question,
+        answer=generation.answer,
+        sufficient_evidence=generation.sufficient_evidence,
+        citations=citations,
+        retrieval_mode=request.retrieval_mode,
+        generation_provider=generation.provider,
+        generation_model=generation.model,
+        input_tokens=generation.input_tokens,
+        output_tokens=generation.output_tokens,
+        prompt_version=generation.prompt_version,
+        prompt_sha256=generation.prompt_sha256,
+    )

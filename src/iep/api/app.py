@@ -85,8 +85,8 @@ TAGS = [
         "name": "artifacts",
         "description": (
             "What you take away: the HTML report, JSON and CSV exports, the "
-            "append-only audit trail, and a lexical search across the "
-            "dossier's own documents."
+            "append-only audit trail, lexical/vector/hybrid evidence search, "
+            "and an optional read-only grounded-answer boundary."
         ),
     },
     {
@@ -129,6 +129,7 @@ def create_app() -> FastAPI:
                 (413, "The upload exceeds the configured limit."),
                 (422, "The request or the submitted document failed validation."),
                 (500, "Unexpected failure. Quote the correlation id."),
+                (503, "An optional provider is disabled or temporarily unavailable."),
             )
         },
     )

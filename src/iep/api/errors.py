@@ -61,6 +61,11 @@ class UnauthorizedError(DomainError):
     error_code = "unauthorized"
 
 
+class ServiceUnavailableError(DomainError):
+    status_code = 503
+    error_code = "service_unavailable"
+
+
 class InvalidStateTransitionError(ConflictError):
     error_code = "invalid_state_transition"
 

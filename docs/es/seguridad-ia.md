@@ -40,8 +40,18 @@ añadiría un proveedor aprobado, condiciones de tratamiento de datos, controles
 regionales y de retención, redacción, presupuestos por cliente, telemetría de
 producción y una evaluación representativa antes de habilitar este adaptador.
 
-Este pipeline es primero extracción. Usa búsqueda de texto completo de
-PostgreSQL para encontrar evidencia que ya está en un expediente; no afirma hacer
-generación aumentada por recuperación. Un índice vectorial se justificaría sólo
-después de que la recuperación léxica falle en consultas medidas donde la
-similitud semántica importe.
+## Recuperación y generación fundamentada
+
+El pipeline sigue siendo primero extracción. Los fragmentos permiten búsqueda
+léxica, distancia coseno exacta con pgvector y fusión híbrida por posiciones. El
+proveedor offline por hashing no se presenta como modelo semántico. Un modelo de
+embeddings alojado requiere clave y `IEP_ALLOW_EXTERNAL_AI=true`; al reprocesar,
+el hash de configuración evita mezclar espacios vectoriales antiguos y nuevos.
+
+`POST /dossiers/{id}/questions` es la única frontera RAG. Está desactivada por
+defecto, es de solo lectura, limita top-k y contexto y no entrega herramientas.
+El texto recuperado se codifica como JSON no confiable. El prompt versionado pide
+abstención cuando la evidencia no basta y la aplicación rechaza ids de cita no
+recuperados después de validar el esquema estricto. Esto reduce prompt injection
+y alucinaciones; no demuestra que una respuesta sea cierta. Siguen haciendo
+falta evaluación representativa y revisión humana de las citas.

@@ -13,6 +13,8 @@ from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+EMBEDDING_DIMENSIONS = 512
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="IEP_", extra="ignore")
@@ -41,6 +43,22 @@ class Settings(BaseSettings):
     llm_max_attempts: int = 2
     llm_api_key: str = ""
     llm_max_output_tokens: int = 1024
+
+    # Retrieval remains available offline. The hashing provider is a
+    # deterministic engineering baseline, not a learned semantic model.
+    embedding_provider: str = "hashing"
+    embedding_dimensions: int = EMBEDDING_DIMENSIONS
+    embedding_batch_size: int = Field(default=64, ge=1, le=256)
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_api_key: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_timeout_seconds: float = Field(default=20.0, gt=0.0, le=120.0)
+    openai_max_attempts: int = Field(default=2, ge=1, le=5)
+    rag_provider: str = "disabled"
+    openai_rag_model: str = "gpt-4o-mini"
+    rag_max_output_tokens: int = Field(default=600, ge=100, le=2000)
+    rag_max_context_chars: int = Field(default=12_000, ge=1000, le=50_000)
+    allow_external_ai: bool = False
 
     registry_api_base_url: str = "http://localhost:8080"
     # Development default. A deployment supplies this from the environment;
@@ -75,6 +93,31 @@ class Settings(BaseSettings):
         allowed = {"deterministic", "llm"}
         if value not in allowed:
             raise ValueError(f"semantic_provider must be one of {sorted(allowed)}")
+        return value
+
+    @field_validator("embedding_provider")
+    @classmethod
+    def _known_embedding_provider(cls, value: str) -> str:
+        allowed = {"disabled", "hashing", "openai"}
+        if value not in allowed:
+            raise ValueError(f"embedding_provider must be one of {sorted(allowed)}")
+        return value
+
+    @field_validator("rag_provider")
+    @classmethod
+    def _known_rag_provider(cls, value: str) -> str:
+        allowed = {"disabled", "openai"}
+        if value not in allowed:
+            raise ValueError(f"rag_provider must be one of {sorted(allowed)}")
+        return value
+
+    @field_validator("embedding_dimensions")
+    @classmethod
+    def _schema_embedding_dimensions(cls, value: int) -> int:
+        if value != EMBEDDING_DIMENSIONS:
+            raise ValueError(
+                f"embedding_dimensions is fixed at {EMBEDDING_DIMENSIONS} by the database schema"
+            )
         return value
 
     @property

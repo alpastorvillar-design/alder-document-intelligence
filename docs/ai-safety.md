@@ -35,7 +35,19 @@ deployment would add an approved provider, data-processing terms, regional and
 retention controls, redaction, per-tenant budgets, production telemetry, and a
 representative evaluation before enabling this adapter.
 
-This pipeline is extraction-first. It uses PostgreSQL full-text search to find
-evidence already in a dossier; it does not claim retrieval-augmented generation.
-A vector index would be justified only after lexical retrieval fails on measured
-queries where semantic similarity matters.
+## Retrieval and grounded generation
+
+This pipeline remains extraction-first. Evidence chunks support lexical search,
+exact pgvector cosine search and reciprocal-rank hybrid search. The offline
+feature-hashing provider is not described as a semantic model. A hosted
+embedding model requires a key plus `IEP_ALLOW_EXTERNAL_AI=true`; reprocessing
+uses a configuration hash to prevent old and new vector spaces being mixed.
+
+`POST /dossiers/{id}/questions` is the only RAG boundary. It is disabled by
+default, read-only, top-k limited, context-capped and tool-free. Retrieved
+document text is JSON-encoded as untrusted data. The versioned system prompt
+requires abstention when evidence is insufficient, and the application rejects
+unknown citation ids after validating the strict response schema. This reduces
+prompt-injection and hallucination risk; it does not prove that a model answer
+is true. Answer quality still needs a representative evaluation and human use
+of citations.

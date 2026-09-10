@@ -10,6 +10,7 @@ equivalente en la primera línea.
 | Documento | Qué responde |
 | --- | --- |
 | [Recorrido guiado](recorrido.md) | Qué se está ejecutando, qué hace cada endpoint, cómo lanzar la demo, cómo abrir n8n, dónde encaja el RAG |
+| [Recuperación híbrida y RAG opcional](rag.md) | pgvector, embeddings, modos de búsqueda, respuestas con citas y prueba alojada segura |
 | [Demostración del LLM](demostracion-llm.md) | Cómo ver funcionando el camino del modelo alojado — gratis contra un simulador local, o contra un modelo real por céntimos |
 | [Guion de demo de cinco minutos](demostracion.md) | Qué enseñar, en qué orden, y qué decir de ello |
 
@@ -44,6 +45,7 @@ equivalente en la primera línea.
 | [0003](adr/0003-reglas-deterministas-no-un-modelo.md) | El modelo no hace aritmética |
 | [0004](adr/0004-recuperacion-lexica-no-rag.md) | Búsqueda léxica, y qué lo cambiaría |
 | [0005](adr/0005-sin-agente-en-la-aprobacion.md) | Ningún agente entre un documento y una aprobación |
+| [0006](adr/0006-recuperacion-hibrida-y-rag-opcional.md) | Recuperación híbrida y generación fundamentada opcional |
 
 Además: [`automation/n8n/README.es.md`](../../automation/n8n/README.es.md) para
 el workflow opcional.
