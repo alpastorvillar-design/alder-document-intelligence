@@ -35,7 +35,10 @@
     gap:.35rem .9rem; margin:.7rem 0 0; padding:.6rem .7rem;
     background:var(--card-sunk); border-radius:7px; font-size:.83rem; }
   .finding .facts dt { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; }
-  .finding .facts dd { margin:0; font-variant-numeric:tabular-nums; font-weight:520; }
+  .finding .facts dd { margin:0; font-variant-numeric:tabular-nums; font-weight:520;
+    /* A SHA-256 does not fit in a 9rem column: without this it ran out of
+       its cell and printed on top of the value beside it. */
+    overflow-wrap:anywhere; min-width:0; }
   .finding .links { display:flex; gap:.35rem; align-items:center; flex-wrap:wrap;
     margin-top:.6rem; font-size:.82rem; }
   .finding details { margin-top:.7rem; font-size:.85rem; }
@@ -210,11 +213,9 @@
                     <span class="pill n mono">{{ document_names.get(did|string, did) }}</span>
                   {% endfor %}
                 {% endif %}
-                {% for e in fields[:4] %}
+                {% for e, label in evidence_links(fields[:4], document_names) %}
                   <a class="btn small" href="/ui/evidence/{{ e.id }}"
-                     title="Abre el documento con el sitio exacto marcado">
-                    Ver {{ field_label(e.field_path)|lower }}
-                  </a>
+                     title="Abre el documento con el sitio exacto marcado">Ver {{ label|lower }}</a>
                 {% endfor %}
                 {% if fields|length > 4 %}
                   <span class="muted">y {{ fields|length - 4 }} campo{{ "s" if fields|length - 4 != 1 }} más</span>
@@ -228,8 +229,7 @@
                 <p>{{ r.explains }}</p>
                 {% if r.base %}<p class="base">{{ r.base }}</p>{% endif %}
                 <p class="muted mono" style="font-size:.78rem">
-                  regla {{ f.rule_id }} · versión {{ f.rule_version }}<br>
-                  {{ f.message }}
+                  regla {{ f.rule_id }} · versión {{ f.rule_version }}
                 </p>
               </details>
               {% endif %}
@@ -328,7 +328,7 @@
         <td>
           {% if e.original_value_text %}<span class="was">{{ e.original_value_text }}</span><br>{% endif %}
           <span class="value">
-            {% if e.value_number is not none %}{{ e.value_number|money }}
+            {% if e.value_number is not none %}{{ e.value_number|money }} {{ unit_of(e.field_path) }}
             {% elif e.value_date %}{{ e.value_date|fecha }}
             {% else %}{{ e.value_text }}{% endif %}
           </span>

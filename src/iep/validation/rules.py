@@ -73,9 +73,18 @@ class RuleFinding:
 
 @dataclass(frozen=True)
 class CallWindow:
+    """Where the eligibility window came from, and what it is.
+
+    `source` is a key, not a sentence. It ends up inside a finding's `detail`,
+    which a Spanish screen and a Spanish report both print, so an English
+    sentence stored here surfaced as English prose in front of a reviewer.
+    The URL, when there is one, travels beside it.
+    """
+
     eligible_from: date | None
     eligible_to: date | None
     source: str
+    source_url: str | None = None
     max_funding_eur: Decimal | None = None
 
 
@@ -375,6 +384,7 @@ def rule_invoice_dates(ctx: RuleContext) -> Iterator[RuleFinding]:
                 "eligible_from": start.isoformat(),
                 "eligible_to": end.isoformat(),
                 "window_source": ctx.call_window.source,
+                "window_source_url": ctx.call_window.source_url,
             },
             extraction_ids=(issued.id,),
             document_ids=(document.id,),
@@ -627,7 +637,10 @@ def rule_cost_reconciliation(ctx: RuleContext) -> Iterator[RuleFinding]:
                 f"The dossier claims {money(ctx.dossier.claimed_total_eur)}, above the "
                 f"captured call maximum of {money(ctx.call_window.max_funding_eur)}."
             ),
-            detail={"window_source": ctx.call_window.source},
+            detail={
+                "window_source": ctx.call_window.source,
+                "window_source_url": ctx.call_window.source_url,
+            },
             extraction_ids=(source.id,) if source else (),
             document_ids=_document_ids(source) if source else (),
             subject="call_maximum",

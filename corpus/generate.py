@@ -184,7 +184,7 @@ def call_snapshot() -> dict[str, object]:
         "eligible_from": CALL_PERIOD_START.isoformat(),
         "eligible_to": CALL_PERIOD_END.isoformat(),
         "max_funding_eur": str(CALL_MAX_FUNDING),
-        "status": "OPEN",
+        "status": "Abierta",
     }
 
 

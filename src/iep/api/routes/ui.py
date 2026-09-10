@@ -59,6 +59,8 @@ _env.globals.update(
     field_label=vocab.field_label,
     locator_summary=vocab.locator_summary,
     detail_rows=vocab.detail_rows,
+    evidence_links=vocab.evidence_links,
+    unit_of=vocab.unit_of,
 )
 
 router = APIRouter(prefix="/ui", tags=["ui"], dependencies=[Depends(require_api_key)])
@@ -221,7 +223,7 @@ def review_view(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -
         ],
         extractions=extractions,
         needs_review=needs_review,
-        grouped=_group_extractions(extractions),
+        grouped=vocab.group_extractions(extractions),
         # A finding names the extractions and documents it points at. Resolving
         # them here is what lets the card offer a way straight to the evidence
         # instead of describing it.
@@ -444,17 +446,3 @@ def _document_counts(
         else:
             bucket["accepted"] += count
     return counts
-
-
-def _group_extractions(extractions: list[Extraction]) -> list[tuple[str, str, list[Extraction]]]:
-    """Fields in the order a reviewer would read them: by where they came from."""
-    buckets: dict[str, list[Extraction]] = {}
-    for row in extractions:
-        buckets.setdefault(vocab.group_of(row.field_path), []).append(row)
-    ordered: list[tuple[str, str, list[Extraction]]] = []
-    for _, title, subtitle in vocab.GROUPS:
-        if title in buckets:
-            ordered.append((title, subtitle, buckets.pop(title)))
-    for title, rows in buckets.items():
-        ordered.append((title, "", rows))
-    return ordered

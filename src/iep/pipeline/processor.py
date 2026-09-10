@@ -805,7 +805,7 @@ def _capture_call_page(
     scraper: PublicPageScraper | None,
 ) -> tuple[CallWindow, list[FieldCandidate], list[uuid.UUID | None], str | None]:
     if not dossier.call_page_url:
-        return CallWindow(None, None, "dossier period (no call page recorded)"), [], [], None
+        return CallWindow(None, None, "NO_CALL_PAGE"), [], [], None
 
     owns_scraper = scraper is None
     scraper = scraper or PublicPageScraper(settings)
@@ -815,7 +815,7 @@ def _capture_call_page(
         log.warning("call_page_capture_failed", extra={"error": str(exc)})
         metrics.increment("iep_external_capture_failures_total", source="call_page")
         return (
-            CallWindow(None, None, "dossier period (call page unavailable)"),
+            CallWindow(None, None, "CALL_PAGE_UNAVAILABLE"),
             [],
             [],
             (f"published call page unavailable: {exc}"),
@@ -839,7 +839,8 @@ def _capture_call_page(
         CallWindow(
             capture.as_date("call.eligible_from"),
             capture.as_date("call.eligible_to"),
-            f"published call page {capture.url}",
+            "CALL_PAGE",
+            source_url=capture.url,
             max_funding_eur=capture.as_amount("call.max_funding_eur"),
         ),
         candidates,

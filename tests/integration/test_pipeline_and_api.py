@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from iep.api import vocabulary as vocab
 from iep.config import Settings
 from iep.connectors.public_page import PublicPageScraper
 from iep.connectors.registry import RegistryConnector
@@ -543,8 +544,8 @@ class TestPipeline:
         run(db, store, settings, dossier)
         rendered = render.render_html(db, dossier.id)
         html = rendered.html.decode("utf-8")
-        assert "Where it came from" in html
-        assert "page 1" in html or "cell" in html
+        assert "De dónde sale" in html
+        assert "página 1" in html or "celda" in html
         assert rendered.blocker_count > 0
 
         csv_bytes = render.export_csv(db, dossier.id).decode("utf-8")
@@ -1419,3 +1420,165 @@ class TestTheReviewScreenSpeaksOneLanguage:
         assert 'id="actor"' in body
         assert 'value="revisor"' not in body
         assert "Nombre del revisor" in body
+
+
+class TestTheFiledReportIsReadable:
+    """The report is what leaves the building, so it is held to the screen's
+    standard rather than a looser one: Spanish throughout, every figure with a
+    way back to its source, and it has to print.
+    """
+
+    def _html(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        corpus_dir: Path,
+    ) -> tuple[str, Dossier]:
+        dossier = seed(
+            db,
+            store,
+            settings,
+            corpus_dir,
+            DOSSIER_B.reference,
+            claimed_total=DOSSIER_B.claimed_total_eur,
+        )
+        run(db, store, settings, dossier)
+        return render.render_html(db, dossier.id).html.decode("utf-8"), dossier
+
+    def test_the_reconciliation_table_leads_and_names_both_sides(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        corpus_dir: Path,
+        requires_ocr: None,
+    ) -> None:
+        html, _ = self._html(db, store, settings, corpus_dir)
+        assert "Lo declarado frente a lo acreditado" in html
+        for concept, _, _, _ in vocab.RECONCILIATION:
+            assert concept in html, concept
+        # The comparison is the point: a table of declared figures alone would
+        # not say whether anything was justified.
+        assert "Descuadre" in html or "Cuadra" in html
+
+    def test_no_field_path_is_the_only_label_a_reader_gets(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        corpus_dir: Path,
+        requires_ocr: None,
+    ) -> None:
+        """`report.declared_total_eur` is an identifier, not a heading.
+
+        It still appears - under the Spanish label, so a developer can find the
+        field - but never on its own.
+        """
+        html, dossier = self._html(db, store, settings, corpus_dir)
+        paths = [
+            row.field_path
+            for row in db.execute(
+                select(Extraction).where(Extraction.dossier_id == dossier.id)
+            ).scalars()
+        ]
+        assert paths
+        for path in set(paths):
+            label = vocab.field_label(path)
+            assert label != path, f"{path} no tiene etiqueta en español"
+            assert label in html, f"falta la etiqueta de {path}"
+
+    def test_no_english_leaks_through_a_finding_detail(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        corpus_dir: Path,
+        requires_ocr: None,
+    ) -> None:
+        """A detail value that is a key must be translated, not printed.
+
+        `window_source` used to hold the sentence "published call page
+        http://..." and the report printed it verbatim, in English, in the
+        middle of a Spanish artefact.
+        """
+        html, _ = self._html(db, store, settings, corpus_dir)
+        for leaked in ("published call page", "dossier period (", "CALL_PAGE"):
+            assert leaked not in html, leaked
+        assert "La convocatoria publicada" in html
+
+    def test_every_figure_offers_its_evidence(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        corpus_dir: Path,
+        requires_ocr: None,
+    ) -> None:
+        html, dossier = self._html(db, store, settings, corpus_dir)
+        rows = list(
+            db.execute(select(Extraction).where(Extraction.dossier_id == dossier.id)).scalars()
+        )
+        assert rows
+        for row in rows:
+            assert f'/ui/evidence/{row.id}"' in html, f"{row.field_path} sin enlace"
+
+    def test_a_refused_document_is_named_with_its_reason(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        corpus_dir: Path,
+        requires_ocr: None,
+    ) -> None:
+        """The report used to list only what was accepted, so a dossier missing
+        two receipts read as complete.
+        """
+        html, dossier = self._html(db, store, settings, corpus_dir)
+        refused = [
+            row
+            for row in db.execute(
+                select(Document).where(Document.dossier_id == dossier.id)
+            ).scalars()
+            if row.status in (DocumentStatus.UNSUPPORTED, DocumentStatus.CORRUPT)
+        ]
+        assert refused, "el corpus incluye ficheros que se rechazan"
+        assert "Documentos que no se aceptaron" in html
+        for row in refused:
+            assert row.original_filename in html
+            if row.rejection_reason:
+                assert row.rejection_reason in html
+
+    def test_it_prints_and_carries_the_logo_frame(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        corpus_dir: Path,
+        requires_ocr: None,
+    ) -> None:
+        """ "Descargar PDF" is the browser's print dialogue, so the print rules
+        are the feature: without them the buttons print as dead controls and a
+        dark theme comes out of the printer as a black page.
+        """
+        html, _ = self._html(db, store, settings, corpus_dir)
+        assert "logo de la empresa" in html
+        assert "@media print" in html
+        assert "@page" in html
+        assert ".noprint { display: none !important; }" in html
+        assert "window.print()" in html
+
+    def test_it_needs_nothing_from_the_network(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        corpus_dir: Path,
+        requires_ocr: None,
+    ) -> None:
+        """A stored report has to render the same years later, from a copy
+        nobody kept the application next to.
+        """
+        html, _ = self._html(db, store, settings, corpus_dir)
+        for external in ("<link", "<script src", "@import", "http://fonts", "cdn."):
+            assert external not in html, external

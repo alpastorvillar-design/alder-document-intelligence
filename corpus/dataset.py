@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
-CORPUS_VERSION = "1.1.0"
+CORPUS_VERSION = "1.2.0"
 
 # The eligible window published by the (synthetic) funding call.
 CALL_CODE = "CALL-SYN-2025-A"

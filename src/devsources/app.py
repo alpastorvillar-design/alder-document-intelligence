@@ -123,7 +123,7 @@ def call_page() -> str:
       <dd data-field="eligible-to">{CALL_PERIOD_END.isoformat()}</dd>
       <dt>Importe maximo financiable</dt>
       <dd data-field="max-funding">{_spanish(CALL_MAX_FUNDING)} EUR</dd>
-      <dt>Estado</dt><dd data-field="status">OPEN</dd>
+      <dt>Estado</dt><dd data-field="status">Abierta</dd>
     </dl>
     <p class="disclaimer">Pagina sintetica de desarrollo.
        No representa ninguna convocatoria real.</p>

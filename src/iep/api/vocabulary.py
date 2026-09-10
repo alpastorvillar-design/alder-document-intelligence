@@ -20,9 +20,10 @@ traceability, not with a program.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol
 
 # --------------------------------------------------------------------------
 # States
@@ -343,6 +344,22 @@ _ROW_LABELS = {
     "contract_end": "Fin de contrato",
 }
 
+
+def unit_of(field_path: str) -> str:
+    """The unit a value is measured in, or nothing.
+
+    A money figure printed as `400.000,00` next to a date and a code reads as
+    an unlabelled number. The field path already says which it is - anything
+    ending in `_eur` is euros, `hours` is hours - so the unit does not need a
+    second table to fall out of step with the first.
+    """
+    if field_path.endswith("_eur"):
+        return "€"
+    if field_path.endswith(".hours"):
+        return "h"
+    return ""
+
+
 _ROW_RE = re.compile(r"^timesheet\.rows\[(\d+)\]\.(\w+)$")
 _REGISTRY_RE = re.compile(r"^registry\.personnel\[([\w-]+)\]\.(\w+)$")
 
@@ -380,6 +397,94 @@ def group_of(field_path: str) -> str:
     return "Otros"
 
 
+class HasFieldPath(Protocol):
+    field_path: str
+
+
+def group_extractions[Row: HasFieldPath](
+    rows: Iterable[Row],
+) -> list[tuple[str, str, list[Row]]]:
+    """Fields in the order a reviewer would read them: by where they came from.
+
+    The review screen and the report both need this, and they need it to come
+    out the same: a field that sits under "Parte horario" on screen has to sit
+    under "Parte horario" in the artefact somebody files.
+    """
+    buckets: dict[str, list[Row]] = {}
+    for row in rows:
+        buckets.setdefault(group_of(row.field_path), []).append(row)
+    ordered: list[tuple[str, str, list[Row]]] = []
+    for _, title, subtitle in GROUPS:
+        if title in buckets:
+            ordered.append((title, subtitle, buckets.pop(title)))
+    for title, remaining in buckets.items():
+        ordered.append((title, "", remaining))
+    return ordered
+
+
+class HasIdAndPath(Protocol):
+    field_path: str
+
+    @property
+    def id(self) -> Any: ...
+
+    @property
+    def document_id(self) -> Any: ...
+
+
+def evidence_links[Row: HasIdAndPath](
+    rows: Sequence[Row], document_names: Mapping[str, str]
+) -> list[tuple[Row, str]]:
+    """Label each evidence link so two of them are never the same word.
+
+    `DUPLICATE_INVOICE_NUMBER` points at the invoice number on two different
+    documents, and both links read "Número de factura". A reviewer could not
+    tell which was which, so the document name is added exactly where a label
+    would otherwise repeat - and nowhere else, because a filename appended to
+    every link is noise.
+    """
+    labels = [field_label(row.field_path) for row in rows]
+    repeated = {label for label in labels if labels.count(label) > 1}
+    out: list[tuple[Row, str]] = []
+    for row, label in zip(rows, labels, strict=True):
+        if label in repeated:
+            name = document_names.get(str(row.document_id), "")
+            if name:
+                label = f"{label} · {name}"
+        out.append((row, label))
+    return out
+
+
+# --------------------------------------------------------------------------
+# Reconciliation
+# --------------------------------------------------------------------------
+
+# The check a person does by hand: for each concepto de gasto, what the report
+# declares against what the supporting documents actually add up to. Naming
+# both sides here - rather than listing figures one under the other - is what
+# turns a list of numbers into the comparison the justification rests on.
+RECONCILIATION = (
+    (
+        "Gastos de personal",
+        "report.declared_personnel_cost_eur",
+        "timesheet.total_amount_eur",
+        "Frente a la suma, parte horario a parte horario, de horas por coste horario.",
+    ),
+    (
+        "Colaboraciones externas",
+        "report.declared_external_cost_eur",
+        "invoices.total_eur",
+        "Frente a la suma de las bases imponibles de los justificantes aportados.",
+    ),
+    (
+        "Total del proyecto",
+        "report.declared_total_eur",
+        None,
+        "Frente al importe que la entidad reclama en la cuenta justificativa.",
+    ),
+)
+
+
 # --------------------------------------------------------------------------
 # Finding detail
 # --------------------------------------------------------------------------
@@ -415,7 +520,8 @@ _DETAIL_LABELS = {
     "issue_date": "Fecha de emisión",
     "eligible_from": "Elegible desde",
     "eligible_to": "Elegible hasta",
-    "window_source": "Fuente de la ventana",
+    "window_source": "Ventana tomada de",
+    "window_source_url": "Página consultada",
     "employee_id": "Persona",
     "month": "Mes",
     "declared_rate_eur": "Tarifa en el parte",
@@ -437,6 +543,16 @@ _DETAIL_LABELS = {
 
 _EUR_KEYS = tuple(k for k in _DETAIL_LABELS if k.endswith("_eur"))
 
+# Some detail values are keys rather than numbers, and a key printed raw is
+# the same defect as a missing label: English in the middle of a Spanish
+# screen. These two sets say which keys hold what.
+_WINDOW_SOURCE = {
+    "CALL_PAGE": "La convocatoria publicada",
+    "CALL_PAGE_UNAVAILABLE": "El periodo del expediente (la convocatoria no estaba accesible)",
+    "NO_CALL_PAGE": "El periodo del expediente (no se registró ninguna convocatoria)",
+}
+_FIELD_PATH_KEYS = ("field_path", "missing_field")
+
 
 def detail_rows(detail: dict[str, Any] | None) -> list[tuple[str, str]]:
     """A finding's structured detail as label/value pairs a person can read."""
@@ -456,6 +572,10 @@ def _format_detail(key: str, value: Any) -> str:
         return "sí" if value else "no"
     if isinstance(value, (list, tuple)):
         return ", ".join(_format_detail(key, v) for v in value)
+    if key == "window_source":
+        return _WINDOW_SOURCE.get(str(value), str(value))
+    if key in _FIELD_PATH_KEYS:
+        return field_label(str(value))
     if key in _EUR_KEYS or key.endswith("_eur"):
         try:
             return f"{money(Decimal(str(value)))} €"

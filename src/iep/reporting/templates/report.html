@@ -1,123 +1,539 @@
+{# The filed artefact.
+
+   Two things make this file look duplicated and are on purpose.
+
+   It is self-contained - no external stylesheet, font or script. A report is
+   stored on disk and its content hash is recorded, so it has to render the
+   same in five years, offline, from a copy nobody kept the application next
+   to. Pulling in the application's stylesheet would mean a stored report
+   silently changing appearance every time the interface did.
+
+   It repeats the interface's colour tokens rather than importing them, for
+   the same reason. The values are copied from `api/templates/_base.html`; the
+   vocabulary, the rules and their explanations are *not* copied - those come
+   from `api/vocabulary.py`, so the screen and the paper say the same thing
+   about a finding.
+
+   It prints. `@media print` is what turns "Descargar PDF" into a PDF, using
+   the browser's own engine, with no rendering service, no extra dependency
+   and nothing to pay for. #}
 <!doctype html>
-<html lang="en">
+<html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ dossier.reference }} - evidence review</title>
+<title>{{ dossier.reference }} · informe de justificación</title>
 <style>
+:root {
+  color-scheme: light dark;
+  --paper:      #eef1f0;
+  --card:       #ffffff;
+  --card-sunk:  #f6f8f7;
+  --ink:        #16211d;
+  --ink-soft:   #3d4b46;
+  --muted:      #667873;
+  --line:       #d3dbd8;
+  --line-soft:  #e4eae8;
+  --accent:     #0d5949;
+  --accent-ink: #ffffff;
+  --accent-wash:#e3efeb;
+  --blocker:    #a1331d;
+  --blocker-wash:#fbeae6;
+  --warning:    #7f5810;
+  --warning-wash:#fbf2df;
+  --ok:         #1b6540;
+  --ok-wash:    #e5f2ea;
+  --brand:      #7ac9a8;
+  --seal:       #eaa621;
+  --seal-ink:   #17201c;
+  --shadow:     0 1px 2px rgba(20,33,29,.06), 0 6px 18px -10px rgba(20,33,29,.22);
+  --radius:     10px;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:#111614; --card:#19201e; --card-sunk:#141a18; --ink:#e7ede9;
+    --ink-soft:#c2cec9; --muted:#8a9c96; --line:#2c3835; --line-soft:#232d2a;
+    --accent:#4bbfa2; --accent-ink:#06231c; --accent-wash:#152925;
+    --blocker:#f08b70; --blocker-wash:#2c1a16; --warning:#e0b45c;
+    --warning-wash:#2a2317; --ok:#6cc894; --ok-wash:#16271f;
+    --seal:#e0a83a; --seal-ink:#101613;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 22px -12px rgba(0,0,0,.7);
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.sheet { max-width: 1000px; margin-inline: auto; padding: 1.4rem 1.25rem 5rem; }
+
+h2 {
+  font-size: 1.02rem; margin: 2.4rem 0 .5rem; letter-spacing: -.005em;
+  padding-bottom: .35rem; border-bottom: 1px solid var(--line);
+}
+h3 { font-size: .92rem; margin: 0 0 .35rem; }
+.eyebrow {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--muted); font-weight: 620; margin: 0 0 .3rem;
+}
+.lede { color: var(--ink-soft); margin: .2rem 0 1rem; max-width: 78ch; font-size: .89rem; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: .86em; font-variant-numeric: tabular-nums; }
+.num { font-variant-numeric: tabular-nums; text-align: right; }
+.empty { color: var(--muted); font-style: italic; padding: .6rem 0; margin: 0; }
+
+/* ---- masthead --------------------------------------------------------- */
+.masthead {
+  display: flex; gap: 1.25rem; align-items: flex-start; flex-wrap: wrap;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1.15rem 1.25rem;
+}
+/* Deliberately a labelled empty frame. Whoever files this report drops their
+   own mark in here; putting somebody else's logo in a template would be
+   worse than leaving the space named. */
+.logo-slot {
+  flex: 0 0 auto; width: 11rem; height: 4.4rem;
+  border: 1px dashed var(--line); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center; color: var(--muted); font-size: .76rem;
+  letter-spacing: .02em; background: var(--card-sunk);
+}
+.masthead .ident { flex: 1 1 18rem; min-width: 0; }
+.masthead h1 {
+  font-size: 1.35rem; line-height: 1.2; margin: 0 0 .25rem;
+  letter-spacing: -.012em; text-wrap: balance;
+}
+.masthead .ref { margin: 0; color: var(--ink-soft); font-size: .89rem; }
+.issued { flex: 0 0 auto; text-align: right; font-size: .8rem; color: var(--muted); }
+.issued strong { display: block; color: var(--ink); font-weight: 620; font-size: .86rem; }
+.issued + .issued { margin-top: .5rem; }
+
+.tools {
+  display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
+  margin: .9rem 0 0;
+}
+button, .btn {
+  font: inherit; font-size: .85rem; font-weight: 520;
+  padding: .42rem .85rem; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  text-decoration: none; display: inline-flex; align-items: center; gap: .4rem;
+}
+button:hover, .btn:hover { background: var(--card-sunk); border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.small, button.small { font-size: .78rem; padding: .25rem .55rem; }
+
+/* ---- primitives ------------------------------------------------------- */
+.card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1rem 1.1rem;
+}
+.card.flush { padding: 0; overflow: hidden; }
+.pill {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .12rem .5rem; border-radius: 999px;
+  font-size: .72rem; font-weight: 620; border: 1px solid transparent; white-space: nowrap;
+}
+.pill.neutral, .pill.n { background: var(--card-sunk); color: var(--ink-soft); border-color: var(--line); }
+.pill.blocker, .pill.b { background: var(--blocker-wash); color: var(--blocker); border-color: color-mix(in srgb, var(--blocker) 30%, transparent); }
+.pill.warning, .pill.w { background: var(--warning-wash); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 30%, transparent); }
+.pill.ok, .pill.o { background: var(--ok-wash); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.pill.muted { background: var(--card-sunk); color: var(--muted); border-color: var(--line-soft); }
+
+table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+th {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted); font-weight: 640; border-bottom-color: var(--line);
+}
+th.num { text-align: right; }
+td.mid { vertical-align: middle; }
+tbody tr:last-child td { border-bottom: none; }
+.scroll { overflow-x: auto; }
+
+.note {
+  background: var(--card-sunk); border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--accent); border-radius: 6px;
+  padding: .7rem .9rem; font-size: .85rem; color: var(--ink-soft);
+}
+.facts-row { display: flex; flex-wrap: wrap; gap: .45rem .55rem; margin: .8rem 0 0; padding: 0; list-style: none; }
+.facts-row li {
+  display: inline-flex; align-items: baseline; gap: .35rem; white-space: nowrap;
+  background: var(--card-sunk); border: 1px solid var(--line-soft);
+  border-radius: 999px; padding: .18rem .65rem; font-size: .82rem;
+}
+.facts-row li span { color: var(--muted); font-size: .74rem; }
+.facts-row li strong { font-weight: 620; font-variant-numeric: tabular-nums; }
+
+/* ---- verdict ---------------------------------------------------------- */
+.verdict {
+  display: flex; gap: 1rem; align-items: flex-start;
+  border-radius: var(--radius); padding: 1rem 1.15rem; margin: 1.4rem 0 0;
+  border: 1px solid transparent;
+}
+.verdict.stop { background: var(--blocker-wash); border-color: color-mix(in srgb, var(--blocker) 30%, transparent); }
+.verdict.go   { background: var(--ok-wash);      border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.verdict .glyph { font-size: 1.5rem; line-height: 1; flex: 0 0 auto; }
+.verdict h2 { margin: 0 0 .2rem; font-size: 1.05rem; border: none; padding: 0; }
+.verdict.stop h2 { color: var(--blocker); }
+.verdict.go h2 { color: var(--ok); }
+.verdict p { margin: 0; font-size: .89rem; color: var(--ink-soft); }
+
+/* ---- reconciliation --------------------------------------------------- */
+.recon td { vertical-align: middle; }
+.recon .concept { font-weight: 600; }
+.recon .concept small { display: block; font-weight: 400; color: var(--muted); font-size: .78rem; white-space: normal; }
+.recon .figure { font-variant-numeric: tabular-nums; font-weight: 560; text-align: right; white-space: nowrap; }
+.recon .from {
+  display: block; font-weight: 400; font-size: .74rem; color: var(--muted);
+  /* The figure stays on one line; the line naming its source does not
+     need to, and when it did it set the column width and pushed the
+     last column off the printed page. */
+  white-space: normal;
+}
+.recon tr.descuadre .diff { color: var(--blocker); font-weight: 700; }
+.recon tr.cuadra .diff { color: var(--ok); }
+
+/* ---- findings --------------------------------------------------------- */
+.finding { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); overflow: hidden; }
+.finding + .finding { margin-top: .6rem; }
+.finding > .head { display: flex; gap: .7rem; padding: .8rem .95rem; align-items: flex-start; }
+.finding .stripe { flex: 0 0 3px; align-self: stretch; border-radius: 2px; }
+.finding.b .stripe { background: var(--blocker); }
+.finding.w .stripe { background: var(--warning); }
+.finding.i .stripe { background: var(--muted); }
+.finding .grow { flex: 1 1 auto; min-width: 0; }
+.finding .facts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem,1fr));
+  gap: .35rem .9rem; margin: .7rem 0 0; padding: .6rem .7rem;
+  background: var(--card-sunk); border-radius: 7px; font-size: .83rem;
+}
+.finding .facts dt { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
+.finding .facts dd {
+  margin: 0; font-variant-numeric: tabular-nums; font-weight: 520;
+  /* A SHA-256 does not fit in a 9rem column: without this it ran out of
+     its cell and printed on top of the value beside it. */
+  overflow-wrap: anywhere; min-width: 0;
+}
+.finding .links { display: flex; gap: .35rem; align-items: center; flex-wrap: wrap; margin-top: .6rem; font-size: .82rem; }
+.finding .why { margin: .7rem 0 0; font-size: .85rem; }
+.finding .why p { margin: .4rem 0 0; color: var(--ink-soft); }
+.finding .why .base { border-left: 2px solid var(--line); padding-left: .7rem; color: var(--muted); }
+.finding .why .id { color: var(--muted); font-family: var(--mono); font-size: .76rem; }
+.finding .decided {
+  padding: .55rem .95rem; border-top: 1px solid var(--line-soft);
+  background: var(--card-sunk); font-size: .83rem; color: var(--ink-soft);
+}
+
+/* ---- fields ----------------------------------------------------------- */
+.group { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); margin-bottom: .7rem; overflow: hidden; }
+.group > .cap { padding: .7rem .95rem; display: flex; gap: .6rem; align-items: baseline; border-bottom: 1px solid var(--line-soft); }
+.group > .cap h3 { margin: 0; }
+.group > .cap small { color: var(--muted); }
+.value { font-weight: 560; font-variant-numeric: tabular-nums; }
+.was { color: var(--blocker); text-decoration: line-through; font-weight: 400; }
+.conf { font-variant-numeric: tabular-nums; }
+.conf.low { color: var(--warning); font-weight: 620; }
+
+footer {
+  margin-top: 2.6rem; padding-top: 1rem; border-top: 1px solid var(--line);
+  color: var(--muted); font-size: .8rem;
+}
+footer p { margin: 0 0 .4rem; max-width: 82ch; }
+
+/* ---- paper ------------------------------------------------------------ */
+@page { size: A4; margin: 15mm 13mm 17mm; }
+@media print {
+  /* Forced light: an auditor's copy comes out of a printer, and a dark theme
+     there is a solid black page. */
   :root {
-    --ink: #16191d;
-    --muted: #5b6470;
-    --line: #d9dee5;
-    --bg: #ffffff;
-    --panel: #f6f8fa;
-    --blocker: #9d1f1f;
-    --warning: #8a5a00;
-    --info: #3a5a7a;
-    --ok: #1f6b3a;
+    --paper:#fff; --card:#fff; --card-sunk:#f6f8f7; --ink:#16211d;
+    --ink-soft:#3d4b46; --muted:#5b6b66; --line:#c4ceca; --line-soft:#dde4e1;
+    --accent:#0d5949; --accent-ink:#fff; --accent-wash:#e3efeb;
+    --blocker:#8f2a16; --blocker-wash:#fbeae6; --warning:#6e4b0c;
+    --warning-wash:#fbf2df; --ok:#155433; --ok-wash:#e5f2ea; --shadow:none;
   }
   html { color-scheme: light; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 2rem 1.5rem 4rem;
-    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: var(--ink); background: var(--bg);
-    max-width: 1080px; margin-inline: auto;
+  body { background: #fff; font-size: 10.5pt; }
+  .sheet { max-width: none; padding: 0; }
+  .noprint { display: none !important; }
+  /* On paper a link is text. Keeping the colour and underline would suggest
+     something to click, and a bordered pill reads as a control nobody can
+     press. */
+  a { color: inherit; text-decoration: none; }
+  .finding .links .btn {
+    border: none; padding: 0; background: none; font-size: inherit;
+    color: var(--ink-soft); display: inline;
   }
-  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
-  h2 { font-size: 1.1rem; margin: 2.25rem 0 .75rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); }
-  .sub { color: var(--muted); margin: 0 0 1.5rem; }
-  .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .75rem 1.5rem; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1rem 1.25rem; }
-  .meta div { min-width: 0; }
-  .meta dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 .15rem; }
-  .meta dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
-  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
-  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .scroll { overflow-x: auto; }
-  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85em; }
-  .tag { display: inline-block; padding: .05rem .4rem; border-radius: 3px; font-size: .72rem; font-weight: 600; letter-spacing: .02em; border: 1px solid currentColor; }
-  .BLOCKER { color: var(--blocker); }
-  .WARNING { color: var(--warning); }
-  .INFO { color: var(--info); }
-  .evidence { color: var(--muted); font-size: .82rem; }
-  .was { color: var(--blocker); text-decoration: line-through; }
-  .now { color: var(--ok); font-weight: 600; }
-  .empty { color: var(--muted); font-style: italic; }
-  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; }
+  .finding .links .btn::before { content: "· "; color: var(--muted); }
+  /* Column widths the printer can rely on: the reconciliation is the one
+     table whose last column must not fall off the sheet. */
+  .recon { table-layout: fixed; }
+  .recon th:nth-child(1) { width: 30%; }
+  .recon th:nth-child(2), .recon th:nth-child(3) { width: 21%; }
+  .recon th:nth-child(4) { width: 15%; }
+  .recon th:nth-child(5) { width: 13%; }
+  /* The SHA-256 column wants more width than an A4 page has, and without a
+     ceiling it pushed the two columns beside it off the sheet. */
+  .docs { table-layout: fixed; }
+  .docs th:nth-child(1) { width: 17%; }
+  .docs th:nth-child(2) { width: 11%; }
+  .docs th:nth-child(3) { width: 13%; }
+  .docs th:nth-child(4) { width: 17%; }
+  .docs th:nth-child(5) { width: 8%; }
+  .docs th:nth-child(6) { width: 11%; }
+  .docs th:nth-child(7) { width: 23%; }
+  .docs td { vertical-align: top; }
+  /* A group heading alone at the foot of a page is a heading with nothing
+     under it. */
+  .group > .cap { break-after: avoid; }
+  .masthead, .card, .verdict, .finding, .group, .note { box-shadow: none; }
+  /* A finding split across a page break loses the half that explains it. */
+  .finding, .verdict, .group > .cap, tr { break-inside: avoid; }
+  h2 { break-after: avoid; }
+  /* A table that runs over the page keeps its headings on the second page. */
+  thead { display: table-header-group; }
+  .scroll { overflow: visible; }
+}
 </style>
 </head>
 <body>
+<div class="sheet">
 
-<h1>{{ dossier.title }}</h1>
-<p class="sub">Dossier {{ dossier.reference }} &middot; evidence review</p>
+<header class="masthead">
+  <div class="logo-slot">logo de la empresa</div>
+  <div class="ident">
+    <p class="eyebrow">Informe de justificación técnico-económica</p>
+    <h1>{{ dossier.title }}</h1>
+    <p class="ref">
+      Expediente <strong>{{ dossier.reference }}</strong> ·
+      periodo {{ dossier.period_start|fecha }} – {{ dossier.period_end|fecha }}
+    </p>
+  </div>
+  <div class="issued">
+    Emitido<strong>{{ generated_at.strftime("%d/%m/%Y %H:%M") }} UTC</strong>
+    <div class="issued">Formato<strong class="mono">{{ report_version }}</strong></div>
+  </div>
+</header>
 
-<dl class="meta">
-  <div><dt>Status</dt><dd>{{ dossier.status }}</dd></div>
-  <div><dt>Period</dt><dd>{{ dossier.period_start }} to {{ dossier.period_end }}</dd></div>
-  <div><dt>Claimed</dt><dd>{{ dossier.claimed_total_eur }} EUR</dd></div>
-  <div><dt>Documents</dt><dd>{{ documents | length }}</dd></div>
-  <div><dt>Open findings</dt><dd>{{ open_findings | length }}</dd></div>
-  <div><dt>Fields needing review</dt><dd>{{ needs_review | length }}</dd></div>
-</dl>
-
-<h2>Declared against evidence</h2>
-<div class="scroll">
-<table>
-  <thead><tr><th>Figure</th><th class="num">Value</th></tr></thead>
-  <tbody>
-  {% for label, value in summary_rows %}
-    <tr><td>{{ label }}</td><td class="num mono">{{ value }}</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+{# Screen only: on paper these are three dead buttons. #}
+<div class="tools noprint">
+  <button class="primary" onclick="window.print()">Descargar PDF</button>
+  <a class="btn" href="/ui/dossiers/{{ dossier.id }}">Volver a la revisión</a>
+  <a class="btn small" href="/dossiers/{{ dossier.id }}/export.json" target="_blank" rel="noopener">Datos en JSON</a>
+  <a class="btn small" href="/dossiers/{{ dossier.id }}/export.csv">Campos en CSV</a>
+  <a class="btn small" href="/dossiers/{{ dossier.id }}/audit" target="_blank" rel="noopener">Auditoría</a>
+  <span class="muted" style="font-size:.8rem">
+    «Descargar PDF» abre el diálogo de impresión: elige <em>Guardar como PDF</em>.
+  </span>
 </div>
 
-<h2>Findings</h2>
-{% if findings %}
-<div class="scroll">
-<table>
+{% if can_approve %}
+<div class="verdict go">
+  <span class="glyph" aria-hidden="true">✓</span>
+  <div>
+    <h2>El expediente está en condiciones de aprobarse</h2>
+    <p>Ninguna regla ha encontrado nada que bloquee, y no queda ningún campo
+       esperando que una persona lo mire. La decisión sigue siendo de una
+       persona: este informe no aprueba nada.</p>
+  </div>
+</div>
+{% else %}
+<div class="verdict stop">
+  <span class="glyph" aria-hidden="true">⛔</span>
+  <div>
+    <h2>El expediente no está en condiciones de aprobarse</h2>
+    <p>
+      {% if blockers %}{{ blockers|length }} incidencia{{ "s" if blockers|length != 1 }}
+        bloqueante{{ "s" if blockers|length != 1 }}{% endif %}
+      {% if blockers and needs_review %} y {% endif %}
+      {% if needs_review %}{{ needs_review|length }} campo{{ "s" if needs_review|length != 1 }}
+        pendiente{{ "s" if needs_review|length != 1 }} de confirmación{% endif %}.
+      Cada una está detallada más abajo, con el documento y el sitio exacto del
+      que se leyó el dato que la provoca.
+    </p>
+  </div>
+</div>
+{% endif %}
+
+{% set status_label, status_hint = dossier_status.get(dossier.status|string, (dossier.status|string, "")) %}
+<ul class="facts-row">
+  <li><span>Estado</span><strong>{{ status_label }}</strong></li>
+  <li><span>Importe reclamado</span><strong>{{ dossier.claimed_total_eur|money }} €</strong></li>
+  <li><span>Documentos aceptados</span><strong>{{ accepted|length }}</strong></li>
+  {% if refused %}<li><span>No aceptados</span><strong>{{ refused|length }}</strong></li>{% endif %}
+  <li><span>Campos leídos</span><strong>{{ extractions|length }}</strong></li>
+  <li><span>Incidencias</span><strong>{{ findings|length }}</strong></li>
+  <li><span>Correcciones humanas</span><strong>{{ corrections|length }}</strong></li>
+</ul>
+
+<h2>Lo declarado frente a lo acreditado</h2>
+<p class="lede">
+  Para cada concepto de gasto: la cifra que declara la memoria y la cifra que
+  suman los documentos que la soportan. La diferencia es la que tendría que
+  justificarse ante el organismo, y sale de restar una de otra — no de una
+  estimación.
+</p>
+<div class="card flush scroll">
+<table class="recon">
   <thead>
-    <tr><th>Severity</th><th>Rule</th><th>What was found</th><th>Status</th></tr>
+    <tr>
+      <th>Concepto de gasto</th>
+      <th class="num">Declarado</th>
+      <th class="num">Acreditado</th>
+      <th class="num">Diferencia</th>
+      <th>Resultado</th>
+    </tr>
   </thead>
   <tbody>
-  {% for finding in findings %}
-    <tr>
-      <td><span class="tag {{ finding.severity }}">{{ finding.severity }}</span></td>
-      <td class="mono">{{ finding.rule_id }}<br><span class="evidence">v{{ finding.rule_version }}</span></td>
-      <td>
-        {{ finding.message }}
-        {% if finding.detail %}
-        <div class="evidence mono">{{ finding.detail }}</div>
+  {% for row in reconciliation %}
+    <tr class="{{ row.state }}">
+      <td class="concept">{{ row.concept }}<small>{{ row.note }}</small></td>
+      <td class="figure">
+        {% if row.declared is none %}
+          <span class="muted">no encontrado</span>
+        {% else %}
+          {{ row.declared|money }} €
+          {% if row.declared_source %}
+          <a class="from" href="/ui/evidence/{{ row.declared_source.id }}">{{ locator_summary(row.declared_source.locator) }}</a>
+          {% endif %}
         {% endif %}
       </td>
-      <td>
-        {{ finding.status }}
-        {% if finding.resolved_by %}
-        <div class="evidence">{{ finding.resolved_by }}: {{ finding.resolution_note }}</div>
+      <td class="figure">
+        {% if row.supported is none %}
+          <span class="muted">no encontrado</span>
+        {% else %}
+          {{ row.supported|money }} €
+          {% if row.supported_source %}
+          <a class="from" href="/ui/evidence/{{ row.supported_source.id }}">{{ locator_summary(row.supported_source.locator) }}</a>
+          {% else %}
+          <span class="from">{{ row.supported_label|lower }}</span>
+          {% endif %}
         {% endif %}
+      </td>
+      <td class="figure diff">
+        {% if row.difference is none %}—{% else %}{{ row.difference|money }} €{% endif %}
+      </td>
+      <td class="mid">
+        {% if row.state == "cuadra" %}<span class="pill ok">Cuadra</span>
+        {% elif row.state == "descuadre" %}<span class="pill blocker">Descuadre</span>
+        {% else %}<span class="pill muted">Falta un dato</span>{% endif %}
       </td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+<p class="muted" style="font-size:.8rem; margin-top:.5rem">
+  Una diferencia <strong>positiva</strong> significa que la memoria declara más
+  de lo que soportan los documentos aportados: es la parte que no está
+  acreditada. Una diferencia negativa significa lo contrario, que se ha
+  aportado más soporte del que se declara.
+</p>
+
+<h2>Incidencias</h2>
+{% if findings %}
+  {% for level, group in by_severity %}
+    {% if group %}
+      {% set label, hint = severity_label.get(level|string, (level|string, "")) %}
+      {% set css = "b" if level|string == "BLOCKER" else ("w" if level|string == "WARNING" else "i") %}
+      <p class="eyebrow" style="margin:1.2rem 0 .5rem">
+        {{ label }} · {{ group|length }} · {{ hint|lower }}
+      </p>
+      {% for f in group %}
+        {% set r = rule(f.rule_id) %}
+        {% set fstatus, fcss = finding_status.get(f.status|string, (f.status|string, "neutral")) %}
+        <div class="finding {{ css }}">
+          <div class="head">
+            <span class="stripe" aria-hidden="true"></span>
+            <div class="grow">
+              <h3>{{ r.title }}</h3>
+              {% set rows = detail_rows(f.detail) %}
+              {% if rows %}
+              <dl class="facts">
+                {% for label_, value in rows %}
+                  <div><dt>{{ label_ }}</dt><dd>{{ value }}</dd></div>
+                {% endfor %}
+              </dl>
+              {% endif %}
+
+              {% set docs = f.document_ids or [] %}
+              {% set fields = [] %}
+              {% for eid in (f.extraction_ids or []) %}
+                {% if extraction_by_id.get(eid|string) %}
+                  {% set _ = fields.append(extraction_by_id[eid|string]) %}
+                {% endif %}
+              {% endfor %}
+              {% if docs or fields %}
+              <div class="links">
+                {% if docs %}
+                  <span class="muted">Afecta a:</span>
+                  {% for did in docs %}
+                    <span class="pill neutral mono">{{ document_names.get(did|string, did) }}</span>
+                  {% endfor %}
+                {% endif %}
+                {% for e, label in evidence_links(fields[:6], document_names) %}
+                  <a class="btn small" href="/ui/evidence/{{ e.id }}">{{ label }}</a>
+                {% endfor %}
+                {% if fields|length > 6 %}
+                  <span class="muted">y {{ fields|length - 6 }} campo{{ "s" if fields|length - 6 != 1 }} más</span>
+                {% endif %}
+              </div>
+              {% endif %}
+
+              {# Open on paper: a collapsed explanation prints as a heading
+                 with nothing under it, and the requirement it cites is the
+                 part that makes the finding arguable. #}
+              <div class="why">
+                {% if r.explains %}<p>{{ r.explains }}</p>{% endif %}
+                {% if r.base %}<p class="base">{{ r.base }}</p>{% endif %}
+                <p class="id">regla {{ f.rule_id }} · versión {{ f.rule_version }}</p>
+              </div>
+            </div>
+            <span class="pill {{ fcss }}">{{ fstatus }}</span>
+          </div>
+          {% if f.resolved_by %}
+          <div class="decided">
+            Decidido por <strong>{{ f.resolved_by }}</strong>{% if f.resolution_reason %}: «{{ f.resolution_reason }}»{% endif %}
+          </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endfor %}
 {% else %}
-<p class="empty">No rule reported anything against this dossier.</p>
+<div class="card"><p class="empty" style="font-style:normal">
+  Ninguna de las reglas ha encontrado nada. Eso también es un resultado:
+  significa que la memoria, las facturas, el parte horario, el registro de
+  personal y la convocatoria cuadran entre sí.
+</p></div>
 {% endif %}
 
 {% if corrections %}
-<h2>Human corrections</h2>
-<div class="scroll">
+<h2>Correcciones hechas por una persona</h2>
+<p class="lede">
+  Una corrección se guarda <strong>junto</strong> a la lectura de la máquina,
+  nunca encima: se conserva lo que se leyó, quién lo corrigió y por qué, y una
+  nueva ejecución del pipeline no lo sobrescribe.
+</p>
+<div class="card flush scroll">
 <table>
-  <thead><tr><th>Field</th><th>Machine read</th><th>Corrected to</th><th>By</th><th>Reason</th></tr></thead>
+  <thead>
+    <tr><th>Campo</th><th>Leyó la máquina</th><th>Corregido a</th><th>Por</th><th>Motivo</th></tr>
+  </thead>
   <tbody>
   {% for e in corrections %}
     <tr>
-      <td class="mono">{{ e.field_path }}</td>
+      <td>{{ field_label(e.field_path) }}</td>
       <td class="was mono">{{ e.original_value_text }}</td>
-      <td class="now mono">{{ e.value_text }}</td>
+      <td class="value">
+        {% if e.value_number is not none %}{{ e.value_number|money }}
+        {% elif e.value_date %}{{ e.value_date|fecha }}
+        {% else %}{{ e.value_text }}{% endif %}
+      </td>
       <td>{{ e.corrected_by }}</td>
       <td>{{ e.correction_reason }}</td>
     </tr>
@@ -127,68 +543,134 @@
 </div>
 {% endif %}
 
-<h2>Extracted fields and their evidence</h2>
-<div class="scroll">
-<table>
-  <thead>
-    <tr>
-      <th>Field</th><th>Value</th><th class="num">Confidence</th>
-      <th>Source</th><th>Where it came from</th><th>Status</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for e in extractions %}
-    <tr>
-      <td class="mono">{{ e.field_path }}</td>
-      <td class="mono">
-        {% if e.value_number is not none %}{{ e.value_number | number }}
-        {% elif e.value_date %}{{ e.value_date }}
-        {% else %}{{ e.value_text }}{% endif %}
-      </td>
-      <td class="num mono">{{ "%.2f"|format(e.confidence|float) }}</td>
-      <td>
-        {{ document_names.get(e.document_id, "derived") }}
-        <div class="evidence mono">{{ e.extractor_version }}</div>
-      </td>
-      <td class="evidence">{{ describe(e.locator) }}</td>
-      <td>{{ e.status }}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+<h2>Campos leídos y su evidencia</h2>
+<p class="lede">
+  Cada valor se leyó de un sitio concreto de un documento concreto, y la
+  columna «de dónde sale» dice cuál. En pantalla es un enlace que abre el
+  documento con ese sitio marcado.
+</p>
+<div class="note" style="margin-bottom:1rem">
+  <strong>Confianza</strong> es lo segura que estaba la lectura, de 0 a 100 %.
+  En un PDF con texto es alta, porque el valor se leyó de la capa de texto
+  junto a una etiqueta inequívoca; en un escaneo es la que devuelve el motor
+  de OCR sobre esas palabras, así que un papel borroso o torcido la baja. Por
+  debajo del <strong>75 %</strong> el campo no se da por bueno: pasa a
+  «necesita revisión» y bloquea la aprobación hasta que una persona lo
+  confirme o lo corrija.
 </div>
 
-<h2>Documents</h2>
-<div class="scroll">
-<table>
+{% for title, subtitle, rows in grouped %}
+<div class="group">
+  <div class="cap">
+    <h3>{{ title }}</h3>
+    <small>{{ rows|length }} campo{{ "s" if rows|length != 1 }}{% if subtitle %} · {{ subtitle }}{% endif %}</small>
+  </div>
+  <div class="scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Campo</th>
+        <th>Valor</th>
+        <th class="num">Confianza</th>
+        <th>De dónde sale</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for e in rows %}
+      {% set estatus, ecss = field_status.get(e.status|string, (e.status|string, "neutral")) %}
+      <tr>
+        <td>{{ field_label(e.field_path) }}
+          <div class="muted mono" style="font-size:.75rem">{{ e.field_path }}</div>
+        </td>
+        <td>
+          {% if e.original_value_text %}<span class="was">{{ e.original_value_text }}</span><br>{% endif %}
+          <span class="value">
+            {% if e.value_number is not none %}{{ e.value_number|money }} {{ unit_of(e.field_path) }}
+            {% elif e.value_date %}{{ e.value_date|fecha }}
+            {% else %}{{ e.value_text }}{% endif %}
+          </span>
+        </td>
+        {% set pct = (e.confidence|float * 100) %}
+        <td class="num mid"><span class="conf {{ "low" if pct < 75 }}">{{ "%.0f"|format(pct) }} %</span></td>
+        <td class="mid" style="font-size:.83rem">
+          <a href="/ui/evidence/{{ e.id }}">{{ locator_summary(e.locator) }}</a>
+          {% if e.document_id %}
+          <div class="muted mono" style="font-size:.74rem">{{ document_names.get(e.document_id|string, "") }}</div>
+          {% endif %}
+        </td>
+        <td class="mid"><span class="pill {{ ecss }}">{{ estatus }}</span></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endfor %}
+
+<h2>Documentos del expediente</h2>
+<div class="card flush scroll">
+<table class="docs">
   <thead>
-    <tr><th>File</th><th>Detected as</th><th>Classified as</th><th>Status</th><th>Origin</th><th class="num">Bytes</th><th>SHA-256</th></tr>
+    <tr>
+      <th>Fichero</th><th>Tipo</th><th>Clasificado como</th><th>Origen</th>
+      <th class="num">Páginas</th><th class="num">Tamaño</th><th>Huella SHA-256</th>
+    </tr>
   </thead>
   <tbody>
-  {% for d in documents %}
+  {% for d in accepted %}
     <tr>
-      <td>{{ d.original_filename }}</td>
-      <td>{{ d.media_kind }}</td>
-      <td>{{ d.document_kind }}</td>
-      <td>{{ d.status }}</td>
-      <td>{{ d.source_kind }}{% if d.source_detail %}<div class="evidence">{{ d.source_detail }}</div>{% endif %}</td>
-      <td class="num mono">{{ d.size_bytes }}</td>
-      <td class="mono evidence">{{ d.content_sha256[:16] }}&hellip;</td>
+      <td class="mono">{{ d.original_filename }}</td>
+      <td>{{ media_kind.get(d.media_kind|string, d.media_kind|string) }}</td>
+      <td>{{ document_kind.get(d.document_kind|string, d.document_kind|string) }}</td>
+      <td>{{ source_kind.get(d.source_kind|string, d.source_kind|string) }}
+        {% if d.source_detail %}<div class="muted" style="font-size:.76rem">{{ d.source_detail }}</div>{% endif %}</td>
+      <td class="num mid">{{ d.page_count if d.page_count is not none else "—" }}</td>
+      <td class="num mid">{{ "{:,}".format(d.size_bytes).replace(",", ".") }} B</td>
+      <td class="mono" style="font-size:.7rem; overflow-wrap:anywhere">{{ d.content_sha256 }}</td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+<p class="muted" style="font-size:.8rem; margin-top:.5rem">
+  La huella identifica el contenido exacto que se leyó. Si un fichero se
+  cambia y se vuelve a subir, la huella cambia, y el mismo fichero subido dos
+  veces se reconoce como el mismo en lugar de duplicarse.
+</p>
+
+{% if refused %}
+<h2>Documentos que no se aceptaron</h2>
+<p class="lede">
+  Nada de esto se guardó: un fichero que no pasa la comprobación no llega al
+  almacén. Sí queda constancia de que se entregó y de por qué se rechazó, para
+  que se vea qué falta en lugar de tener que adivinarlo.
+</p>
+<div class="card flush scroll">
+<table>
+  <thead><tr><th>Fichero</th><th>Resultado</th><th>Motivo</th></tr></thead>
+  <tbody>
+  {% for d in refused %}
+    <tr>
+      <td class="mono">{{ d.original_filename }}</td>
+      <td>{{ document_status.get(d.status|string, (d.status|string, ""))[0] }}</td>
+      <td>{{ d.rejection_reason or "—" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
 
 {% if decisions %}
-<h2>Review trail</h2>
-<div class="scroll">
+<h2>Trazabilidad de la revisión</h2>
+<div class="card flush scroll">
 <table>
-  <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Reason</th></tr></thead>
+  <thead><tr><th>Cuándo</th><th>Quién</th><th>Qué hizo</th><th>Motivo</th></tr></thead>
   <tbody>
   {% for d in decisions %}
     <tr>
-      <td class="mono">{{ d.created_at.strftime("%Y-%m-%d %H:%M:%SZ") }}</td>
+      <td class="mono" style="white-space:nowrap">{{ d.created_at.strftime("%d/%m/%Y %H:%M") }}</td>
       <td>{{ d.actor }}</td>
       <td class="mono">{{ d.action }}</td>
       <td>{{ d.reason }}</td>
@@ -200,10 +682,24 @@
 {% endif %}
 
 <footer>
-  Generated {{ generated_at.strftime("%Y-%m-%d %H:%M:%SZ") }} by {{ report_version }}.
-  Every value above carries the document, page, cell or box it was read from.
-  Nothing here was approved automatically: approval is a recorded human action.
+  <p>
+    Informe generado el {{ generated_at.strftime("%d/%m/%Y a las %H:%M") }} UTC
+    con el formato <span class="mono">{{ report_version }}</span> para el
+    expediente {{ dossier.reference }}.
+  </p>
+  <p>
+    Es una instantánea: guarda el estado del expediente y las cifras del
+    momento en que se emitió, de modo que un informe antiguo sigue diciendo lo
+    que era cierto entonces. Al guardarse se registra la huella SHA-256 de
+    este documento, que puede consultarse en la auditoría del expediente.
+  </p>
+  <p>
+    Nada de lo que aparece aquí se aprobó automáticamente. Aprobar o rechazar
+    es una acción de una persona, queda registrada con su nombre, la fecha y el
+    motivo, y la auditoría no admite ediciones ni borrados.
+  </p>
 </footer>
 
+</div>
 </body>
 </html>

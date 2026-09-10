@@ -26,12 +26,23 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from iep.api import vocabulary as vocab
 from iep.audit import service as audit
 from iep.db.models import Document, Dossier, Extraction, Finding, Report, ReviewDecision
-from iep.domain.enums import AuditAction, FieldStatus, FindingStatus, Severity
+from iep.domain.enums import (
+    AuditAction,
+    DocumentStatus,
+    FieldStatus,
+    FindingStatus,
+    Severity,
+)
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
-REPORT_VERSION = "report/1.0.0"
+# 2.0.0: the artefact is Spanish, reconciles declared against supported per
+# concepto de gasto, and links each figure to its evidence. A stored report
+# keeps the version it was rendered with, so an older one still reads as what
+# it was.
+REPORT_VERSION = "report/2.0.0"
 
 # Leading characters a spreadsheet treats as the start of a formula.
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
@@ -81,6 +92,28 @@ def format_number(value: Decimal | None) -> str:
 
 
 _env.filters["number"] = format_number
+_env.filters["money"] = vocab.money
+_env.filters["fecha"] = vocab.spanish_date
+# The same vocabulary the review screen uses. A rule explained one way on
+# screen and another way in the filed artefact is two rules as far as anybody
+# reading them is concerned.
+_env.globals.update(
+    dossier_status=vocab.DOSSIER_STATUS,
+    document_status=vocab.DOCUMENT_STATUS,
+    field_status=vocab.FIELD_STATUS,
+    finding_status=vocab.FINDING_STATUS,
+    severity_label=vocab.SEVERITY,
+    document_kind=vocab.DOCUMENT_KIND,
+    media_kind=vocab.MEDIA_KIND,
+    source_kind=vocab.SOURCE_KIND,
+    locator_kind=vocab.LOCATOR_KIND,
+    rule=vocab.rule,
+    field_label=vocab.field_label,
+    locator_summary=vocab.locator_summary,
+    detail_rows=vocab.detail_rows,
+    evidence_links=vocab.evidence_links,
+    unit_of=vocab.unit_of,
+)
 
 
 def collect(session: Session, dossier_id: uuid.UUID) -> dict[str, Any]:
@@ -115,30 +148,58 @@ def collect(session: Session, dossier_id: uuid.UUID) -> dict[str, Any]:
         ).scalars()
     )
 
-    names = {document.id: document.original_filename for document in documents}
     severity_order = {Severity.BLOCKER: 0, Severity.WARNING: 1, Severity.INFO: 2}
+    ordered_findings = sorted(
+        findings, key=lambda f: (severity_order.get(Severity(f.severity), 9), f.rule_id)
+    )
+    refused = [
+        d for d in documents if d.status in (DocumentStatus.UNSUPPORTED, DocumentStatus.CORRUPT)
+    ]
+    # A blocker still counts against approval once it has been accepted as
+    # real: agreeing with a finding is not resolving it.
+    blockers = [
+        f
+        for f in ordered_findings
+        if Severity(f.severity) is Severity.BLOCKER
+        and f.status in (FindingStatus.OPEN, FindingStatus.ACCEPTED)
+    ]
+    needs_review = [e for e in extractions if e.status == FieldStatus.NEEDS_REVIEW]
 
     return {
         "dossier": dossier,
         "documents": documents,
+        "accepted": [d for d in documents if d not in refused],
+        "refused": refused,
         "extractions": extractions,
-        "findings": sorted(
-            findings, key=lambda f: (severity_order.get(Severity(f.severity), 9), f.rule_id)
-        ),
+        "grouped": vocab.group_extractions(extractions),
+        "findings": ordered_findings,
+        "by_severity": [
+            (level, [f for f in ordered_findings if Severity(f.severity) is level])
+            for level in (Severity.BLOCKER, Severity.WARNING, Severity.INFO)
+        ],
         "decisions": decisions,
-        "document_names": names,
+        # Two maps keyed by string, because a finding stores the ids it points
+        # at as strings in JSONB. A UUID-keyed map misses every lookup, and the
+        # template then prints the raw identifier at a reviewer.
+        "document_names": {str(d.id): d.original_filename for d in documents},
+        "extraction_by_id": {str(e.id): e for e in extractions},
         "generated_at": datetime.now(UTC),
         "report_version": REPORT_VERSION,
-        "open_findings": [f for f in findings if f.status == FindingStatus.OPEN],
-        "needs_review": [e for e in extractions if e.status == FieldStatus.NEEDS_REVIEW],
+        "open_findings": [f for f in ordered_findings if f.status == FindingStatus.OPEN],
+        "blockers": blockers,
+        "needs_review": needs_review,
+        "can_approve": not blockers and not needs_review,
         "corrections": [e for e in extractions if e.original_value_text is not None],
-        "summary_rows": _summary_rows(extractions),
+        "reconciliation": reconcile(dossier, extractions),
+        # `collect` is also what the JSON export reads, and that one wants the
+        # old UUID-keyed map plus the flat summary.
+        "names_by_uuid": {d.id: d.original_filename for d in documents},
     }
 
 
 def render_html(session: Session, dossier_id: uuid.UUID) -> RenderedReport:
     context = collect(session, dossier_id)
-    html = _env.get_template("report.html").render(**context, describe=describe_locator)
+    html = _env.get_template("report.html").render(**context)
     data = html.encode("utf-8")
     findings = context["findings"]
     return RenderedReport(
@@ -289,7 +350,7 @@ def export_csv(session: Session, dossier_id: uuid.UUID) -> bytes:
                 sanitise_cell(extraction.status),
                 sanitise_cell(extraction.method),
                 sanitise_cell(extraction.extractor_version),
-                sanitise_cell(context["document_names"].get(extraction.document_id, "")),
+                sanitise_cell(context["names_by_uuid"].get(extraction.document_id, "")),
                 sanitise_cell(describe_locator(extraction.locator)),
                 sanitise_cell(extraction.original_value_text or ""),
                 sanitise_cell(extraction.corrected_by or ""),
@@ -332,17 +393,73 @@ def _display_value(extraction: Extraction) -> str:
     return extraction.value_text or ""
 
 
-def _summary_rows(extractions: list[Extraction]) -> list[tuple[str, str]]:
-    wanted = (
-        ("report.declared_personnel_cost_eur", "Personnel cost declared in the report"),
-        ("timesheet.total_amount_eur", "Personnel cost supported by the timesheet"),
-        ("report.declared_external_cost_eur", "External cost declared in the report"),
-        ("invoices.total_eur", "External cost supported by receipts"),
-        ("report.declared_total_eur", "Total declared in the report"),
-    )
+@dataclass(frozen=True)
+class ReconciliationRow:
+    """One concepto de gasto: what was declared, what the papers support.
+
+    Both sides carry the extraction they came from, so the report can send the
+    reader to the page, cell or box each figure was read from instead of
+    asking them to take the number on faith.
+    """
+
+    concept: str
+    note: str
+    declared: Decimal | None
+    declared_source: Extraction | None
+    supported: Decimal | None
+    supported_source: Extraction | None
+    supported_label: str
+
+    @property
+    def difference(self) -> Decimal | None:
+        if self.declared is None or self.supported is None:
+            return None
+        return self.declared - self.supported
+
+    @property
+    def state(self) -> str:
+        """`cuadra`, `descuadre` or `incompleto` - never a silent blank."""
+        if self.declared is None or self.supported is None:
+            return "incompleto"
+        return "cuadra" if self.difference == 0 else "descuadre"
+
+
+def reconcile(dossier: Dossier, extractions: list[Extraction]) -> list[ReconciliationRow]:
+    """The comparison a person does by hand, done once and shown with sources.
+
+    A missing figure stays missing. Substituting a zero for a value that was
+    never read would make a descuadre look like a match, which is the one
+    mistake this artefact exists to prevent.
+    """
     by_path = {e.field_path: e for e in extractions}
-    rows: list[tuple[str, str]] = []
-    for path, label in wanted:
-        extraction = by_path.get(path)
-        rows.append((label, _display_value(extraction) if extraction else "not found"))
+    rows: list[ReconciliationRow] = []
+    for concept, declared_path, supported_path, note in vocab.RECONCILIATION:
+        declared = by_path.get(declared_path)
+        if supported_path is None:
+            # The total is checked against what the entity claims in the
+            # cuenta justificativa, which is a field of the dossier itself.
+            rows.append(
+                ReconciliationRow(
+                    concept=concept,
+                    note=note,
+                    declared=declared.value_number if declared else None,
+                    declared_source=declared,
+                    supported=dossier.claimed_total_eur,
+                    supported_source=None,
+                    supported_label="Importe reclamado",
+                )
+            )
+            continue
+        supported = by_path.get(supported_path)
+        rows.append(
+            ReconciliationRow(
+                concept=concept,
+                note=note,
+                declared=declared.value_number if declared else None,
+                declared_source=declared,
+                supported=supported.value_number if supported else None,
+                supported_source=supported,
+                supported_label=vocab.field_label(supported_path),
+            )
+        )
     return rows

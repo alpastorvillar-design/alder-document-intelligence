@@ -115,7 +115,7 @@ def context(
         documents=documents or [],
         extractions=extractions or [],
         registry=registry or {},
-        call_window=rules.CallWindow(date(2025, 1, 1), date(2025, 12, 31), "test"),
+        call_window=rules.CallWindow(date(2025, 1, 1), date(2025, 12, 31), "CALL_PAGE"),
         ocr_confidence_by_document=ocr or {},
         document_text_by_id=texts or {},
     )
