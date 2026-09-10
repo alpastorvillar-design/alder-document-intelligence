@@ -63,9 +63,13 @@ NUMERIC_FIELDS = {
     "invoices.count",
 }
 
+# Fixed queries with a known answer, so retrieval is measured rather than
+# demonstrated. They quote the report's own wording: when the report moved to
+# the published justification vocabulary this set had to move with it, and the
+# probe that still asked for the old phrase correctly returned nothing.
 RETRIEVAL_PROBES = (
     ("periodo de ejecucion", "memoria-tecnica"),
-    ("coste de personal declarado", "memoria-tecnica"),
+    ("gastos de personal declarados", "memoria-tecnica"),
     ("base imponible", "justificante"),
 )
 
@@ -119,6 +123,11 @@ class DossierResult:
     replay_seconds: float
     external_capture_first_run: list[str]
     external_capture_replay_run: list[str]
+    # False when the run could not reach the personnel registry or the call
+    # page. The rules that cross-check against them cannot fire, and
+    # EXTERNAL_SOURCE_UNAVAILABLE fires instead, so recall and precision stop
+    # measuring detection and start measuring the environment.
+    sources_complete: bool
     needs_review_fields: int
     final_status: str
     semantic_provider: str
@@ -334,6 +343,7 @@ def evaluate_dossier(
         replay_seconds=round(replay_seconds, 3),
         external_capture_first_run=sorted(outcome.warnings),
         external_capture_replay_run=sorted(replay_outcome.warnings),
+        sources_complete="EXTERNAL_SOURCE_UNAVAILABLE" not in detected,
         needs_review_fields=needs_review,
         final_status=final_status,
         semantic_provider=outcome.semantic_provider,
@@ -615,6 +625,7 @@ def _totals(results: list[DossierResult]) -> dict[str, Any]:
         "rule_id_recall": round(true_positives / expected_findings, 4)
         if expected_findings
         else 1.0,
+        "sources_complete": all(result.sources_complete for result in results),
         "retrieval_probes": len(retrieval_probes),
         "retrieval_correct_targets": sum(
             1 for probe in retrieval_probes if probe["correct_target"]
@@ -628,10 +639,57 @@ def _totals(results: list[DossierResult]) -> dict[str, Any]:
     }
 
 
+def _detection_verdict(totals: dict[str, Any]) -> str:
+    """The detection rate, or a refusal to state one.
+
+    Every rule that cross-checks the timesheet against the personnel registry,
+    or a claim against the published call, needs those sources. When they are
+    unreachable those rules cannot fire and EXTERNAL_SOURCE_UNAVAILABLE fires
+    in their place, so recall drops and precision drops for a reason that has
+    nothing to do with detection. Printing the number anyway would put a
+    figure in front of a reader that measures the runner's network rather than
+    the pipeline, which is the one thing this harness exists not to do.
+    """
+    if not totals["sources_complete"]:
+        return (
+            "**not measurable in this run**: an external source was "
+            "unavailable, so the rules that depend on it could not fire"
+        )
+    detected = totals["expected_findings"] - totals["findings_missed"]
+    return (
+        f"{detected}/{totals['expected_findings']} ({totals['rule_id_recall']:.1%} rule-ID recall)"
+    )
+
+
+def _precision_verdict(totals: dict[str, Any]) -> str:
+    if not totals["sources_complete"]:
+        return "not measurable in this run"
+    positives = totals["finding_true_positives"] + totals["finding_false_positives"]
+    return f"{totals['finding_true_positives']}/{positives} ({totals['rule_id_precision']:.1%})"
+
+
+def _counts_verdict(totals: dict[str, Any]) -> str:
+    if not totals["sources_complete"]:
+        return "not measurable in this run"
+    return f"{totals['finding_false_positives']} / {totals['finding_false_negatives']}"
+
+
 def _replay_verdict(totals: dict[str, Any]) -> str:
     if not totals["replay_comparable"]:
         return "not comparable: an external source differed between the two runs"
     return "yes" if totals["replay_stable"] else "no"
+
+
+DEGRADED_RUN_NOTE = (
+    "> **This run could not reach an external source.** The personnel registry "
+    "or the published call page did not answer, so "
+    "`EXTERNAL_SOURCE_UNAVAILABLE` was raised - which is the correct "
+    "behaviour, because a missing source is a blocker and not an empty dataset "
+    "- and the rules that cross-check against those sources could not run. The "
+    "detection figures are withheld rather than reported, because they would "
+    "measure the environment instead of the pipeline. Start the development "
+    "source simulator and re-run to measure detection."
+)
 
 
 def _dossier_replay_verdict(result: dict[str, Any]) -> str:
@@ -662,20 +720,18 @@ def render_summary(payload: dict[str, Any]) -> str:
         f"| Scanned-receipt field accuracy (OCR) | "
         f"{totals['ocr_fields_correct']}/{totals['ocr_fields_checked']} "
         f"({totals['ocr_field_accuracy']:.1%}) |",
-        f"| Seeded defects detected | "
-        f"{totals['expected_findings'] - totals['findings_missed']}/"
-        f"{totals['expected_findings']} ({totals['rule_id_recall']:.1%} rule-ID recall) |",
-        f"| Rule-ID precision | {totals['finding_true_positives']}/"
-        f"{totals['finding_true_positives'] + totals['finding_false_positives']} "
-        f"({totals['rule_id_precision']:.1%}) |",
-        f"| False positives / false negatives (rule IDs) | "
-        f"{totals['finding_false_positives']} / {totals['finding_false_negatives']} |",
+        f"| Seeded defects detected | {_detection_verdict(totals)} |",
+        f"| Rule-ID precision | {_precision_verdict(totals)} |",
+        f"| False positives / false negatives (rule IDs) | {_counts_verdict(totals)} |",
         f"| Retrieval target accuracy | {totals['retrieval_correct_targets']}/"
         f"{totals['retrieval_probes']} |",
         f"| Replay is a no-op | {_replay_verdict(totals)} |",
         f"| Wall clock for the whole run | {payload['total_seconds']}s |",
         "",
     ]
+
+    if not totals["sources_complete"]:
+        lines += [DEGRADED_RUN_NOTE, ""]
 
     for result in payload["dossiers"]:
         lines += [

@@ -121,10 +121,28 @@ jobs:
       - run: python -m pip install -r requirements-dev.lock
       - run: python -m pip install --no-deps -e .
       - run: alembic upgrade head
+      - name: Start the development source simulator
+        # The harness uses the real connectors, unlike the integration tests
+        # which inject doubles. Without the simulator the personnel registry
+        # and the call page are unreachable, every dossier raises
+        # EXTERNAL_SOURCE_UNAVAILABLE, and the rules that cross-check against
+        # those sources cannot fire - so the published figures measured the
+        # runner's network rather than the pipeline.
+        run: |
+          python -m uvicorn devsources.app:app --host 127.0.0.1 --port 8080             --log-level warning &
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then
+              echo "simulator ready after $attempt attempt(s)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the source simulator never became ready" >&2
+          exit 1
       - name: Rebuild the synthetic corpus and re-run the evaluation
         run: |
           python -m corpus.generate --out corpus/out
-          python -m evaluation.run_eval --corpus corpus/out --out evaluation/out
+          python -m evaluation.run_eval --corpus corpus/out --out evaluation/out             --call-page-url http://127.0.0.1:8080/public/convocatoria.html
       - uses: actions/upload-artifact@v4
         with:
           name: evaluation-results

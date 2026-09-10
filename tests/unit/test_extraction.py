@@ -8,7 +8,7 @@ from decimal import Decimal
 
 import pytest
 from corpus import documents as corpus_documents
-from corpus.dataset import DOSSIER_A
+from corpus.dataset import DOSSIER_A, DOSSIER_B, DOSSIERS
 from openpyxl import Workbook
 from PIL import Image
 
@@ -190,3 +190,58 @@ class TestPdfText:
         chunks = pdf_text.chunk_pages(pages)
         assert chunks
         assert all(chunk.locator.model_dump()["page"] >= 1 for chunk in chunks)
+
+    def test_a_chunk_locator_indexes_its_own_text(self) -> None:
+        """`page_text[char_start:char_end]` has to be the chunk, verbatim.
+
+        The block was located in the page before being stripped, so every
+        offset inside a block with leading whitespace was shifted by however
+        much had been removed - a locator that looks entirely plausible and
+        points a reviewer slightly to the left of the evidence.
+        """
+        for spec in (DOSSIER_A, DOSSIER_B):
+            pages = pdf_text.read_pages(corpus_documents.technical_report(spec))
+            for chunk in pdf_text.chunk_pages(pages):
+                locator = chunk.locator.model_dump()
+                page_text = pages.pages[locator["page"] - 1]
+                assert page_text[locator["char_start"] : locator["char_end"]] == chunk.text
+
+    def test_no_chunk_ends_in_the_middle_of_a_word(self) -> None:
+        """A phrase cut across a boundary is in the document and unfindable.
+
+        The chunker sliced every 900 characters wherever the count landed, so
+        `Gastos de personal declarados` was indexed as `...Gastos de personal`
+        plus ` declarados: 77.604,00 EUR` and matched neither piece.
+
+        The property that catches it: whatever follows a chunk in the page has
+        to be whitespace or the end of the text. If it is a letter, the chunk
+        stopped inside a word.
+        """
+        cut_mid_word: list[str] = []
+        for spec in DOSSIERS:
+            pages = pdf_text.read_pages(corpus_documents.technical_report(spec))
+            chunks = pdf_text.chunk_pages(pages, max_chars=120)
+            assert len(chunks) > 1, "the cap has to actually split something"
+            for chunk in chunks:
+                locator = chunk.locator.model_dump()
+                page_text = pages.pages[locator["page"] - 1]
+                after = page_text[locator["char_end"] : locator["char_end"] + 1]
+                if after and not after.isspace():
+                    cut_mid_word.append(f"{spec.reference}: ...{chunk.text[-25:]}|{after}")
+        assert cut_mid_word == [], "chunks that stop inside a word: " + "; ".join(cut_mid_word)
+
+    def test_a_heading_that_straddles_the_cap_is_still_one_phrase(self) -> None:
+        """The exact shape that broke: a phrase sitting right on the boundary."""
+        heading = "Gastos de personal declarados: 77.604,00 EUR"
+        page = "x" * 890 + "\n" + heading + "\n" + "y" * 400
+        chunks = pdf_text.chunk_pages(pdf_text.PdfPages([page]))
+        assert any(heading in chunk.text for chunk in chunks), (
+            "the phrase was split across two chunks and became unfindable"
+        )
+
+    def test_an_unbroken_run_longer_than_the_cap_still_terminates(self) -> None:
+        """No boundary to prefer must not mean an infinite loop."""
+        pages = pdf_text.PdfPages(["z" * 2500])
+        chunks = pdf_text.chunk_pages(pages, max_chars=900)
+        assert len(chunks) == 3
+        assert "".join(chunk.text for chunk in chunks) == "z" * 2500
