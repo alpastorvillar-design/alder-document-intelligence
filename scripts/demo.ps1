@@ -19,7 +19,15 @@ if (-not $SkipBuild) {
 }
 docker compose up -d --wait postgres devsources api worker
 
-$references = @("INN-2025-041", "INN-2025-042")
+# Every dossier the corpus defines, so the demonstration shows the clean path,
+# the fully seeded one, and the three ordinary claims in between.
+$references = @(
+    "INN-2025-041",
+    "INN-2025-042",
+    "INN-2025-043",
+    "INN-2025-044",
+    "INN-2025-045"
+)
 
 if ($Fresh) {
     foreach ($reference in $references) {
