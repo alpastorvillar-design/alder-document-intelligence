@@ -8,7 +8,6 @@ tools and cannot approve, edit or transition a dossier.
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 from dataclasses import dataclass
 from importlib import resources
@@ -18,6 +17,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from iep.config import Settings
+from iep.retrieval.prompting import screen, user_message
 from iep.retrieval.search import EvidenceHit
 
 RAG_PROMPT_VERSION = "rag-grounded-answer/1.0.0"
@@ -56,6 +56,10 @@ class RagGeneration:
     output_tokens: int | None
     prompt_version: str
     prompt_sha256: str
+    # Evidence items dropped at the prompt boundary for carrying directives
+    # aimed at an automated reader. Reported rather than swallowed: a caller
+    # cannot audit an exclusion it is not told about.
+    withheld_directives: int = 0
 
 
 class OpenAIResponsesRagGenerator:
@@ -85,17 +89,13 @@ class OpenAIResponsesRagGenerator:
         self.transport = transport
 
     def generate(self, question: str, hits: list[EvidenceHit]) -> RagGeneration:
-        evidence = bounded_evidence(hits, self.max_context_chars)
-        allowed_ids = {item["evidence_id"] for item in evidence}
+        screened = screen(bounded_evidence(hits, self.max_context_chars))
+        allowed_ids = {item["evidence_id"] for item in screened.items}
         instructions = system_prompt()
         payload: dict[str, object] = {
             "model": self.model,
             "instructions": instructions,
-            "input": json.dumps(
-                {"question": question, "EVIDENCE_JSON": evidence},
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ),
+            "input": user_message(question, screened),
             "max_output_tokens": self.max_output_tokens,
             "store": False,
             "text": {
@@ -143,6 +143,7 @@ class OpenAIResponsesRagGenerator:
             output_tokens=output_tokens if isinstance(output_tokens, int) else None,
             prompt_version=RAG_PROMPT_VERSION,
             prompt_sha256=hashlib.sha256(instructions.encode("utf-8")).hexdigest(),
+            withheld_directives=screened.withheld,
         )
 
     def _post(self, payload: dict[str, object]) -> dict[str, Any]:
@@ -197,9 +198,20 @@ class RagGenerator(Protocol):
     def generate(self, question: str, hits: list[EvidenceHit]) -> RagGeneration: ...
 
 
-def build_rag_generator(settings: Settings) -> RagGenerator:
+def build_rag_generator(settings: Settings, chosen: Any = None) -> RagGenerator:
+    """The generator for this request.
+
+    `chosen` is a `catalogue.ModelChoice` when a reviewer picked a model on
+    the screen, and `None` when the configured default applies. It arrives
+    already resolved against the catalogue - never as a raw string from a
+    client - because for the CLI backends the model name ends up in `argv`.
+    """
+    if chosen is not None:
+        return _for_choice(settings, chosen)
     if settings.rag_provider == "disabled":
         raise RagConfigurationError("RAG generation is disabled.")
+    if settings.rag_provider == "ollama":
+        return _ollama(settings, settings.ollama_model)
     if settings.rag_provider == "cli":
         # Imported here so the hosted path never pays for the subprocess
         # module, and so a deployment that never enables this does not carry
@@ -222,6 +234,31 @@ def build_rag_generator(settings: Settings) -> RagGenerator:
         base_url=settings.openai_base_url,
         timeout_seconds=settings.openai_timeout_seconds,
         max_attempts=settings.openai_max_attempts,
+        max_output_tokens=settings.rag_max_output_tokens,
+        max_context_chars=settings.rag_max_context_chars,
+    )
+
+
+def _for_choice(settings: Settings, chosen: Any) -> RagGenerator:
+    if chosen.backend == "ollama":
+        return _ollama(settings, chosen.model)
+    from iep.retrieval.rag_cli import build_cli_generator
+
+    return build_cli_generator(
+        tool_name=chosen.backend,
+        model=chosen.model,
+        timeout_seconds=settings.rag_cli_timeout_seconds,
+        max_context_chars=settings.rag_max_context_chars,
+    )
+
+
+def _ollama(settings: Settings, model: str) -> RagGenerator:
+    from iep.retrieval.rag_ollama import OllamaRagGenerator
+
+    return OllamaRagGenerator(
+        base_url=settings.ollama_base_url,
+        model=model,
+        timeout_seconds=settings.ollama_timeout_seconds,
         max_output_tokens=settings.rag_max_output_tokens,
         max_context_chars=settings.rag_max_context_chars,
     )

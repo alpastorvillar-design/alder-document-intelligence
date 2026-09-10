@@ -337,6 +337,12 @@ class RagQuestion(BaseModel):
     question: str = Field(min_length=2, max_length=500)
     retrieval_mode: Literal["lexical", "vector", "hybrid"] = "hybrid"
     top_k: int = Field(default=5, ge=1, le=10)
+    # A catalogue id such as `ollama:qwen3.5:9b` or `claude:claude-haiku-4-5`.
+    # Empty means the configured default. The pattern is a first gate, not the
+    # check that matters: the id is resolved against the catalogue of models
+    # this process can actually reach, and an unknown one is refused - for the
+    # CLI backends the name ends up in `argv`.
+    model: str = Field(default="", max_length=120, pattern=r"^[A-Za-z0-9_.:\-]*$")
 
 
 class RagCitation(BaseModel):
@@ -363,6 +369,11 @@ class RagAnswer(BaseModel):
     # rather than swallowed: a caller cannot audit an exclusion it is not told
     # about.
     withheld_hostile_segments: int = Field(default=0, ge=0)
+    # Segments dropped at the prompt boundary itself for carrying a directive
+    # aimed at an automated reader. A different layer from the one above: that
+    # one works on documents the rules flagged, this one on the exact text
+    # about to be sent, whatever produced it.
+    withheld_directive_segments: int = Field(default=0, ge=0)
     retrieval_mode: Literal["lexical", "vector", "hybrid"]
     generation_provider: str
     generation_model: str
@@ -370,6 +381,49 @@ class RagAnswer(BaseModel):
     output_tokens: int | None = None
     prompt_version: str
     prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+# Named once so the contract and the code that fills it cannot disagree about
+# which providers and modes exist.
+RagProviderName = Literal["disabled", "openai", "cli", "ollama"]
+SearchModeName = Literal["lexical", "vector", "hybrid"]
+
+
+class ModelOption(BaseModel):
+    """One model the screen may offer, as the API names it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    backend: str
+    label: str
+    # Whether a call to it leaves the machine. The only distinction that
+    # matters to whoever is running the demonstration.
+    local: bool
+    note: str = ""
+
+
+class UsageReport(BaseModel):
+    """What this application spent, and the account it spent it on.
+
+    Deliberately not called "remaining": neither assistant CLI publishes a
+    quota, so the honest report is consumption plus the plan, and the screen
+    says which is which.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    window_days: int = Field(ge=1)
+    calls: int = Field(ge=0)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    local_calls: int = Field(ge=0)
+    by_model: list[dict[str, Any]] = Field(default_factory=list)
+    account_tool: str = ""
+    account_logged_in: bool = False
+    account_method: str = ""
+    account_plan: str = ""
+    account_detail: str = ""
 
 
 class RagStatus(BaseModel):
@@ -384,7 +438,7 @@ class RagStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
-    provider: Literal["disabled", "openai", "cli"]
+    provider: RagProviderName
     # Which assistant CLI is configured, and whether this process can launch
     # it. Both matter: the API runs in a container by default and the CLI is
     # installed on the host.
@@ -392,7 +446,7 @@ class RagStatus(BaseModel):
     cli_available: bool = False
     available_cli_tools: list[str] = Field(default_factory=list)
     model: str | None = None
-    retrieval_modes: list[Literal["lexical", "vector", "hybrid"]] = Field(default_factory=list)
+    retrieval_modes: list[SearchModeName] = Field(default_factory=list)
     embedding_provider: str
     # Whether that provider is a learned model. The shipped default is not,
     # and on this corpus its similarities do not separate a relevant query
@@ -407,3 +461,5 @@ class RagStatus(BaseModel):
     budget_stop_at: int = Field(ge=0)
     budget_window_days: int = Field(ge=1)
     budget_exhausted: bool = False
+    models: list[ModelOption] = Field(default_factory=list)
+    usage: UsageReport | None = None

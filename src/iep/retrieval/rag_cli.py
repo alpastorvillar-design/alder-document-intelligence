@@ -44,6 +44,7 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
+from iep.retrieval.prompting import screen, user_message
 from iep.retrieval.rag import (
     RAG_PROMPT_VERSION,
     ProviderAnswer,
@@ -230,15 +231,10 @@ class CliRagGenerator:
         self.max_context_chars = max_context_chars
 
     def generate(self, question: str, hits: list[EvidenceHit]) -> RagGeneration:
-        evidence = bounded_evidence(hits, self.max_context_chars)
-        allowed_ids = {item["evidence_id"] for item in evidence}
-        rules = system_prompt()
-        instructions = rules + _JSON_ONLY
-        request = json.dumps(
-            {"question": question, "EVIDENCE_JSON": evidence},
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
+        screened = screen(bounded_evidence(hits, self.max_context_chars))
+        allowed_ids = {item["evidence_id"] for item in screened.items}
+        instructions = system_prompt() + _JSON_ONLY
+        request = user_message(question, screened)
         stdin = f"{instructions}\n\n{request}" if self.tool.instructions_in_prompt else request
 
         stdout = self._run(stdin, instructions)
@@ -259,6 +255,7 @@ class CliRagGenerator:
             # provider actually sent, which includes the shape appendix.
             prompt_version=RAG_PROMPT_VERSION,
             prompt_sha256=hashlib.sha256(instructions.encode("utf-8")).hexdigest(),
+            withheld_directives=screened.withheld,
         )
 
     def _run(self, stdin: str, instructions: str) -> str:

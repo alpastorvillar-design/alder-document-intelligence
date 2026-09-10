@@ -229,6 +229,7 @@ def review_view(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -
         # instead of describing it.
         extraction_by_id={str(row.id): row for row in extractions},
         can_approve=not blockers and not needs_review,
+        copilot_prompts=vocab.copilot_prompts(finding.rule_id for finding in findings),
     )
 
 
@@ -276,6 +277,17 @@ def evidence(
         dossier=dossiers.get(session, extraction.dossier_id),
         view=view,
         inputs=inputs,
+        # On this screen the reviewer is already asking "where else does this
+        # appear", so the first suggestion is about the field in front of them.
+        copilot_prompts=vocab.copilot_prompts(
+            (
+                row
+                for row in session.execute(
+                    select(Finding.rule_id).where(Finding.dossier_id == extraction.dossier_id)
+                ).scalars()
+            ),
+            field_label_for=vocab.field_label(extraction.field_path),
+        ),
     )
 
 

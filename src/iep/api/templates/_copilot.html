@@ -1,0 +1,97 @@
+{# The copilot: a drawer, not a panel in the page.
+
+   It was an inline box under the findings, which meant a reviewer had to
+   scroll away from what they were reading to ask about it, and the answer
+   arrived somewhere else again. A drawer sits beside the work: the evidence
+   stays on screen while the question is asked about it, and it closes when it
+   is in the way.
+
+   Everything the drawer offers comes from `GET /dossiers/{id}/questions`, so
+   the screen never claims a model the process cannot reach. The suggested
+   questions are the exception - they are built from this dossier's own
+   descuadres and findings, server-side, because a blank box is the hardest
+   thing to start with.
+
+   Include it in a page that defines `dossier`, and pass `copilot_prompts`. #}
+<button class="copilot-open" id="copilot-open" onclick="copilotToggle(true)"
+        aria-controls="copilot" aria-expanded="false">
+  <span aria-hidden="true">◧</span> Copiloto
+</button>
+
+<aside class="copilot" id="copilot" hidden aria-labelledby="copilot-title">
+  <header class="copilot-head">
+    <div>
+      <p class="eyebrow" style="margin:0">{{ dossier.reference }}</p>
+      <h2 id="copilot-title">Copiloto de revisión
+        <details class="info">
+          <summary aria-label="Qué hace el copiloto y qué no">i</summary>
+          <div class="panel">
+            <p>Busca los fragmentos del expediente que más se parecen a tu
+               pregunta y se los pasa a un modelo, que redacta una respuesta
+               <strong>citándolos</strong>.</p>
+            <p>Lo que <strong>no</strong> hace: decidir. No aprueba, no
+               rechaza, no corrige campos y no toca ninguna cifra que compare
+               una regla. Cada cita se comprueba contra los fragmentos que se
+               enviaron: una cita inventada tumba la respuesta entera.</p>
+            <p>Los documentos marcados por llevar instrucciones dirigidas a un
+               lector automático se excluyen antes de enviar nada, y se te dice
+               cuántos fragmentos se han retirado.</p>
+            <p>Cada consulta queda en la auditoría con la pregunta, el modelo y
+               las citas.</p>
+          </div>
+        </details>
+      </h2>
+    </div>
+    <button class="copilot-close" onclick="copilotToggle(false)"
+            aria-label="Cerrar el copiloto">✕</button>
+  </header>
+
+  <div class="copilot-config">
+    <label class="field">
+      <span>Modelo</span>
+      <select id="copilot-model" aria-label="Modelo que responde"></select>
+    </label>
+    <label class="field">
+      <span>Recuperación
+        <details class="info right">
+          <summary aria-label="Qué cambia el modo de recuperación">i</summary>
+          <div class="panel">
+            <p><strong>Léxica</strong> busca las palabras de tu pregunta en el
+               texto de los documentos, con el diccionario español de
+               PostgreSQL. Si no aparecen, no devuelve nada — y eso es una
+               respuesta.</p>
+            <p><strong>Vectorial</strong> compara el significado con
+               embeddings. Con la línea base que viene por defecto no separa lo
+               relevante de lo irrelevante, así que demuestra la tubería más
+               que la semántica.</p>
+            <p><strong>Híbrida</strong> fusiona las dos posiciones con
+               reciprocal-rank fusion.</p>
+          </div>
+        </details>
+      </span>
+      <select id="copilot-mode" aria-label="Modo de recuperación"></select>
+    </label>
+  </div>
+
+  <p class="copilot-state" id="copilot-state">comprobando…</p>
+
+  {% if copilot_prompts %}
+  <div class="copilot-suggest" id="copilot-suggest">
+    <p class="eyebrow">Sobre este expediente</p>
+    {% for prompt in copilot_prompts %}
+    <button class="chip" onclick="copilotAsk(this.textContent)">{{ prompt }}</button>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="copilot-thread" id="copilot-thread" aria-live="polite"></div>
+
+  <form class="copilot-compose" id="copilot-compose" onsubmit="copilotSubmit(event)">
+    <input type="text" id="copilot-q" maxlength="500" autocomplete="off"
+           aria-label="Tu pregunta"
+           placeholder="Pregunta sobre las evidencias de este expediente…">
+    <button class="primary" id="copilot-go" type="submit">Preguntar</button>
+  </form>
+
+  <p class="copilot-meter" id="copilot-meter"></p>
+</aside>

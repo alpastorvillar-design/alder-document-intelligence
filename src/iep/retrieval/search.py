@@ -85,6 +85,17 @@ def without_hostile_documents(
     return kept, len(hits) - len(kept)
 
 
+def has_indexed_evidence(session: Session, dossier_id: uuid.UUID) -> bool:
+    """Whether there is anything to search at all.
+
+    The difference between this and an empty result is the difference between
+    "reprocess this dossier" and "those words are not in it" - two answers
+    that were being given as one.
+    """
+    stmt = select(DocumentChunk.id).where(DocumentChunk.dossier_id == dossier_id).limit(1)
+    return session.execute(stmt).first() is not None
+
+
 def search(
     session: Session, dossier_id: uuid.UUID, query: str, *, limit: int = 5
 ) -> list[EvidenceHit]:

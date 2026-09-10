@@ -215,10 +215,7 @@
   </aside>
 </div>
 
-{# Seeded with the field being looked at: the reviewer is already asking
-   "where else does this appear", so the box starts on that question. #}
-{% set ask_hint = field_label(extraction.field_path) %}
-{% include "_ask.html" %}
+{% include "_copilot.html" %}
 {% endblock %}
 
 {% block scripts %}

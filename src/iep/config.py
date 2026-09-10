@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     # instead of a metered API. Development only - see `retrieval/rag_cli.py`
     # for what that costs in exchange.
     rag_cli_tool: str = "claude"
+    # A local Ollama server. The one backend here that is genuinely local -
+    # nothing leaves the machine - and the only one whose reply shape the
+    # server can enforce with a JSON schema.
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = ""
+    # A model on a laptop CPU takes tens of seconds for a five-segment
+    # context, so this is not the CLI's timeout.
+    ollama_timeout_seconds: float = Field(default=300.0, gt=0.0, le=900.0)
     rag_cli_model: str = ""
     rag_cli_timeout_seconds: float = Field(default=120.0, gt=0.0, le=600.0)
     # A ceiling this process enforces on itself, counted from the audit trail
@@ -131,7 +139,7 @@ class Settings(BaseSettings):
     @field_validator("rag_provider")
     @classmethod
     def _known_rag_provider(cls, value: str) -> str:
-        allowed = {"disabled", "openai", "cli"}
+        allowed = {"disabled", "openai", "cli", "ollama"}
         if value not in allowed:
             raise ValueError(f"rag_provider must be one of {sorted(allowed)}")
         return value

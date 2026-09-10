@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import select
@@ -10,25 +11,36 @@ from sqlalchemy.orm import Session
 
 from iep.api import vocabulary as vocab
 from iep.api.deps import db_session, require_api_key, settings_dep
-from iep.api.errors import NotFoundError, ServiceUnavailableError
+from iep.api.errors import (
+    NotFoundError,
+    ServiceUnavailableError,
+    UnprocessableDocumentError,
+)
 from iep.audit import service as audit
 from iep.config import Settings
 from iep.db.models import Report as ReportRow
 from iep.domain.contracts import (
     AuditEvent,
     DossierReport,
+    ModelOption,
     RagAnswer,
     RagCitation,
+    RagProviderName,
     RagQuestion,
     RagStatus,
+    SearchModeName,
+    UsageReport,
 )
 from iep.domain.enums import AuditAction
 from iep.dossiers import service as dossiers
 from iep.reporting import render
 from iep.retrieval import budget as rag_budget
+from iep.retrieval import catalogue
 from iep.retrieval import search as retrieval
+from iep.retrieval import usage as rag_usage
 from iep.retrieval.embeddings import EmbeddingProviderError, build_embedding_provider
-from iep.retrieval.rag import RagProviderError, build_rag_generator
+from iep.retrieval.prompting import AllEvidenceWithheldError
+from iep.retrieval.rag import RAG_PROMPT_VERSION, RagProviderError, build_rag_generator
 from iep.retrieval.rag_cli import available_tools
 
 router = APIRouter(tags=["artifacts"], dependencies=[Depends(require_api_key)])
@@ -278,6 +290,27 @@ def answer_evidence_question(
     except rag_budget.BudgetExhaustedError as exc:
         raise ServiceUnavailableError(str(exc)) from exc
 
+    # A model name from a client reaches `argv` on the CLI backends, so it is
+    # resolved against the catalogue of what this process can actually launch
+    # rather than trusted. An unknown id is refused, not quietly defaulted:
+    # answering with a different model than the one asked for is a lie.
+    chosen = catalogue.resolve(settings, request.model)
+    if request.model and chosen is None:
+        raise UnprocessableDocumentError(
+            f"El modelo «{request.model}» no está disponible en esta máquina.",
+            {"available": [option.id for option in catalogue.catalogue(settings)]},
+        )
+
+    # Built before any retrieval: "the copilot is off" is a different answer
+    # from "the search found nothing", and checking availability last meant a
+    # reviewer with generation disabled was told the second one.
+    try:
+        generator = build_rag_generator(settings, chosen)
+    except RagProviderError as exc:
+        raise ServiceUnavailableError(
+            f"El proveedor opcional de respuestas no está disponible: {exc}"
+        ) from exc
+
     try:
         if request.retrieval_mode == "lexical":
             hits = retrieval.search(session, dossier_id, request.question, limit=request.top_k)
@@ -308,8 +341,29 @@ def answer_evidence_question(
                     min_similarity=settings.retrieval_min_similarity,
                 )
         if not hits:
-            raise ServiceUnavailableError(
-                "No indexed evidence matches this retrieval configuration. Reprocess the dossier."
+            # Two situations were being reported as one, and the message told a
+            # reviewer to reprocess a dossier that was perfectly fine.
+            #
+            # Nothing *indexed* is a configuration problem: reprocessing is the
+            # fix, and saying so is useful. Nothing *matched* is not a problem
+            # at all - it is the answer, and for lexical retrieval it is the
+            # most trustworthy answer this system gives, because "those words
+            # do not appear in this expediente" is a fact about the documents.
+            # Returning it without calling a model is also the only honest
+            # thing to do: there is nothing to ground an answer in, and a call
+            # would spend budget on an empty prompt.
+            if not retrieval.has_indexed_evidence(session, dossier_id):
+                raise ServiceUnavailableError(
+                    "Este expediente no tiene evidencia indexada. Vuelve a procesarlo."
+                )
+            return _nothing_to_ground(
+                request,
+                (
+                    "La búsqueda no ha encontrado ningún fragmento para esa pregunta, "
+                    "así que no se ha consultado a ningún modelo. En modo léxico eso "
+                    "significa que esas palabras no aparecen en los documentos del "
+                    "expediente; prueba con otras, o cambia el modo de recuperación."
+                ),
             )
         # Evidence search may return a document flagged as carrying
         # instructions aimed at an automated reader - a reviewer has to be able
@@ -317,12 +371,32 @@ def answer_evidence_question(
         # dropped here, between retrieval and generation.
         hits, withheld = retrieval.without_hostile_documents(session, dossier_id, hits)
         if not hits:
-            raise ServiceUnavailableError(
-                "Every retrieved segment came from a document flagged as carrying "
-                "instructions aimed at an automated reader, so none of it was sent "
-                "to the generator."
+            # Not a failure and not something a retry fixes: every segment the
+            # search found belongs to a document the rules flagged. Saying so
+            # is the answer, and no model is called.
+            return _nothing_to_ground(
+                request,
+                (
+                    f"Los {withheld} fragmento(s) que la búsqueda encontró están todos en "
+                    f"documentos marcados por llevar instrucciones dirigidas a un lector "
+                    f"automático, así que no se ha enviado ninguno a un modelo. Revísalos "
+                    f"a mano: son exactamente el tipo de documento que hay que mirar."
+                ),
+                withheld_hostile=withheld,
             )
-        generation = build_rag_generator(settings).generate(request.question, hits)
+        generation = generator.generate(request.question, hits)
+    except AllEvidenceWithheldError as exc:
+        # The screen removed everything, so no model was called.
+        return _nothing_to_ground(
+            request,
+            (
+                f"Los {exc.withheld} fragmento(s) que la búsqueda encontró contienen "
+                f"órdenes dirigidas a un sistema automático, así que no se ha enviado "
+                f"ninguno a un modelo y no hay respuesta que dar. Míralos tú: es el "
+                f"tipo de documento que conviene revisar a mano."
+            ),
+            withheld_directive=exc.withheld,
+        )
     except (EmbeddingProviderError, RagProviderError) as exc:
         # The provider's own reason travels with the refusal. Swallowing it
         # left a reviewer with "unavailable" and no way to tell a missing key
@@ -366,10 +440,13 @@ def answer_evidence_question(
             "model": generation.model,
             "segments_retrieved": len(hits),
             "segments_withheld": withheld,
+            "segments_withheld_directive": generation.withheld_directives,
             "citations": list(generation.citation_ids),
             "sufficient_evidence": generation.sufficient_evidence,
             "prompt_version": generation.prompt_version,
             "prompt_sha256": generation.prompt_sha256,
+            "input_tokens": generation.input_tokens,
+            "output_tokens": generation.output_tokens,
             "budget_used_before": allowance.used,
             "budget_ceiling": allowance.ceiling,
         },
@@ -382,6 +459,7 @@ def answer_evidence_question(
         sufficient_evidence=generation.sufficient_evidence,
         citations=citations,
         withheld_hostile_segments=withheld,
+        withheld_directive_segments=generation.withheld_directives,
         retrieval_mode=request.retrieval_mode,
         generation_provider=generation.provider,
         generation_model=generation.model,
@@ -411,6 +489,7 @@ def rag_status(
     dossiers.get(session, dossier_id)
     allowance = rag_budget.current(session, settings)
     provider = settings.rag_provider
+    options = catalogue.catalogue(settings)
 
     modes: list[str] = ["lexical"]
     if settings.embedding_provider != "disabled":
@@ -425,9 +504,21 @@ def rag_status(
     if provider == "disabled":
         reason = (
             "La generación está desactivada. Se enciende con "
-            "IEP_RAG_PROVIDER=cli (un CLI de asistente en esta máquina) o "
-            "IEP_RAG_PROVIDER=openai con clave e IEP_ALLOW_EXTERNAL_AI=true."
+            "IEP_RAG_PROVIDER=ollama (un modelo local, sin clave y sin salir "
+            "de esta máquina), IEP_RAG_PROVIDER=cli (el CLI de claude o codex) "
+            "o IEP_RAG_PROVIDER=openai con clave e IEP_ALLOW_EXTERNAL_AI=true."
         )
+    elif provider == "ollama":
+        model = settings.ollama_model or "sin elegir"
+        if not options:
+            reason = (
+                f"No se ve ningún modelo en Ollama ({settings.ollama_base_url}). "
+                f"Arráncalo y descarga alguno con `ollama pull`."
+            )
+        elif not settings.ollama_model:
+            reason = (
+                "Falta IEP_OLLAMA_MODEL, o elige un modelo en el desplegable antes de preguntar."
+            )
     elif provider == "cli":
         cli_tool = settings.rag_cli_tool
         cli_available = available.get(cli_tool, False)
@@ -457,12 +548,15 @@ def rag_status(
 
     return RagStatus(
         enabled=not reason,
-        provider=provider,  # type: ignore[arg-type]
+        # `cast`, not `type: ignore`: the settings validator and the contract's
+        # Literal list the same four values, and a silenced error here is how
+        # "ollama" reached a Literal that did not have it.
+        provider=cast(RagProviderName, provider),
         cli_tool=cli_tool,
         cli_available=cli_available,
         available_cli_tools=sorted(name for name, present in available.items() if present),
         model=model,
-        retrieval_modes=modes,  # type: ignore[arg-type]
+        retrieval_modes=cast(list[SearchModeName], modes),
         embedding_provider=settings.embedding_provider,
         embedding_is_learned=settings.embedding_provider != "hashing",
         min_similarity=settings.retrieval_min_similarity,
@@ -472,4 +566,71 @@ def rag_status(
         budget_stop_at=allowance.stop_at,
         budget_window_days=allowance.window_days,
         budget_exhausted=allowance.exhausted,
+        models=[
+            ModelOption(
+                id=option.id,
+                backend=option.backend,
+                label=option.label,
+                local=option.local,
+                note=option.note,
+            )
+            for option in options
+        ],
+        usage=_usage_report(session, settings),
+    )
+
+
+def _nothing_to_ground(
+    request: RagQuestion,
+    because: str,
+    *,
+    withheld_hostile: int = 0,
+    withheld_directive: int = 0,
+) -> RagAnswer:
+    """An answer for the cases where no model was called, and why.
+
+    Three of them - the search matched nothing, every match was in a flagged
+    document, every match carried a directive - and none is a server error: a
+    retry changes none of them, and what happened is a fact about the
+    documents worth telling the reviewer. They also cost nothing, which is the
+    other reason not to call a model just to be told the obvious.
+    """
+    return RagAnswer(
+        question=request.question,
+        answer=because,
+        sufficient_evidence=False,
+        citations=[],
+        withheld_hostile_segments=withheld_hostile,
+        withheld_directive_segments=withheld_directive,
+        retrieval_mode=request.retrieval_mode,
+        generation_provider="ninguno",
+        generation_model="no se ha llamado a ningún modelo",
+        prompt_version=RAG_PROMPT_VERSION,
+        prompt_sha256="0" * 64,
+    )
+
+
+def _usage_report(session: Session, settings: Settings) -> UsageReport:
+    spent = rag_usage.measured(session, settings)
+    signed_in = rag_usage.account("claude")
+    return UsageReport(
+        window_days=spent.window_days,
+        calls=spent.calls,
+        input_tokens=spent.input_tokens,
+        output_tokens=spent.output_tokens,
+        local_calls=spent.local_calls,
+        by_model=[
+            {
+                "model": row.model,
+                "calls": row.calls,
+                "input_tokens": row.input_tokens,
+                "output_tokens": row.output_tokens,
+            }
+            for row in spent.by_model
+        ],
+        account_tool=signed_in.tool,
+        account_logged_in=signed_in.logged_in,
+        account_method=signed_in.method,
+        account_plan=signed_in.plan,
+        account_detail=signed_in.detail,
     )

@@ -162,6 +162,12 @@ class TestRetrievalApi:
         assert response.json()["results"]
 
     def test_rag_is_disabled_by_default(self, db: Session, wired_settings: Settings) -> None:
+        """And says so, rather than reporting on a search it never ran.
+
+        Availability is checked before retrieval now. Checking it last meant a
+        reviewer with generation switched off was told "the search found
+        nothing", which is true and useless.
+        """
         from iep.api.app import create_app
         from tests.conftest import new_dossier
 
@@ -205,7 +211,7 @@ class TestRetrievalApi:
                     prompt_sha256="a" * 64,
                 )
 
-        monkeypatch.setattr(artifacts, "build_rag_generator", lambda _: Generator())
+        monkeypatch.setattr(artifacts, "build_rag_generator", lambda *_: Generator())
         with TestClient(create_app()) as client:
             response = client.post(
                 f"/dossiers/{dossier.id}/questions",
@@ -362,7 +368,7 @@ class TestAHostileDocumentNeverReachesTheGenerator:
                     prompt_sha256="a" * 64,
                 )
 
-        monkeypatch.setattr(artifacts, "build_rag_generator", lambda _: Generator())
+        monkeypatch.setattr(artifacts, "build_rag_generator", lambda *_: Generator())
         with TestClient(create_app()) as client:
             response = client.post(
                 f"/dossiers/{dossier.id}/questions",
@@ -377,7 +383,12 @@ class TestAHostileDocumentNeverReachesTheGenerator:
     def test_nothing_is_generated_when_every_hit_is_hostile(
         self, db: Session, wired_settings: Settings, monkeypatch: Any
     ) -> None:
-        """Refusing beats answering from evidence that had to be withheld."""
+        """No model is called, and the reviewer is told which case this is.
+
+        It used to be a 503, which reads as "try again later" for something a
+        retry cannot change. The generator is still never reached - that is
+        the property - but the caller now gets the reason instead of an error.
+        """
         from iep.api.app import create_app
         from iep.api.routes import artifacts
         from tests.conftest import new_dossier
@@ -391,14 +402,19 @@ class TestAHostileDocumentNeverReachesTheGenerator:
             def generate(self, question: str, hits: object) -> RagGeneration:
                 raise AssertionError("the generator must not be called at all")
 
-        monkeypatch.setattr(artifacts, "build_rag_generator", lambda _: Generator())
+        monkeypatch.setattr(artifacts, "build_rag_generator", lambda *_: Generator())
         with TestClient(create_app()) as client:
             response = client.post(
                 f"/dossiers/{dossier.id}/questions",
                 json={"question": "instructions", "retrieval_mode": "lexical"},
             )
 
-        assert response.status_code == 503
+        assert response.status_code == 200
+        body = response.json()
+        assert body["generation_provider"] == "ninguno"
+        assert body["withheld_hostile_segments"] == 1
+        assert body["citations"] == []
+        assert body["sufficient_evidence"] is False
         assert "Traceback" not in response.text
 
     def test_a_dismissed_flag_stops_excluding(self, db: Session) -> None:
@@ -465,7 +481,7 @@ class TestAnAnsweredQuestionLeavesATrace:
         dossier = new_dossier(db, "INN-2025-710")
         add_chunk(db, dossier, "El periodo termina el 31 de diciembre de 2025", "20")
         db.commit()
-        monkeypatch.setattr(artifacts, "build_rag_generator", lambda _: self.double())
+        monkeypatch.setattr(artifacts, "build_rag_generator", lambda *_: self.double())
 
         with TestClient(create_app()) as client:
             assert self.ask(client, dossier.id).status_code == 200

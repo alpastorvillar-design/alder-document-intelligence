@@ -617,6 +617,75 @@ def spanish_date(value: date | datetime | str | None) -> str:
 
 
 # --------------------------------------------------------------------------
+# Suggested questions
+# --------------------------------------------------------------------------
+
+
+def copilot_prompts(
+    rule_ids: Iterable[str], *, field_label_for: str | None = None, limit: int = 5
+) -> list[str]:
+    """Questions worth asking about *this* dossier.
+
+    A blank box is the hardest thing to start with, and a fixed list of
+    generic questions is the second hardest - it teaches nothing about the
+    expediente in front of the reviewer. These come from the rules that
+    actually fired on it, so the first suggestion on a dossier with a
+    personnel descuadre is about the personnel descuadre.
+
+    The wording is a question a person would ask, not the rule's title: a
+    reviewer wants to know where a difference comes from, not to be told again
+    that it exists.
+    """
+    out: list[str] = []
+    if field_label_for:
+        out.append(f"¿Dónde más aparece «{field_label_for}» en el expediente?")
+    seen: set[str] = set()
+    for rule_id in rule_ids:
+        if rule_id in seen:
+            continue
+        seen.add(rule_id)
+        question = _RULE_QUESTIONS.get(rule_id)
+        if question:
+            out.append(question)
+    for fallback in _ALWAYS_USEFUL:
+        if len(out) >= limit:
+            break
+        if fallback not in out:
+            out.append(fallback)
+    return out[:limit]
+
+
+# One question per rule, phrased as the thing a reviewer would want to know
+# once that rule has fired.
+_RULE_QUESTIONS = {
+    "PERSONNEL_COST_MISMATCH": "¿Qué dice la memoria sobre el gasto de personal?",
+    "EXTERNAL_COST_MISMATCH": "¿Qué facturas soportan las colaboraciones externas?",
+    "CLAIMED_TOTAL_MISMATCH": "¿Qué importe total declara la memoria técnica?",
+    "DUPLICATE_INVOICE_NUMBER": "¿Qué facturas comparten número y qué conceptos tienen?",
+    "EXPENSE_OUTSIDE_ELIGIBLE_PERIOD": "¿Qué periodo elegible publica la convocatoria?",
+    "PERSONNEL_RATE_MISMATCH": "¿Qué costes horarios aparecen en la memoria?",
+    "UNKNOWN_PERSON": "¿Qué personas figuran con dedicación al proyecto?",
+    "PERSON_OUTSIDE_CONTRACT": "¿Qué dice la memoria sobre las fechas de dedicación?",
+    "HOURS_ABOVE_MONTHLY_CEILING": "¿Cómo se acreditan las horas imputadas?",
+    "NEGATIVE_HOURS": "¿Cómo se acreditan las horas imputadas?",
+    "MISSING_PROJECT_CODE": "¿Qué facturas citan la referencia del proyecto?",
+    "INSUFFICIENT_EVIDENCE": "¿Qué documentos se han aportado y qué acredita cada uno?",
+    "LOW_OCR_QUALITY": "¿Qué justificantes se han leído por OCR?",
+    "CORRUPT_DOCUMENT": "¿Qué documentos no se pudieron leer?",
+    "UNSUPPORTED_DOCUMENT": "¿Qué documentos no se pudieron leer?",
+    "DUPLICATE_DOCUMENT": "¿Qué documentos se han entregado más de una vez?",
+    "CLAIM_ABOVE_CALL_MAXIMUM": "¿Qué importe máximo financiable publica la convocatoria?",
+    "PROMPT_INJECTION_ATTEMPT": "¿Qué documento contiene instrucciones dirigidas a un sistema?",
+}
+
+_ALWAYS_USEFUL = (
+    "¿Qué periodo de ejecución declara la memoria?",
+    "¿Qué conceptos de gasto declara la memoria y por qué importe?",
+    "¿Qué entidad emite las facturas del expediente?",
+)
+
+
+# --------------------------------------------------------------------------
 # Locators
 # --------------------------------------------------------------------------
 
