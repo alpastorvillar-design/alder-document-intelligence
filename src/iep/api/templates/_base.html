@@ -522,16 +522,22 @@ async function copilotLoad() {
       }
       let remembered = null;
       try { remembered = localStorage.getItem("copilot-model"); } catch (e) { /* ignore */ }
-      /* Preselect what this process is configured for. Falling back to the
-         first of the list offered a model nobody had chosen, and on Ollama
-         picking a different one evicts the resident weights - about a minute
-         of loading to answer a question the configured model was ready for. */
+      /* What to arrive on, in order: what this person chose last, then the
+         model this process was explicitly configured with, then the first
+         local one. Falling straight to the first of the list offered a model
+         nobody had chosen - and on Ollama, choosing a different model evicts
+         the resident weights, so that costs about a minute of loading before
+         the first token of an answer the configured model was ready to give.
+
+         A local model comes before a metered one when nothing is configured,
+         because it is the choice that cannot cost anything. */
       const configured = status.models.find(
         m => m.id === status.model || m.label === status.model
       );
+      const free = status.models.find(m => m.local);
       models.value = status.models.some(m => m.id === remembered)
         ? remembered
-        : (configured ? configured.id : status.models[0].id);
+        : (configured || free || status.models[0]).id;
       models.onchange = () => {
         try { localStorage.setItem("copilot-model", models.value); } catch (e) { /* ignore */ }
       };
