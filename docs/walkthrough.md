@@ -172,7 +172,8 @@ The script, in order:
 ```
 INN-2025-041: 4 accepted, 0 duplicate, 0 rejected
   rejected justificante-danado.pdf: PDF has no pages
-  rejected notas-internas.txt: unrecognised file signature
+  rejected notas-internas.txt: unrecognised file signature: an accepted
+    document is a PDF, a PNG or JPEG scan, or an .xlsx workbook
 INN-2025-042: 8 accepted, 1 duplicate, 2 rejected
 ```
 

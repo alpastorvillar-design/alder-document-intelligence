@@ -51,7 +51,14 @@ def sniff(data: bytes, *, max_decompressed_bytes: int) -> MediaKind:
     if data.startswith(_ZIP_SIGNATURES):
         return _sniff_zip(data, max_decompressed_bytes=max_decompressed_bytes)
 
-    raise UnsupportedMediaError("unrecognised file signature")
+    # Naming what is accepted matters more than naming what was refused. The
+    # person reading this has just dropped a folder onto the intake screen and
+    # needs to know which of its files to drop instead - "unrecognised file
+    # signature" on its own is accurate and tells them nothing.
+    raise UnsupportedMediaError(
+        "unrecognised file signature: an accepted document is a PDF, a PNG or "
+        "JPEG scan, or an .xlsx workbook"
+    )
 
 
 def _sniff_zip(data: bytes, *, max_decompressed_bytes: int) -> MediaKind:
