@@ -31,7 +31,7 @@ from iep.api import vocabulary as vocab
 from iep.api.deps import db_session, object_store, require_api_key
 from iep.api.errors import NotFoundError
 from iep.db.models import Document, Dossier, Extraction, Finding, ProcessingJob
-from iep.domain.enums import DocumentStatus, FieldStatus, FindingStatus, Severity
+from iep.domain.enums import DocumentStatus, FieldStatus, FindingStatus, MediaKind, Severity
 from iep.dossiers import service as dossiers
 from iep.storage.base import ObjectNotFoundError, ObjectStore
 
@@ -206,7 +206,10 @@ def review_view(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -
         "review.html",
         dossier=dossier,
         documents=documents,
-        document_names={row.id: row.original_filename for row in documents},
+        # Keyed by string: a finding stores its document ids as strings in
+        # JSONB, so a UUID-keyed map missed every lookup and the template fell
+        # back to printing the raw identifier.
+        document_names={str(row.id): row.original_filename for row in documents},
         refused=refused,
         accepted_count=len(documents) - len(refused),
         findings=findings,
@@ -309,6 +312,51 @@ def evidence_image(
     )
 
 
+@router.get(
+    "/documents/{document_id}/original",
+    response_class=Response,
+    summary="The document exactly as it was submitted",
+)
+def original_document(
+    document_id: uuid.UUID,
+    session: Session = Depends(db_session),
+    store: ObjectStore = Depends(object_store),
+) -> Response:
+    """The stored bytes, unchanged, under their own media type.
+
+    The evidence viewer draws on a rasterised copy so it can place a box on the
+    page. That copy is not the document: opening it for a PDF handed the
+    reviewer a PNG of page one, and for a workbook there was nothing to open at
+    all. This serves what was submitted, so a PDF opens in the PDF viewer, a
+    scan opens as an image, and a workbook downloads and opens in Excel.
+
+    A refused document has no bytes - by design, nothing unparsable is stored -
+    so it answers 404 rather than an empty file.
+    """
+    document = session.get(Document, document_id)
+    if document is None:
+        raise NotFoundError("No hay ningun documento con ese identificador.")
+    data = _document_bytes(store, document)
+    if data is None:
+        raise NotFoundError(
+            "Este documento no tiene contenido almacenado: se rechazo en la entrada."
+        )
+
+    media_type, disposition = ORIGINAL_MEDIA.get(
+        MediaKind(str(document.media_kind)), ("application/octet-stream", "attachment")
+    )
+    filename = _ascii_filename(document.original_filename)
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{filename}"',
+            # Addressed by content digest, so these bytes never change.
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
@@ -325,6 +373,33 @@ def _document_bytes(store: ObjectStore, document: Document | None) -> bytes | No
 
 def _is_jpeg(data: bytes) -> bool:
     return data[:3] == b"\xff\xd8\xff"
+
+
+# What the original bytes should be served as, and whether a browser can show
+# them itself. A workbook has no viewer, so it is sent as a download and the
+# operating system opens Excel; a PDF and an image render in place.
+ORIGINAL_MEDIA = {
+    MediaKind.PDF: ("application/pdf", "inline"),
+    MediaKind.PNG: ("image/png", "inline"),
+    MediaKind.JPEG: ("image/jpeg", "inline"),
+    MediaKind.XLSX: (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "attachment",
+    ),
+    MediaKind.JSON: ("application/json; charset=utf-8", "inline"),
+    MediaKind.HTML: ("text/plain; charset=utf-8", "inline"),
+}
+
+
+def _ascii_filename(name: str) -> str:
+    """A filename a `Content-Disposition` header can carry safely.
+
+    The header is latin-1 on the wire, and the stored name came from an
+    upload, so it is neither trusted nor assumed to encode. Quotes and control
+    characters are dropped rather than escaped.
+    """
+    cleaned = "".join(c for c in name if c.isprintable() and c not in '"\\')
+    return cleaned.encode("ascii", "ignore").decode("ascii") or "documento"
 
 
 def _finding_counts(

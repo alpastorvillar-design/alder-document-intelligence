@@ -90,11 +90,15 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
   display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
 }
 .brand {
-  font-weight: 640; font-size: .84rem; letter-spacing: .02em;
-  display: flex; align-items: baseline; gap: .5rem; margin-right: auto;
+  display: flex; align-items: center; gap: .55rem; margin-right: auto;
+  color: var(--ink); text-decoration: none;
 }
-.brand a { color: var(--ink); text-decoration: none; }
-.brand small { color: var(--muted); font-weight: 400; letter-spacing: 0; }
+.brand .mark { width: 1.45rem; height: 1.45rem; flex: 0 0 auto; }
+.brand .wordmark {
+  font-weight: 660; font-size: .92rem; letter-spacing: -.01em; white-space: nowrap;
+}
+.brand .wordmark b { color: var(--accent); margin: 0 .1em; font-weight: 700; }
+.brand:hover .wordmark { color: var(--accent); }
 main { max-width: 1120px; margin-inline: auto; padding: 1.6rem 1.25rem 5rem; }
 .wide { max-width: 1360px; }
 
@@ -102,6 +106,33 @@ h1 { font-size: 1.5rem; line-height: 1.2; margin: 0 0 .3rem; text-wrap: balance;
 h2 { font-size: 1.02rem; margin: 2.2rem 0 .8rem; letter-spacing: -.005em; }
 h3 { font-size: .92rem; margin: 0 0 .35rem; }
 .lede { color: var(--ink-soft); margin: 0 0 1.4rem; max-width: 66ch; }
+/* An introduction whose edges line up with the table under it. The panel
+   spans the content width; the prose inside keeps a readable measure, so the
+   text does not stretch to 1120px just to make the border match. */
+.intro {
+  background: var(--card-sunk); border: 1px solid var(--line-soft);
+  border-radius: var(--radius); padding: 1.1rem 1.25rem; margin: 0 0 1.4rem;
+}
+.intro h1 { margin-bottom: .45rem; }
+.intro p { margin: 0; color: var(--ink-soft); max-width: 74ch; }
+/* Label/value facts that wrap as whole units instead of splitting a number
+   from the word it belongs to. */
+.facts-row { display: flex; flex-wrap: wrap; gap: .45rem .55rem; margin: .55rem 0 0; padding: 0; list-style: none; }
+.facts-row li {
+  display: inline-flex; align-items: baseline; gap: .35rem; white-space: nowrap;
+  background: var(--card-sunk); border: 1px solid var(--line-soft);
+  border-radius: 999px; padding: .18rem .65rem; font-size: .82rem;
+}
+.facts-row li span { color: var(--muted); font-size: .74rem; }
+.facts-row li strong { font-weight: 620; font-variant-numeric: tabular-nums; }
+/* A short explanation attached to a column header. */
+.hint-dot {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.05em; height: 1.05em; margin-left: .3em; border-radius: 999px;
+  border: 1px solid var(--muted); color: var(--muted);
+  font-size: .78em; font-weight: 700; cursor: help; text-transform: none;
+  letter-spacing: 0; vertical-align: middle;
+}
 .eyebrow {
   font-size: .68rem; text-transform: uppercase; letter-spacing: .09em;
   color: var(--muted); font-weight: 620; margin: 0 0 .3rem;
@@ -185,10 +216,20 @@ tbody tr:last-child td { border-bottom: none; }
 <body{% block bodyattrs %}{% endblock %}>
 
 <header class="top">
-  <span class="brand">
-    <a href="/ui/dossiers">Revisión de expedientes</a>
-    <small>justificación de ayudas a la innovación</small>
-  </span>
+  <a class="brand" href="/ui/dossiers">
+    {# A page with the read value boxed on it: the mark is the product's own
+       idea rather than decoration. Inline SVG so it scales, follows the
+       theme, and needs no network. #}
+    <svg class="mark" viewBox="0 0 28 28" aria-hidden="true" focusable="false">
+      <rect x="4.5" y="2.5" width="17" height="23" rx="2.5"
+            fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M8.5 8h9M8.5 11.5h9M8.5 20.5h5"
+            stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".5"/>
+      <rect x="7.5" y="14.5" width="13" height="3.6" rx="1"
+            fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+    </svg>
+    <span class="wordmark">Evidencia<b>·</b>Expedientes</span>
+  </a>
   {% block topactions %}{% endblock %}
 </header>
 

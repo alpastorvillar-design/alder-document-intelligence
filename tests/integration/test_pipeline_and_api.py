@@ -1212,3 +1212,210 @@ class TestEvidenceViewer:
         response = client.get(f"/ui/evidence/{uuid.uuid4()}")
         assert response.status_code == 404
         assert "Traceback" not in response.text
+
+
+class TestTheOriginalDocumentIsWhatOpens:
+    """The rasterised copy is for drawing a box on, not for opening.
+
+    The viewer renders a PDF page to PNG so the stored coordinates can be
+    placed on it. "Open the whole document" pointed at that PNG, so a reviewer
+    who wanted the PDF got a picture of page one, and a workbook had nothing to
+    open at all.
+    """
+
+    @pytest.fixture
+    def client(self, wired_settings: Settings, db: Session) -> Iterator[TestClient]:
+        from iep.api.app import create_app
+
+        with TestClient(create_app()) as client:
+            yield client
+
+    def _stored(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        dossier_id: uuid.UUID,
+        path: Path,
+        media: MediaKind,
+    ) -> Document:
+        import hashlib
+
+        data = path.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        row = Document(
+            id=uuid.uuid4(),
+            dossier_id=dossier_id,
+            original_filename=path.name,
+            declared_media_type=None,
+            media_kind=media,
+            document_kind=DocumentKind.UNKNOWN,
+            status=DocumentStatus.EXTRACTED,
+            source_kind=SourceKind.UPLOAD,
+            size_bytes=len(data),
+            content_sha256=digest,
+            storage_key=store.put(digest, data),
+            page_count=1,
+        )
+        db.add(row)
+        db.flush()
+        return row
+
+    def test_a_pdf_is_served_as_a_pdf_byte_for_byte(
+        self, client: TestClient, db: Session, store: LocalObjectStore, corpus_dir: Path
+    ) -> None:
+        from tests.conftest import new_dossier
+
+        source = (corpus_dir / DOSSIER_B.reference) / "memoria-tecnica.pdf"
+        dossier = new_dossier(db)
+        document = self._stored(db, store, dossier.id, source, MediaKind.PDF)
+        db.commit()
+
+        response = client.get(f"/ui/documents/{document.id}/original")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        # Inline, so the browser's own PDF viewer opens it rather than
+        # downloading a file the reviewer then has to find.
+        assert response.headers["content-disposition"].startswith("inline")
+        assert "memoria-tecnica.pdf" in response.headers["content-disposition"]
+        assert response.content == source.read_bytes()
+        assert response.content.startswith(b"%PDF-")
+
+    def test_a_workbook_is_sent_as_a_download_so_excel_opens_it(
+        self, client: TestClient, db: Session, store: LocalObjectStore, corpus_dir: Path
+    ) -> None:
+        from tests.conftest import new_dossier
+
+        source = (corpus_dir / DOSSIER_B.reference) / "partes-horarios.xlsx"
+        dossier = new_dossier(db)
+        document = self._stored(db, store, dossier.id, source, MediaKind.XLSX)
+        db.commit()
+
+        response = client.get(f"/ui/documents/{document.id}/original")
+        assert response.status_code == 200
+        assert "spreadsheetml.sheet" in response.headers["content-type"]
+        assert response.headers["content-disposition"].startswith("attachment")
+        assert response.content == source.read_bytes()
+
+    def test_a_scan_keeps_its_own_bytes(
+        self, client: TestClient, db: Session, store: LocalObjectStore, corpus_dir: Path
+    ) -> None:
+        from tests.conftest import new_dossier
+
+        source = next((corpus_dir / DOSSIER_B.reference).glob("justificante-01-*.jpg"))
+        dossier = new_dossier(db)
+        document = self._stored(db, store, dossier.id, source, MediaKind.JPEG)
+        db.commit()
+
+        response = client.get(f"/ui/documents/{document.id}/original")
+        assert response.headers["content-type"] == "image/jpeg"
+        assert response.content == source.read_bytes()
+
+    def test_a_refused_document_has_no_bytes_to_open(self, client: TestClient, db: Session) -> None:
+        """Nothing unparsable is stored, so this is a 404 and not an empty file."""
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db)
+        row = Document(
+            id=uuid.uuid4(),
+            dossier_id=dossier.id,
+            original_filename="notas-internas.txt",
+            declared_media_type="text/plain",
+            media_kind=MediaKind.UNSUPPORTED,
+            document_kind=DocumentKind.UNKNOWN,
+            status=DocumentStatus.UNSUPPORTED,
+            source_kind=SourceKind.UPLOAD,
+            size_bytes=10,
+            content_sha256="f" * 64,
+            storage_key="",
+            page_count=None,
+            rejection_reason="unrecognised file signature",
+        )
+        db.add(row)
+        db.commit()
+
+        response = client.get(f"/ui/documents/{row.id}/original")
+        assert response.status_code == 404
+        assert "Traceback" not in response.text
+
+
+class TestTheReviewScreenSpeaksOneLanguage:
+    @pytest.fixture
+    def client(self, wired_settings: Settings, db: Session) -> Iterator[TestClient]:
+        from iep.api.app import create_app
+
+        with TestClient(create_app()) as client:
+            yield client
+
+    def test_every_finding_detail_key_has_a_spanish_label(self) -> None:
+        """A key with no label renders as its own snake_case name.
+
+        That is how `FOUND` and `EXPECTED` appeared on a screen whose every
+        other word was Spanish. These are the keys the rule catalogue actually
+        emits, read out of the rules module rather than from a list kept by
+        hand somewhere else.
+        """
+        import re
+
+        from iep.api.vocabulary import _DETAIL_LABELS
+
+        source = (
+            Path(__file__).resolve().parents[2] / "src" / "iep" / "validation" / "rules.py"
+        ).read_text(encoding="utf-8")
+        # Keys as they are written inside a `detail={...}` mapping.
+        emitted = set(re.findall(r'"([a-z][a-z0-9_]*)":\s', source))
+        # Not every quoted key in the module goes into `detail`; the ones that
+        # matter are those a finding carries, so intersect with what the
+        # vocabulary is responsible for plus anything new.
+        ignored = {"kind", "page", "sheet", "cell", "row", "column"}
+        missing = sorted(k for k in emitted - ignored if k not in _DETAIL_LABELS)
+        assert missing == [], f"claves de detalle sin etiqueta en español: {missing}"
+
+    def test_a_finding_names_the_document_it_affects(
+        self,
+        client: TestClient,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        corpus_dir: Path,
+        requires_ocr: None,
+    ) -> None:
+        """A finding stores its document ids as strings inside JSONB.
+
+        The screen looked them up in a map keyed by UUID, so every lookup
+        missed and the "affects" chip printed a raw identifier at a reviewer
+        instead of the filename.
+        """
+        dossier = seed(
+            db,
+            store,
+            settings,
+            corpus_dir,
+            DOSSIER_B.reference,
+            claimed_total=DOSSIER_B.claimed_total_eur,
+        )
+        run(db, store, settings, dossier)
+        db.commit()
+
+        body = client.get(f"/ui/dossiers/{dossier.id}").text
+        assert "justificante" in body, "no filename reached the screen"
+        affected = [
+            str(value)
+            for finding in db.execute(
+                select(Finding).where(Finding.dossier_id == dossier.id)
+            ).scalars()
+            for value in (finding.document_ids or [])
+        ]
+        assert affected, "the corpus should produce findings that name a document"
+        for document_id in affected:
+            assert f">{document_id}<" not in body, f"raw id {document_id} shown to a reviewer"
+
+    def test_the_reviewer_name_starts_empty(self, client: TestClient, db: Session) -> None:
+        """A pre-filled name signs the audit trail with a placeholder."""
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db)
+        db.commit()
+        body = client.get(f"/ui/dossiers/{dossier.id}").text
+        assert 'id="actor"' in body
+        assert 'value="revisor"' not in body
+        assert "Nombre del revisor" in body

@@ -57,9 +57,13 @@
     {% if view.has_image %}
       <div class="row" style="margin-bottom:.6rem">
         <button class="small" id="zoombtn" onclick="toggleZoom()">Ampliar</button>
-        <a class="btn small" href="/ui/evidence/{{ extraction.id }}/image" target="_blank" rel="noopener">
-          Abrir el documento entero
+        {% if document %}
+        <a class="btn small" href="/ui/documents/{{ document.id }}/original"
+           target="_blank" rel="noopener"
+           title="{{ document.original_filename }}">
+          Abrir el original ({{ media_kind.get(document.media_kind|string, document.media_kind|string) }})
         </a>
+        {% endif %}
         {% if view.box_note %}<span class="muted" style="font-size:.83rem">{{ view.box_note }}</span>{% endif %}
       </div>
       <div class="viewer" id="viewer">
@@ -98,6 +102,12 @@
         Se lee la celda concreta, no la hoja entera. Si su contenido fuese una
         fórmula en vez de un valor, no se usaría como evidencia.
       </p>
+      {% if document %}
+      <div class="row" style="margin-top:.6rem">
+        <a class="btn small" href="/ui/documents/{{ document.id }}/original"
+           title="{{ document.original_filename }}">Abrir el libro en Excel</a>
+      </div>
+      {% endif %}
 
     {% elif view.snippet %}
       <p class="eyebrow">Fragmento de origen</p>

@@ -7,15 +7,17 @@
 {% endblock %}
 
 {% block content %}
-<p class="eyebrow">Bandeja de revisión</p>
-<h1>Expedientes pendientes de decisión</h1>
-<p class="lede">
-  Un expediente es una justificación de gasto: una memoria técnica, las facturas
-  que la respaldan, el parte horario del equipo, el registro de personal y la
-  convocatoria. El sistema cruza esas fuentes entre sí y marca lo que no cuadra,
-  <strong>pero no decide</strong>: aprobar o rechazar es siempre tuyo, con un
-  motivo que queda registrado.
-</p>
+<div class="intro">
+  <p class="eyebrow">Bandeja de revisión</p>
+  <h1>Expedientes pendientes de decisión</h1>
+  <p>
+    Un expediente es una justificación de gasto: una memoria técnica, las facturas
+    que la respaldan, el parte horario del equipo, el registro de personal y la
+    convocatoria. El sistema cruza esas fuentes entre sí y marca lo que no cuadra,
+    <strong>pero no decide</strong>: aprobar o rechazar es siempre tuyo, con un
+    motivo que queda registrado.
+  </p>
+</div>
 
 {% if dossiers %}
 <div class="card" style="padding:0; overflow:hidden">

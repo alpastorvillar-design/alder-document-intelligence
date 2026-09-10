@@ -384,7 +384,27 @@ def group_of(field_path: str) -> str:
 # Finding detail
 # --------------------------------------------------------------------------
 
+# Every key a rule puts in `detail` needs an entry. A missing one renders as
+# its own snake_case name next to a Spanish label, which is how "FOUND" and
+# "EXPECTED" ended up on the review screen. A test walks the processed corpus
+# and fails on any key that has no label here.
 _DETAIL_LABELS = {
+    "found": "Encontrado",
+    "base_eur": "Base imponible",
+    "vat_eur": "IVA",
+    "stated_total_eur": "Total impreso en la factura",
+    "computed_total_eur": "Total calculado (base + IVA)",
+    "formula_cells": "Celdas con fórmula",
+    "missing_kind": "Tipo de documento que falta",
+    "readings": "Lecturas encontradas",
+    "field_path": "Campo",
+    "error": "Error",
+    "expected": "Se esperaba",
+    "also_submitted_as": "Entregado también como",
+    "content_sha256": "Huella del contenido",
+    "matched_phrases": "Frases detectadas",
+    "mean_word_confidence": "Confianza media por palabra",
+    "year": "Año",
     "declared_eur": "Declarado",
     "evidence_eur": "Según la evidencia",
     "difference_eur": "Diferencia",
@@ -405,7 +425,6 @@ _DETAIL_LABELS = {
     "missing_field": "Campo que falta",
     "hours": "Horas",
     "ceiling": "Techo",
-    "mean_confidence": "Confianza media del OCR",
     "source": "Fuente",
     "description": "Descripción",
     "sheet": "Hoja",

@@ -56,8 +56,13 @@
   .was { color:var(--blocker); text-decoration:line-through; font-weight:400; }
   .conf { font-variant-numeric:tabular-nums; }
   .conf.low { color:var(--warning); font-weight:620; }
-  .cell-actions { display:flex; gap:.3rem; }
+  .cell-actions { display:flex; gap:.3rem; align-items:center; flex-wrap:nowrap; }
   .cell-actions input { max-width:9rem; }
+  /* The button was wrapping to two lines inside a narrow cell. */
+  .cell-actions .btn, .cell-actions button { white-space:nowrap; }
+  /* Body cells default to top alignment for long text; these two hold a
+     single short value and read wrong when they float above their header. */
+  td.mid { vertical-align:middle; }
 </style>
 {% endblock %}
 
@@ -73,12 +78,17 @@
 
 <p class="eyebrow">{{ dossier.reference }} · {{ status_label }}</p>
 <h1>{{ dossier.title }}</h1>
-<p class="lede" style="margin-bottom:1.1rem">
-  Periodo de ejecución {{ dossier.period_start|fecha }} – {{ dossier.period_end|fecha }} ·
-  reclama <strong>{{ dossier.claimed_total_eur|money }} €</strong> ·
-  {{ accepted_count }} documento{{ "s" if accepted_count != 1 }} aceptado{{ "s" if accepted_count != 1 }}{% if refused %},
-  {{ refused|length }} rechazado{{ "s" if refused|length != 1 }}{% endif %}
-</p>
+{# Each fact is one chip. A run-on sentence broke between the number and the
+   word it counted, which read as a typo rather than a wrap. #}
+<ul class="facts-row" style="margin-bottom:1.1rem">
+  <li><span>Periodo</span>
+    <strong>{{ dossier.period_start|fecha }} – {{ dossier.period_end|fecha }}</strong></li>
+  <li><span>Reclamado</span><strong>{{ dossier.claimed_total_eur|money }} €</strong></li>
+  <li><span>Documentos aceptados</span><strong>{{ accepted_count }}</strong></li>
+  {% if refused %}
+  <li><span>Rechazados</span><strong>{{ refused|length }}</strong></li>
+  {% endif %}
+</ul>
 
 {% if can_approve %}
 <div class="verdict go">
@@ -108,9 +118,14 @@
 {% endif %}
 
 <div class="toolbar row">
-  <label class="field" style="margin-right:auto">
-    <input type="text" id="actor" placeholder="tu nombre" value="revisor"
-           aria-label="Quién está revisando">
+  {# Empty on purpose. Pre-filling it with "revisor" meant every decision in
+     the audit trail was signed by a placeholder, which is worse than being
+     asked for a name. #}
+  <label class="field" style="margin-right:auto; max-width:14rem">
+    <span>Nombre del revisor
+      <span class="hint-dot" title="Queda registrado junto a cada decisión que tomes, con la fecha y el motivo. La auditoría es append-only: no se puede editar ni borrar.">i</span>
+    </span>
+    <input type="text" id="actor" placeholder="escribe tu nombre" autocomplete="name">
   </label>
   <button class="primary" onclick="decide('approve')" {% if not can_approve %}disabled
           title="Hay bloqueantes abiertos o campos sin confirmar"{% endif %}>Aprobar</button>
@@ -255,8 +270,16 @@
   <table>
     <thead>
       <tr>
-        <th>Campo</th><th>Valor</th><th>Confianza</th>
-        <th>De dónde sale</th><th>Estado</th><th></th>
+        <th>Campo</th>
+        <th>Valor</th>
+        <th>Confianza
+          <span class="hint-dot" title="Lo segura que estaba la lectura. Un escaneo borroso baja este número, y por debajo del 75 % el campo se manda a revisión en lugar de darse por bueno.">i</span>
+        </th>
+        <th>De dónde sale</th>
+        <th>Estado</th>
+        <th>Qué puedes hacer
+          <span class="hint-dot" title="«Ver evidencia» abre el documento con el sitio exacto marcado. «Corregir» guarda tu valor JUNTO al que leyó la máquina, nunca encima: se conserva el original, tu nombre, la fecha y el motivo. «Confirmar» deja el valor como está y registra que tú lo has comprobado. Las dos acciones piden motivo y quedan en la auditoría.">i</span>
+        </th>
       </tr>
     </thead>
     <tbody>
@@ -274,16 +297,17 @@
             {% else %}{{ e.value_text }}{% endif %}
           </span>
         </td>
-        <td class="conf {% if e.confidence|float < 0.75 %}low{% endif %}">
+        <td class="conf mid {% if e.confidence|float < 0.75 %}low{% endif %}">
           {{ "%.0f"|format(e.confidence|float * 100) }} %
         </td>
         <td style="font-size:.83rem">{{ locator_summary(e.locator) }}</td>
-        <td><span class="pill {{ ecss }}">{{ estatus }}</span></td>
-        <td>
+        <td class="mid"><span class="pill {{ ecss }}">{{ estatus }}</span></td>
+        <td class="mid">
           <div class="cell-actions">
             <a class="btn small" href="/ui/evidence/{{ e.id }}">Ver evidencia</a>
-            <input type="text" id="v-{{ e.id }}" placeholder="corregir a…"
-                   aria-label="Valor corregido">
+            <input type="text" id="v-{{ e.id }}" placeholder="valor correcto"
+                   aria-label="El valor correcto, si el leído está mal"
+                   title="Escribe aquí el valor correcto y pulsa Corregir. Se te pedirá un motivo.">
             <button class="small" onclick="correct('{{ e.id }}', {{ e.revision }})">Corregir</button>
             <button class="small" onclick="confirmField('{{ e.id }}', {{ e.revision }})">Confirmar</button>
           </div>
@@ -300,41 +324,61 @@
 {% block scripts %}
 <script>
 const dossierId = document.body.dataset.dossier;
-const actor = () => document.getElementById("actor").value.trim() || "revisor";
+
+/* Every decision is signed. Returning null rather than a default means the
+   caller has to stop, so nothing lands in the audit trail unattributed. */
+function actor() {
+  const field = document.getElementById("actor");
+  const name = field.value.trim();
+  if (!name) {
+    flash("Escribe tu nombre antes de decidir: queda registrado con la decisión.");
+    field.focus();
+    return null;
+  }
+  return name;
+}
 
 async function correct(id, revision) {
+  const who = actor();
+  if (!who) return;
   const value = document.getElementById("v-" + id).value.trim();
   if (!value) { flash("Escribe primero el valor correcto."); return; }
   const reason = prompt("¿Por qué está mal este valor?");
   if (!reason) return;
   if (await post(`/extractions/${id}/correct`,
-      { actor: actor(), reason, new_value: value, expected_revision: revision })) {
+      { actor: who, reason, new_value: value, expected_revision: revision })) {
     location.reload();
   }
 }
 
 async function confirmField(id, revision) {
+  const who = actor();
+  if (!who) return;
   const reason = prompt("Confirmas esta lectura. ¿Contra qué la has comprobado?")
     || "comprobado contra el documento original";
   if (await post(`/extractions/${id}/confirm`,
-      { actor: actor(), reason, expected_revision: revision })) {
+      { actor: who, reason, expected_revision: revision })) {
     location.reload();
   }
 }
 
 async function resolve(id, accept) {
+  const who = actor();
+  if (!who) return;
   const reason = document.getElementById("fr-" + id).value.trim();
   if (!reason) { flash("El motivo es obligatorio: queda en la auditoría."); return; }
-  if (await post(`/findings/${id}/resolve`, { actor: actor(), reason, accept })) {
+  if (await post(`/findings/${id}/resolve`, { actor: who, reason, accept })) {
     location.reload();
   }
 }
 
 async function decide(action) {
+  const who = actor();
+  if (!who) return;
   const word = action === "approve" ? "aprobar" : "rechazar";
   const reason = prompt(`Motivo para ${word} el expediente:`);
   if (!reason) return;
-  if (await post(`/dossiers/${dossierId}/${action}`, { actor: actor(), reason })) {
+  if (await post(`/dossiers/${dossierId}/${action}`, { actor: who, reason })) {
     location.reload();
   }
 }
