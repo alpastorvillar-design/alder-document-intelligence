@@ -15,14 +15,31 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 EMBEDDING_DIMENSIONS = 512
 
-# Where to put the relevance floor for a learned embedding model, from the
-# measurement in `docs/rag.md`: on this corpus `bge-m3` scores the highest
-# irrelevant query at 0.4376 and the lowest relevant one at 0.5365. This sits
-# just above the first, not in the middle of the gap - erring low keeps
-# borderline evidence, and a model with nothing to work from can still say the
-# evidence is insufficient. Erring high silently deletes real evidence, which
-# nothing downstream can recover from.
-LEARNED_MIN_SIMILARITY = 0.45
+# Where to put the relevance floor for a learned embedding model: nowhere.
+#
+# This number was measured three times and was wrong twice, which is the whole
+# finding. Top-hit cosine similarity on INN-2025-042, widening the query set
+# each time:
+#
+#   8 queries   bge-m3              relevant 0.5365+, irrelevant 0.4376-  ->  gap +0.099
+#   13 queries  qwen3-embedding:4b  relevant 0.5649+, irrelevant 0.5671-  ->  gap -0.002
+#   17 queries  qwen3-embedding:4b  relevant 0.4968+, irrelevant 0.5671-  ->  gap -0.070
+#
+# Every widening lowered the worst relevant score and the overlap grew. A
+# threshold set from any one of those samples cuts a legitimate question asked
+# slightly differently, and 0.50 - fitted to the second - did exactly that:
+# "¿Cuántas personas tienen dedicación al proyecto?" scores 0.4968 and came
+# back empty, while two irrelevant queries sailed over it.
+#
+# So the floor ships off, and the asymmetry is the reason. Noise reaching the
+# generator is recoverable: it answers "the evidence does not support this",
+# which is what it did. Evidence removed before the generator sees it is not
+# recoverable by anything - it cannot report an absence it was never shown.
+#
+# The knob remains for somebody who has measured their own corpus and their
+# own queries. `docs/rag.md` carries all three tables, including the two that
+# were wrong.
+LEARNED_MIN_SIMILARITY = 0.0
 
 
 class Settings(BaseSettings):
@@ -58,18 +75,12 @@ class Settings(BaseSettings):
     embedding_provider: str = "hashing"
     # Cosine similarity below which a vector hit is not returned at all.
     #
-    # `None` means "whatever suits the configured provider", because the right
-    # value is a property of the embedding model and not a preference. On this
-    # corpus, measured:
-    #
-    #   hashing  relevant 0.16-0.55, irrelevant 0.17-0.40 - overlapping, and
-    #            "colaboraciones externas" scores *below* "campeonato de
-    #            ajedrez juvenil". No threshold works, so the floor is off.
-    #   bge-m3   relevant 0.54-0.72, irrelevant 0.35-0.44 - a clear gap, so a
-    #            floor is possible for the first time.
-    #
-    # An explicit `0.0` still means off, for a learned provider too.
-    # `docs/rag.md` carries both tables.
+    # `None` means "whatever suits the configured provider". Measured, that is
+    # zero for every provider available here - see `LEARNED_MIN_SIMILARITY`
+    # for the three measurements that led there. The setting exists so a
+    # deployment that has measured its own corpus can turn it on, and because
+    # the filter itself is worth having even when its default is off: without
+    # it, vector search has no way to answer "nothing here matches".
     retrieval_min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     embedding_dimensions: int = EMBEDDING_DIMENSIONS
     embedding_batch_size: int = Field(default=64, ge=1, le=256)
@@ -97,7 +108,11 @@ class Settings(BaseSettings):
     # vector path from a demonstration of the plumbing into actual semantic
     # retrieval - `bge-m3` is 1024 dimensions and the column no longer fixes
     # a width, so it just works. See docs/rag.md for the measurements.
-    ollama_embedding_model: str = "bge-m3"
+    # `qwen3-embedding:4b` rather than `bge-m3`: measured on this corpus it
+    # scores every relevant query higher and orders them better - worst
+    # relevant 0.5649 against 0.4480 - for 2.5 GB and about half a second more
+    # per batch. `bge-m3` stays a good smaller choice.
+    ollama_embedding_model: str = "qwen3-embedding:4b"
     # A model on a laptop CPU takes tens of seconds for a five-segment
     # context, so this is not the CLI's timeout.
     ollama_timeout_seconds: float = Field(default=300.0, gt=0.0, le=900.0)
@@ -161,6 +176,22 @@ class Settings(BaseSettings):
         allowed = {"disabled", "openai", "cli", "ollama"}
         if value not in allowed:
             raise ValueError(f"rag_provider must be one of {sorted(allowed)}")
+        return value
+
+    @field_validator("retrieval_min_similarity", mode="before")
+    @classmethod
+    def _blank_means_unset(cls, value: object) -> object:
+        """An empty environment variable means "not set", not "not a number".
+
+        Environment variables are strings, and `""` is how "unset" arrives
+        from Compose, from a `.env` line with nothing after the `=`, and from
+        a shell that exports an empty value. Without this the process refused
+        to start at all: `IEP_RETRIEVAL_MIN_SIMILARITY=` made the API
+        container exit before the first request, which is a worse failure than
+        anything the setting could cause.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
         return value
 
     @field_validator("rag_cli_tool")

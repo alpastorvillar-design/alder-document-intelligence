@@ -404,20 +404,23 @@ class ModelOption(BaseModel):
 
 
 class UsageReport(BaseModel):
-    """What this application spent, and the account it spent it on.
+    """What this application spent today, split by whether it cost anything.
 
     Deliberately not called "remaining": neither assistant CLI publishes a
-    quota, so the honest report is consumption plus the plan, and the screen
-    says which is which.
+    quota. What it can report exactly is consumption, and the split is the
+    part that matters - a local model is free, so its tokens are worth
+    knowing but not worth budgeting.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    window_days: int = Field(ge=1)
-    calls: int = Field(ge=0)
-    input_tokens: int = Field(ge=0)
-    output_tokens: int = Field(ge=0)
-    local_calls: int = Field(ge=0)
+    cloud_calls: int = Field(default=0, ge=0)
+    cloud_tokens: int = Field(default=0, ge=0)
+    local_calls: int = Field(default=0, ge=0)
+    local_tokens: int = Field(default=0, ge=0)
+    # Until local midnight, so the screen can count down to it rather than
+    # asking anybody to take the window on trust.
+    seconds_until_reset: int = Field(default=0, ge=0)
     by_model: list[dict[str, Any]] = Field(default_factory=list)
     account_tool: str = ""
     account_logged_in: bool = False

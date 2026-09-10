@@ -82,51 +82,67 @@ que se renuncia es a indexar —HNSW e IVFFlat necesitan anchura fija— y hoy n
 se pierde nada, porque este proyecto hace búsqueda exacta con recorrido
 secuencial por decisión deliberada.
 
-### El suelo de relevancia, y las dos mediciones detrás
+### El suelo de relevancia: tres mediciones, dos equivocadas
 
 La búsqueda vectorial devuelve `limit` filas para cualquier consulta, así que
 una pregunta sobre algo que no está en el expediente volvía igual que una
-sobre algo que sí. `IEP_RETRIEVAL_MIN_SIMILARITY` es el suelo para eso,
+sobre algo que sí. `IEP_RETRIEVAL_MIN_SIMILARITY` es el filtro para eso,
 aplicado en SQL para que una consulta filtrada no gaste su límite en filas que
 va a descartar.
 
-Su valor por defecto no es un número único, porque el valor correcto es una
-propiedad del modelo de embeddings. Similitud coseno del primer resultado
-sobre `INN-2025-042`, las mismas ocho consultas, los dos proveedores:
+Elegir su valor por defecto costó tres intentos, y la secuencia **es** el
+hallazgo. Similitud coseno del primer resultado sobre `INN-2025-042`:
 
-| Consulta | ¿Debería encontrar algo? | `hashing` | `bge-m3` |
-| --- | --- | --- | --- |
-| total de la factura | sí | 0,7416 | 0,7200 |
-| gastos de personal declarados | sí | 0,5520 | 0,6012 |
-| periodo de ejecucion del proyecto | sí | 0,4928 | 0,5754 |
-| coste horario del personal | sí | 0,3793 | 0,5891 |
-| colaboraciones externas | sí | **0,1626** | 0,5365 |
-| instrucciones de montaje de una estanteria | no | 0,3993 | 0,4376 |
-| horario de trenes a Valencia | no | 0,3612 | 0,3618 |
-| receta de tortilla de patatas | no | 0,3444 | 0,3921 |
-| campeonato de ajedrez juvenil | no | **0,1651** | 0,3469 |
+| Intento | Modelo | Consultas | Relevante más baja | Irrelevante más alta | Margen |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1 | `bge-m3` | 8 | 0,5365 | 0,4376 | **+0,099** |
+| 2 | `qwen3-embedding:4b` | 13 | 0,5649 | 0,5671 | −0,002 |
+| 3 | `qwen3-embedding:4b` | 17 | 0,4968 | 0,5671 | −0,070 |
 
-Con la línea base los rangos se solapan casi por completo, y una consulta
-relevante puntúa *por debajo* de una irrelevante: ningún umbral conserva el
-primer grupo y descarta el segundo, así que el suelo es 0. Con `bge-m3` la
-relevante más baja es 0,5365 y la irrelevante más alta 0,4376: un hueco de
-unos 0,10, y por primera vez un suelo tiene sentido. El valor por defecto es
-**0,45**, justo por encima del ruido medido y no en el centro del hueco:
-conservar evidencia dudosa se puede corregir después, borrarla no.
+El primero parecía un hueco limpio y de ahí salió un suelo de 0,45. El
+segundo, tras añadir una pregunta relevante que exige contar personas dentro
+de un texto y dos frases genéricas cortas en español, cerró el hueco por
+completo: se debilitó el criterio a «nunca descartar un acierto relevante» y
+el suelo pasó a 0,50. La tercera ampliación rompió también eso: «¿Cuántas
+personas tienen dedicación al proyecto?» puntúa **0,4968**, por debajo de dos
+consultas irrelevantes, así que 0,50 cortaba una pregunta legítima *y* dejaba
+pasar ruido igualmente.
 
-Medido de punta a punta con el suelo puesto, lo que antes era
-estructuralmente imposible:
+Cada ampliación bajó la relevante más baja. Un umbral ajustado a una muestra
+falla con la misma pregunta formulada de otra manera, y así se ve en la
+práctica — la misma pregunta, con suelo y sin él:
 
 ```text
-relevante    gastos de personal declarados     -> 5 resultados, mejor 0,6012
-relevante    colaboraciones externas           -> 5 resultados, mejor 0,5365
-irrelevante  receta de tortilla de patatas     -> 0 resultados
-irrelevante  campeonato de ajedrez juvenil     -> 0 resultados
+suelo 0,50   -> 0 fragmentos, «la búsqueda no ha encontrado nada»
+suelo 0      -> 1 cita, «No se puede determinar el número de personas
+                 con dedicación al proyecto a partir de la evidencia»
 ```
 
-Un `IEP_RETRIEVAL_MIN_SIMILARITY=0.0` explícito sigue apagándolo, también con
-un proveedor aprendido, y hay una prueba que falla si el valor por defecto se
-sale del hueco medido.
+La segunda es la mejor respuesta, y es la razón por la que el suelo se
+distribuye **apagado**. La asimetría no está ni cerca: el ruido que llega al
+generador se recupera, porque dice que la evidencia no sostiene la pregunta.
+La evidencia retirada antes de que el generador la vea no la recupera nada,
+porque nadie puede informar de una ausencia que nunca vio.
+
+El ajuste se queda, para un despliegue que haya medido su propio corpus y sus
+propias preguntas. Lo que se entrega aquí es el filtro y las mediciones, no un
+número.
+
+### El modelo de embeddings
+
+Hay dos disponibles en local, y uno mide mejor:
+
+| Modelo | Parámetros | Dims | Relevante más baja (13 consultas) |
+| --- | ---: | ---: | ---: |
+| `bge-m3` | 567M | 1024 | 0,4480 |
+| `qwen3-embedding:4b` | 4B | 2560 | **0,5649** |
+
+`qwen3-embedding:4b` puntúa más alto en todas las consultas relevantes y las
+ordena mejor, a cambio de 2,5 GB y medio segundo más por lote, así que es el
+predeterminado. `bge-m3` sigue siendo una buena opción más pequeña. Los dos
+son modelos multilingües aprendidos y los dos son enormemente mejores que la
+línea base hashing, cuya consulta relevante más baja puntúa 0,1626 — por
+debajo de la mitad de las irrelevantes.
 
 ## Qué convierte el endpoint de preguntas en RAG
 

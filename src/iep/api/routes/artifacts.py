@@ -356,15 +356,7 @@ def answer_evidence_question(
                 raise ServiceUnavailableError(
                     "Este expediente no tiene evidencia indexada. Vuelve a procesarlo."
                 )
-            return _nothing_to_ground(
-                request,
-                (
-                    "La búsqueda no ha encontrado ningún fragmento para esa pregunta, "
-                    "así que no se ha consultado a ningún modelo. En modo léxico eso "
-                    "significa que esas palabras no aparecen en los documentos del "
-                    "expediente; prueba con otras, o cambia el modo de recuperación."
-                ),
-            )
+            return _nothing_to_ground(request, _why_nothing_matched(request.retrieval_mode))
         # Evidence search may return a document flagged as carrying
         # instructions aimed at an automated reader - a reviewer has to be able
         # to find it. Quoting it into a prompt is a different act, so it is
@@ -580,6 +572,34 @@ def rag_status(
     )
 
 
+def _why_nothing_matched(mode: str) -> str:
+    """Why an empty result happened, in terms of the mode that produced it.
+
+    One sentence explained lexical retrieval whichever mode had run, so
+    somebody in vector mode was told about a word search they had not asked
+    for.
+    """
+    shared = (
+        "La búsqueda no ha encontrado ningún fragmento para esa pregunta, así que "
+        "no se ha consultado a ningún modelo. "
+    )
+    if mode == "lexical":
+        return shared + (
+            "En modo léxico eso significa que esas palabras no aparecen en los "
+            "documentos; prueba con otras, o cambia a híbrida o vectorial."
+        )
+    if mode == "vector":
+        return shared + (
+            "En modo vectorial significa que nada del expediente se parece lo "
+            "suficiente, según el suelo de similitud configurado. Prueba en modo "
+            "híbrido, o baja IEP_RETRIEVAL_MIN_SIMILARITY."
+        )
+    return shared + (
+        "En modo híbrido significa que ni las palabras aparecen en los documentos "
+        "ni hay nada semánticamente parecido por encima del suelo configurado."
+    )
+
+
 def _nothing_to_ground(
     request: RagQuestion,
     because: str,
@@ -614,11 +634,11 @@ def _usage_report(session: Session, settings: Settings) -> UsageReport:
     spent = rag_usage.measured(session, settings)
     signed_in = rag_usage.account("claude")
     return UsageReport(
-        window_days=spent.window_days,
-        calls=spent.calls,
-        input_tokens=spent.input_tokens,
-        output_tokens=spent.output_tokens,
+        cloud_calls=spent.cloud_calls,
+        cloud_tokens=spent.cloud_tokens,
         local_calls=spent.local_calls,
+        local_tokens=spent.local_tokens,
+        seconds_until_reset=spent.seconds_until_reset,
         by_model=[
             {
                 "model": row.model,

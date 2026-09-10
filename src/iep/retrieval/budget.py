@@ -21,11 +21,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from iep.audit import service as audit
 from iep.config import Settings
+from iep.db.models import AuditEvent
 from iep.domain.enums import AuditAction
+from iep.retrieval.usage import is_local
 
 
 @dataclass(frozen=True)
@@ -64,14 +66,36 @@ class BudgetExhaustedError(RuntimeError):
 
 
 def current(session: Session, settings: Settings) -> Budget:
+    """The budget, counting only the calls that cost something.
+
+    A local model is free, so counting it here would eventually refuse a free
+    call in the name of not spending - which is the opposite of the point. The
+    ceiling exists so an unattended loop cannot quietly run through a week's
+    allowance of *metered* calls.
+    """
     ceiling = settings.rag_call_budget
     since = datetime.now(UTC) - timedelta(days=settings.rag_budget_window_days)
-    used = audit.count_since(session, AuditAction.EVIDENCE_QUESTION_ANSWERED, since=since)
+    used = _metered_since(session, since)
     # `int()` truncates, so a 40-call ceiling at 0.9 stops on the 36th rather
     # than after it. Refusing one call early is the safe direction.
     stop_at = 0 if ceiling == 0 else max(int(ceiling * settings.rag_budget_stop_fraction), 1)
     return Budget(
         used=used, ceiling=ceiling, window_days=settings.rag_budget_window_days, stop_at=stop_at
+    )
+
+
+def _metered_since(session: Session, since: datetime) -> int:
+    """Answered questions in the window whose provider was not local."""
+    rows = session.execute(
+        select(AuditEvent.payload).where(
+            AuditEvent.action == str(AuditAction.EVIDENCE_QUESTION_ANSWERED),
+            AuditEvent.created_at >= since,
+        )
+    ).scalars()
+    return sum(
+        1
+        for payload in rows
+        if isinstance(payload, dict) and not is_local(str(payload.get("provider") or ""))
     )
 
 

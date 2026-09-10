@@ -19,6 +19,7 @@ from typing import Any
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from iep.config import LEARNED_MIN_SIMILARITY, Settings
 from iep.retrieval.embeddings import (
@@ -172,13 +173,29 @@ class TestTheFloorFollowsTheProvider:
             == 0.0
         )
 
-    def test_the_default_sits_above_the_measured_noise(self) -> None:
-        """From the measurement in docs/rag.md: `bge-m3` on this corpus scores
-        the highest irrelevant query at 0.4376 and the lowest relevant one at
-        0.5365. The default has to be between them, and nearer the first -
-        keeping borderline evidence is recoverable, deleting it is not."""
-        assert 0.4376 < LEARNED_MIN_SIMILARITY < 0.5365
-        assert LEARNED_MIN_SIMILARITY - 0.4376 < 0.5365 - LEARNED_MIN_SIMILARITY
+    def test_the_default_is_off_and_that_is_the_measurement(self) -> None:
+        """Two earlier versions of this test asserted a tuned number.
+
+        The first said the default sat inside a gap between relevant and
+        irrelevant scores. The second, after a wider query set closed that
+        gap, said it stayed below the worst relevant score. A third widening
+        pushed the worst relevant hit to 0.4968 - below two irrelevant ones -
+        so 0.50 was cutting a legitimate question and passing noise anyway.
+        Each sample gave a different answer, which is itself the finding.
+
+        What survives is the asymmetry: noise reaching the generator is
+        recoverable, because it answers that the evidence does not support the
+        question. Evidence removed before the generator sees it is not - it
+        cannot report an absence it was never shown.
+        """
+        assert LEARNED_MIN_SIMILARITY == 0.0
+        assert LEARNED_MIN_SIMILARITY < 0.4968
+
+    def test_the_filter_still_exists_for_whoever_measures_their_own(self) -> None:
+        """Off by default is not the same as absent. Without the filter,
+        vector search has no way to say "nothing here matches"."""
+        settings = Settings(embedding_provider="ollama", retrieval_min_similarity=0.42)
+        assert settings.effective_min_similarity == 0.42
 
 
 class TestTheBaselineIsUnchanged:
@@ -265,3 +282,43 @@ class TestATransientFailureIsRetriedAndExplained:
         assert ollama_reason(httpx.Response(503, text="<html>gateway</html>")) == "HTTP 503"
         assert ollama_reason(httpx.Response(500, json={"error": "  "})) == "HTTP 500"
         assert ollama_reason(httpx.Response(500, json={"error": "cargando"})) == "cargando"
+
+
+class TestAnEmptyEnvironmentVariableDoesNotStopTheProcess:
+    """`IEP_RETRIEVAL_MIN_SIMILARITY=` made the API container exit.
+
+    Compose writes `${VAR:-}` as an empty string, and so does a `.env` line
+    with nothing after the `=`, and so does an exported empty value. Pydantic
+    read `""` as "not a number" and refused to build the settings, so the
+    process died before serving a request - a worse failure than anything the
+    setting itself could cause.
+    """
+
+    def test_an_empty_string_is_treated_as_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("IEP_RETRIEVAL_MIN_SIMILARITY", "")
+        settings = Settings(embedding_provider="ollama")
+        assert settings.retrieval_min_similarity is None
+        assert settings.effective_min_similarity == LEARNED_MIN_SIMILARITY
+
+    def test_whitespace_is_treated_as_unset_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("IEP_RETRIEVAL_MIN_SIMILARITY", "   ")
+        assert Settings(embedding_provider="hashing").effective_min_similarity == 0.0
+
+    def test_a_real_value_still_arrives(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("IEP_RETRIEVAL_MIN_SIMILARITY", "0.31")
+        assert Settings(embedding_provider="ollama").effective_min_similarity == 0.31
+
+    def test_a_value_that_is_not_a_number_is_still_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Tolerating blank must not mean tolerating nonsense: a typo in a
+        threshold should stop the process, because silently ignoring it would
+        run with a filter nobody chose."""
+        monkeypatch.setenv("IEP_RETRIEVAL_MIN_SIMILARITY", "cero-coma-cinco")
+        with pytest.raises(ValidationError):
+            Settings()
+
+    def test_out_of_range_is_still_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("IEP_RETRIEVAL_MIN_SIMILARITY", "1.5")
+        with pytest.raises(ValidationError):
+            Settings()

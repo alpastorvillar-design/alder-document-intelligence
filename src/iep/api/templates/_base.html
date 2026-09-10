@@ -234,6 +234,8 @@ tbody tr:last-child td { border-bottom: none; }
 /* ---- the copilot drawer ----------------------------------------------- */
 /* In the shell because two screens include the same partial: a second copy of
    these rules would let the two drift apart. */
+:root { --copilot-w: 25rem; }
+
 .copilot-open {
   position: fixed; right: 1rem; bottom: 1.2rem; z-index: 35;
   background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
@@ -242,14 +244,27 @@ tbody tr:last-child td { border-bottom: none; }
 .copilot-open:hover { background: var(--accent); filter: brightness(1.08); }
 .copilot-open[hidden] { display: none !important; }
 
+/* The drawer moves in from the right and the page moves out of its way. It
+   used to sit on top of the review table, which is the one thing a reviewer
+   needs to keep reading while they ask about it. */
 .copilot {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 40;
-  width: min(30rem, 100vw);
+  width: min(var(--copilot-w), 100vw);
   display: flex; flex-direction: column;
   background: var(--card); border-left: 1px solid var(--line);
   box-shadow: -8px 0 28px -18px rgba(0,0,0,.5);
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform .28s cubic-bezier(.32,.72,0,1), visibility .28s;
 }
-.copilot[hidden] { display: none !important; }
+.copilot.open { transform: none; visibility: visible; }
+/* `padding-right` on the body rather than a margin on `main`: the sticky
+   header has to shift with the content, not stay under the drawer. */
+body { transition: padding-right .28s cubic-bezier(.32,.72,0,1); }
+body.copilot-on { padding-right: min(var(--copilot-w), 100vw); }
+@media (prefers-reduced-motion: reduce) {
+  .copilot, body { transition: none; }
+}
 
 .copilot-head {
   display: flex; align-items: flex-start; gap: .6rem;
@@ -263,14 +278,14 @@ tbody tr:last-child td { border-bottom: none; }
   padding: .75rem 1rem .1rem;
 }
 .copilot-config select { font-size: .82rem; }
-.copilot-config .field:last-child select { min-width: 7.5rem; }
+.copilot-config .field:last-child select { min-width: 7rem; }
 
 .copilot-state {
   margin: .55rem 1rem 0; font-size: .78rem; color: var(--muted);
   padding-left: .6rem; border-left: 2px solid var(--line);
 }
 .copilot-state.off { color: var(--warning); border-left-color: var(--warning); }
-.copilot-state.on { color: var(--muted); border-left-color: var(--ok); }
+.copilot-state.on { border-left-color: var(--ok); }
 
 .copilot-suggest { padding: .7rem 1rem .2rem; }
 .copilot-suggest .eyebrow { margin-bottom: .4rem; }
@@ -287,8 +302,6 @@ tbody tr:last-child td { border-bottom: none; }
 .turn + .turn { margin-top: .9rem; border-top: 1px solid var(--line-soft); padding-top: .9rem; }
 .turn .asked { margin: 0 0 .5rem; font-weight: 560; font-size: .88rem; }
 .turn .asked::before { content: "› "; color: var(--accent); }
-/* Not `.verdict`: that is the review screen's approval banner, and the
-   shell must not reach into it. */
 .turn .stance {
   margin: 0 0 .35rem; font-size: .7rem; font-weight: 620;
   text-transform: uppercase; letter-spacing: .05em;
@@ -296,18 +309,46 @@ tbody tr:last-child td { border-bottom: none; }
 .turn .stance.enough { color: var(--ok); }
 .turn .stance.thin { color: var(--warning); }
 .turn .said { margin: 0 0 .6rem; font-size: .88rem; white-space: pre-wrap; }
-.turn .waiting { color: var(--muted); font-size: .85rem; font-style: italic; }
-.cite {
-  border: 1px solid var(--line-soft); border-radius: 7px; background: var(--card-sunk);
-  padding: .45rem .6rem; font-size: .8rem;
+.turn .waiting { color: var(--muted); font-size: .85rem; }
+
+/* "Thinking", with the elapsed seconds, because a local model takes tens of
+   them and a still screen is indistinguishable from a broken one. */
+.thinking { display: flex; align-items: baseline; gap: .4rem; font-size: .85rem; color: var(--muted); }
+.thinking .dots { display: inline-flex; gap: .18rem; }
+.thinking .dots i {
+  width: .32rem; height: .32rem; border-radius: 50%; background: var(--accent);
+  animation: blink 1.2s infinite ease-in-out both;
 }
-.cite + .cite { margin-top: .35rem; }
-.cite .who { display: flex; gap: .4rem; align-items: baseline; flex-wrap: wrap; margin-bottom: .25rem; }
-.cite .who .tag { font-family: var(--mono); font-size: .7rem; font-weight: 700; color: var(--accent); }
-.cite .who .where { color: var(--muted); font-size: .74rem; }
+.thinking .dots i:nth-child(2) { animation-delay: .16s; }
+.thinking .dots i:nth-child(3) { animation-delay: .32s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .thinking .dots i { animation: none; opacity: .6; } }
+.thinking .elapsed { font-variant-numeric: tabular-nums; }
+
+/* A citation is a pointer, not a transcript. It used to quote the whole
+   segment - eight hundred characters for a figure - which left no room for
+   the answer. The document and the place are the payload; the text is one
+   click away. */
+.cites { margin: 0; padding: 0; list-style: none; }
+.cites > li + li { margin-top: .25rem; }
+.cite {
+  font-size: .76rem; border: 1px solid var(--line-soft); border-radius: 6px;
+  background: var(--card-sunk);
+}
+.cite > summary {
+  cursor: pointer; padding: .3rem .5rem; display: flex; gap: .4rem;
+  align-items: baseline; flex-wrap: wrap; list-style: none;
+}
+.cite > summary::-webkit-details-marker { display: none; }
+.cite > summary::after { content: "▸"; margin-left: auto; color: var(--muted); font-size: .7rem; }
+.cite[open] > summary::after { content: "▾"; }
+.cite .tag { font-family: var(--mono); font-weight: 700; color: var(--accent); }
+.cite .doc { font-family: var(--mono); overflow-wrap: anywhere; }
+.cite .where { color: var(--muted); }
 .cite blockquote {
-  margin: 0; padding-left: .6rem; border-left: 2px solid var(--line);
-  color: var(--ink-soft); font-size: .79rem;
+  margin: 0; padding: .1rem .55rem .5rem 1rem;
+  border-left: 2px solid var(--line); color: var(--ink-soft);
+  font-size: .78rem; white-space: pre-wrap;
 }
 .turn .trace { margin: .5rem 0 0; font-size: .7rem; color: var(--muted); font-family: var(--mono); }
 
@@ -320,7 +361,12 @@ tbody tr:last-child td { border-bottom: none; }
   margin: 0; padding: .55rem 1rem .8rem; font-size: .72rem; color: var(--muted);
   background: var(--card-sunk); border-top: 1px solid var(--line-soft);
 }
-@media (max-width: 40rem) { .copilot { width: 100vw; } }
+.copilot-meter b { color: var(--ink-soft); font-weight: 620; font-variant-numeric: tabular-nums; }
+/* Below this the page has no room to be pushed aside, so the drawer covers it. */
+@media (max-width: 62rem) {
+  .copilot { width: 100vw; }
+  body.copilot-on { padding-right: 0; }
+}
 
 #flash {
   position: fixed; left: 50%; bottom: 1.4rem; transform: translateX(-50%);
@@ -395,7 +441,7 @@ async function post(url, body) {
 /* Everything the drawer offers is read from the API rather than decided in a
    template: which models this process can launch, which retrieval modes the
    embedding configuration allows, whether generation is on at all, and what
-   the call budget has left are properties of the running process. */
+   has been spent today are properties of the running process. */
 const COPILOT_MODES = { lexical: "Léxica", vector: "Vectorial", hybrid: "Híbrida" };
 let copilotStatus = null;
 
@@ -403,38 +449,35 @@ function copilotToggle(open) {
   const drawer = document.getElementById("copilot");
   const launcher = document.getElementById("copilot-open");
   if (!drawer) return;
-  drawer.hidden = !open;
+  /* A class, not `hidden`: the transform has to animate, and `display:none`
+     cannot be transitioned from. */
+  drawer.classList.toggle("open", open);
+  document.body.classList.toggle("copilot-on", open);
   launcher.hidden = open;
   launcher.setAttribute("aria-expanded", String(open));
   try { localStorage.setItem("copilot-open", open ? "1" : "0"); } catch (e) { /* private window */ }
   if (open) document.getElementById("copilot-q").focus();
 }
 
+function copilotClock(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours ? hours + " h " + minutes + " min" : minutes + " min";
+}
+
 function copilotMeterLine(status) {
   const usage = status.usage;
-  const parts = [];
-  if (status.budget_ceiling) {
+  if (!usage) return "";
+  const cloud = usage.cloud_tokens.toLocaleString("es-ES");
+  const parts = ["Hoy: <b>" + cloud + "</b> tokens en la nube"];
+  if (usage.cloud_calls) parts[0] += " (" + usage.cloud_calls + " consulta(s))";
+  if (usage.local_calls) {
     parts.push(
-      "Presupuesto propio: " + status.budget_used + " de " + status.budget_ceiling +
-      " consultas en " + status.budget_window_days + " días (corta en " +
-      status.budget_stop_at + ")"
+      "<b>" + usage.local_tokens.toLocaleString("es-ES") + "</b> tokens en local, " +
+      usage.local_calls + " consulta(s), sin coste"
     );
   }
-  if (usage) {
-    parts.push(
-      "gastado: " + usage.calls + " consulta(s), " +
-      (usage.input_tokens + usage.output_tokens).toLocaleString("es-ES") + " tokens" +
-      (usage.local_calls ? ", " + usage.local_calls + " en local" : "")
-    );
-    if (usage.account_logged_in) {
-      parts.push("cuenta " + usage.account_tool + ": plan " + (usage.account_plan || "—") +
-                 " vía " + (usage.account_method || "—"));
-    }
-  }
-  parts.push(
-    "El cupo restante de la suscripción no se muestra porque ningún CLI lo publica: " +
-    "esto mide lo que ha gastado esta aplicación."
-  );
+  parts.push("se reinicia en <b>" + copilotClock(usage.seconds_until_reset) + "</b>");
   return parts.join(" · ");
 }
 
@@ -456,56 +499,55 @@ async function copilotLoad() {
   copilotStatus = status;
 
   const models = document.getElementById("copilot-model");
-  models.innerHTML = "";
-  if (!status.models.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "ninguno disponible";
-    models.append(option);
-    models.disabled = true;
-  } else {
-    /* Local models first and preselected: a call that never leaves the machine
-       is the one to reach for by default. */
-    for (const model of status.models) {
+  if (!models.options.length) {
+    if (!status.models.length) {
       const option = document.createElement("option");
-      option.value = model.id;
-      option.textContent = (model.local ? "🖥 " : "☁ ") + model.label
-        + (model.note ? " — " + model.note : "");
+      option.value = "";
+      option.textContent = "ninguno disponible";
       models.append(option);
+      models.disabled = true;
+    } else {
+      /* Local models first and preselected: a call that never leaves the
+         machine is the one to reach for by default. */
+      for (const model of status.models) {
+        const option = document.createElement("option");
+        option.value = model.id;
+        option.textContent = (model.local ? "🖥 " : "☁ ") + model.label;
+        option.title = model.note || "";
+        models.append(option);
+      }
+      let remembered = null;
+      try { remembered = localStorage.getItem("copilot-model"); } catch (e) { /* ignore */ }
+      models.value = status.models.some(m => m.id === remembered)
+        ? remembered
+        : status.models[0].id;
+      models.onchange = () => {
+        try { localStorage.setItem("copilot-model", models.value); } catch (e) { /* ignore */ }
+      };
     }
-    let remembered = null;
-    try { remembered = localStorage.getItem("copilot-model"); } catch (e) { /* ignore */ }
-    models.value = status.models.some(m => m.id === remembered)
-      ? remembered
-      : status.models[0].id;
-    models.onchange = () => {
-      try { localStorage.setItem("copilot-model", models.value); } catch (e) { /* ignore */ }
-    };
-  }
 
-  const modes = document.getElementById("copilot-mode");
-  modes.innerHTML = "";
-  for (const mode of status.retrieval_modes) {
-    const option = document.createElement("option");
-    option.value = mode;
-    option.textContent = COPILOT_MODES[mode] || mode;
-    modes.append(option);
+    const modes = document.getElementById("copilot-mode");
+    for (const mode of status.retrieval_modes) {
+      const option = document.createElement("option");
+      option.value = mode;
+      option.textContent = COPILOT_MODES[mode] || mode;
+      modes.append(option);
+    }
+    modes.value = status.retrieval_modes.includes("hybrid") ? "hybrid" : "lexical";
   }
-  modes.value = status.retrieval_modes.includes("hybrid") ? "hybrid" : "lexical";
 
   if (status.enabled || status.models.length) {
     state.className = "copilot-state on";
     state.textContent = status.embedding_is_learned
-      ? "Recuperación con embeddings «" + status.embedding_provider + "»."
-      : "Los embeddings son la línea base «" + status.embedding_provider
-        + "»: determinista, sin modelo aprendido. La búsqueda léxica es la que"
-        + " decide; la vectorial demuestra la tubería.";
+      ? "Embeddings «" + status.embedding_provider + "», modelo aprendido."
+      : "Embeddings «" + status.embedding_provider + "»: línea base determinista,"
+        + " sin modelo aprendido. La léxica es la que decide.";
   } else {
     state.className = "copilot-state off";
     state.textContent = status.unavailable_reason;
     document.getElementById("copilot-go").disabled = true;
   }
-  document.getElementById("copilot-meter").textContent = copilotMeterLine(status);
+  document.getElementById("copilot-meter").innerHTML = copilotMeterLine(status);
 }
 
 function copilotSubmit(event) {
@@ -517,11 +559,47 @@ function copilotSubmit(event) {
   copilotAsk(question);
 }
 
+/* The answer is revealed a word at a time rather than streamed from the
+   server, and that is a deliberate trade. Every citation is checked against
+   what the model was actually given, and an invented one rejects the whole
+   answer - so streaming tokens would mean showing text that might have to be
+   taken back. The wait is made legible by the elapsed counter instead. */
+function copilotReveal(node, text) {
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduced) { node.textContent = text; return; }
+  const words = text.split(/(\s+)/);
+  let index = 0;
+  (function step() {
+    const until = Math.min(index + 2, words.length);
+    node.textContent += words.slice(index, until).join("");
+    index = until;
+    if (index < words.length) setTimeout(step, 22);
+  })();
+}
+
+function copilotThinking(modelLabel) {
+  const box = document.createElement("div");
+  box.className = "thinking";
+  box.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>'
+    + '<span>Pensando con ' + modelLabel + '</span>'
+    + '<span class="elapsed">0 s</span>';
+  const started = Date.now();
+  box.dataset.timer = String(setInterval(() => {
+    const seconds = Math.round((Date.now() - started) / 1000);
+    box.querySelector(".elapsed").textContent = seconds + " s";
+  }, 500));
+  return box;
+}
+
 async function copilotAsk(question) {
   copilotToggle(true);
   const thread = document.getElementById("copilot-thread");
   const button = document.getElementById("copilot-go");
-  const model = document.getElementById("copilot-model").value;
+  const picker = document.getElementById("copilot-model");
+  const model = picker.value;
+  const label = picker.selectedOptions.length
+    ? picker.selectedOptions[0].textContent.replace(/^[🖥☁]\s*/, "")
+    : "el modelo configurado";
   const mode = document.getElementById("copilot-mode").value;
 
   const turn = document.createElement("div");
@@ -529,14 +607,8 @@ async function copilotAsk(question) {
   const asked = document.createElement("p");
   asked.className = "asked";
   asked.textContent = question;
-  const waiting = document.createElement("p");
-  waiting.className = "waiting";
-  /* A local model on a laptop takes tens of seconds. Saying which model is
-     working, and that it may be slow, is the difference between waiting and
-     wondering whether it broke. */
-  waiting.textContent = "Preguntando a " + (model || "el modelo configurado")
-    + "… un modelo local puede tardar medio minuto.";
-  turn.append(asked, waiting);
+  const thinking = copilotThinking(label);
+  turn.append(asked, thinking);
   thread.append(turn);
   thread.scrollTop = thread.scrollHeight;
   button.disabled = true;
@@ -545,7 +617,8 @@ async function copilotAsk(question) {
     question, retrieval_mode: mode, top_k: 5, model,
   });
   button.disabled = false;
-  waiting.remove();
+  clearInterval(Number(thinking.dataset.timer));
+  thinking.remove();
   if (!result) {
     const failed = document.createElement("p");
     failed.className = "waiting";
@@ -554,37 +627,43 @@ async function copilotAsk(question) {
     return;
   }
 
-  const verdict = document.createElement("p");
-  verdict.className = "stance " + (result.sufficient_evidence ? "enough" : "thin");
-  verdict.textContent = result.sufficient_evidence
+  const stance = document.createElement("p");
+  stance.className = "stance " + (result.sufficient_evidence ? "enough" : "thin");
+  stance.textContent = result.sufficient_evidence
     ? "La evidencia sostiene la respuesta"
     : "La evidencia no basta: es una pista, no un dato";
   const said = document.createElement("p");
   said.className = "said";
-  said.textContent = result.answer;
-  turn.append(verdict, said);
+  turn.append(stance, said);
+  copilotReveal(said, result.answer);
 
   /* The model names an evidence id; the id is resolved here against what was
      actually sent to it. It never supplies a link. */
-  for (const cite of result.citations) {
-    const box = document.createElement("div");
-    box.className = "cite";
-    const who = document.createElement("div");
-    who.className = "who";
-    const tag = document.createElement("span");
-    tag.className = "tag";
-    tag.textContent = cite.evidence_id;
-    const name = document.createElement("span");
-    name.className = "mono";
-    name.textContent = cite.document;
-    const where = document.createElement("span");
-    where.className = "where";
-    where.textContent = cite.where;
-    who.append(tag, name, where);
-    const quote = document.createElement("blockquote");
-    quote.textContent = cite.text;
-    box.append(who, quote);
-    turn.append(box);
+  if (result.citations.length) {
+    const list = document.createElement("ul");
+    list.className = "cites";
+    for (const cite of result.citations) {
+      const item = document.createElement("li");
+      const box = document.createElement("details");
+      box.className = "cite";
+      const summary = document.createElement("summary");
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = cite.evidence_id;
+      const doc = document.createElement("span");
+      doc.className = "doc";
+      doc.textContent = cite.document;
+      const where = document.createElement("span");
+      where.className = "where";
+      where.textContent = cite.where;
+      summary.append(tag, doc, where);
+      const quote = document.createElement("blockquote");
+      quote.textContent = cite.text;
+      box.append(summary, quote);
+      item.append(box);
+      list.append(item);
+    }
+    turn.append(list);
   }
 
   /* Two different exclusions, reported separately because they happen at
@@ -609,13 +688,11 @@ async function copilotAsk(question) {
   const trace = document.createElement("p");
   trace.className = "trace";
   trace.textContent = result.generation_provider + " · " + result.generation_model
-    + " · " + result.retrieval_mode + " · " + result.citations.length + " cita(s)"
-    + (result.input_tokens ? " · " + result.input_tokens + "→" + result.output_tokens + " tokens" : "")
-    + " · " + result.prompt_sha256.slice(0, 12) + "…";
+    + " · " + result.retrieval_mode
+    + (result.input_tokens ? " · " + (result.input_tokens + result.output_tokens) + " tokens" : "");
   turn.append(trace);
   thread.scrollTop = thread.scrollHeight;
 
-  /* The budget moved, so the meter has to. */
   copilotLoad();
 }
 
@@ -625,7 +702,7 @@ if (document.getElementById("copilot")) {
   try { wasOpen = localStorage.getItem("copilot-open") || "0"; } catch (e) { /* ignore */ }
   if (wasOpen === "1") copilotToggle(true);
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && !document.getElementById("copilot").hidden) {
+    if (event.key === "Escape" && document.getElementById("copilot").classList.contains("open")) {
       copilotToggle(false);
     }
   });

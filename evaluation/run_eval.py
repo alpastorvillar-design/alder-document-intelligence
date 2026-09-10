@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 import tracemalloc
 import uuid
@@ -177,6 +178,13 @@ def evaluate_dossier(
     with session_scope() as session:
         # A fresh dossier per run: measuring a re-run of an existing one would
         # measure the idempotent path, which is a separate number below.
+        #
+        # The delete is why `--replace-dossiers` exists. Pointed at the
+        # database a demonstration is running against, this quietly destroys
+        # it - the dossiers come back with new ids, every link a reviewer had
+        # breaks, and any human decision on them is gone for good. It happened
+        # while measuring, which is exactly the sort of accident a flag should
+        # make impossible rather than a warning should describe.
         unique = f"{reference}"
         dossier = dossiers.get_by_reference(session, unique)
         if dossier is not None:
@@ -552,6 +560,20 @@ def savings_scenarios() -> list[dict[str, Any]]:
     return scenarios
 
 
+def _existing_references() -> list[str]:
+    """Corpus references already present in the target database.
+
+    Checked before anything is written, because the point is to stop before
+    the first delete rather than to report one afterwards.
+    """
+    with session_scope() as session:
+        return [
+            spec.reference
+            for spec in DOSSIERS
+            if dossiers.get_by_reference(session, spec.reference) is not None
+        ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus", type=Path, default=Path("corpus/out"))
@@ -562,7 +584,34 @@ def main() -> int:
         default="http://devsources:8080/public/convocatoria.html",
         help="published call page to capture; must be in the scraper allowlist",
     )
+    parser.add_argument(
+        "--replace-dossiers",
+        action="store_true",
+        help=(
+            "delete and recreate the corpus dossiers in the target database. "
+            "Required, because without it this refuses to touch a database "
+            "that already holds them"
+        ),
+    )
     args = parser.parse_args()
+
+    if not args.replace_dossiers:
+        occupied = _existing_references()
+        if occupied:
+            print(
+                "Refusing to run: this database already holds "
+                f"{len(occupied)} of the corpus dossiers ({', '.join(occupied)}).\n"
+                "\n"
+                "Every dossier is deleted and recreated per run, so pointing the\n"
+                "harness at a database somebody is demonstrating from destroys it:\n"
+                "the dossiers come back with new ids, every link breaks, and any\n"
+                "human review decision on them is gone.\n"
+                "\n"
+                "Use a throwaway database (IEP_DATABASE_URL), or pass\n"
+                "--replace-dossiers if this one is meant to be overwritten.",
+                file=sys.stderr,
+            )
+            return 2
 
     args.out.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()

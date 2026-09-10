@@ -81,50 +81,65 @@ is indexability - HNSW and IVFFlat need a fixed width - and nothing is lost
 today, because this project does exact search on a sequential scan by
 deliberate decision.
 
-### The relevance floor, and the two measurements behind it
+### The relevance floor: three measurements, two of them wrong
 
 Vector search returns `limit` rows for any query at all, so a question about
 nothing in the dossier came back looking exactly like a question about
-something in it. `IEP_RETRIEVAL_MIN_SIMILARITY` is the floor for that, applied
-in SQL so a filtered query does not spend its limit on rows it will discard.
+something in it. `IEP_RETRIEVAL_MIN_SIMILARITY` is the filter for that,
+applied in SQL so a filtered query does not spend its limit on rows it will
+discard.
 
-Its default is not a single number, because the right value is a property of
-the embedding model. Top-hit cosine similarity on `INN-2025-042`, same eight
-queries, both providers:
+Choosing its default took three attempts, and the sequence is the finding.
+Top-hit cosine similarity on `INN-2025-042`:
 
-| Query | Should match | `hashing` | `bge-m3` |
-| --- | --- | --- | --- |
-| total de la factura | yes | 0.7416 | 0.7200 |
-| gastos de personal declarados | yes | 0.5520 | 0.6012 |
-| periodo de ejecucion del proyecto | yes | 0.4928 | 0.5754 |
-| coste horario del personal | yes | 0.3793 | 0.5891 |
-| colaboraciones externas | yes | **0.1626** | 0.5365 |
-| instrucciones de montaje de una estanteria | no | 0.3993 | 0.4376 |
-| horario de trenes a Valencia | no | 0.3612 | 0.3618 |
-| receta de tortilla de patatas | no | 0.3444 | 0.3921 |
-| campeonato de ajedrez juvenil | no | **0.1651** | 0.3469 |
+| Attempt | Model | Queries | Worst relevant | Best irrelevant | Margin |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1 | `bge-m3` | 8 | 0.5365 | 0.4376 | **+0.099** |
+| 2 | `qwen3-embedding:4b` | 13 | 0.5649 | 0.5671 | −0.002 |
+| 3 | `qwen3-embedding:4b` | 17 | 0.4968 | 0.5671 | −0.070 |
 
-With the baseline the ranges overlap almost entirely, and a relevant query
-scores *below* an irrelevant one - so no threshold keeps the first group and
-drops the second, and the floor is 0. With `bge-m3` the lowest relevant query
-is 0.5365 and the highest irrelevant one 0.4376: a gap of about 0.10, and a
-floor is possible for the first time. The default sits at **0.45**, just above
-the measured noise rather than in the middle of the gap - keeping borderline
-evidence is recoverable, deleting it is not.
+The first looked like a clean gap and a floor of 0.45 was set from it. The
+second, after adding a relevant question that needs counting people out of
+prose and two short generic Spanish phrases, closed the gap entirely - so the
+criterion was weakened to "never drop a relevant hit" and the floor moved to
+0.50. The third widening broke that too: `¿Cuántas personas tienen dedicación
+al proyecto?` scores **0.4968**, below two irrelevant queries, so 0.50 was
+cutting a legitimate question *and* passing noise.
 
-Measured end to end with the floor on, the thing that was structurally
-impossible before:
+Every widening lowered the worst relevant score. A threshold fitted to any one
+sample fails on a question asked slightly differently, and here is what that
+looks like in practice - the same question, floor on and floor off:
 
 ```text
-relevante    gastos de personal declarados     -> 5 resultados, mejor 0.6012
-relevante    colaboraciones externas           -> 5 resultados, mejor 0.5365
-irrelevante  receta de tortilla de patatas     -> 0 resultados
-irrelevante  campeonato de ajedrez juvenil     -> 0 resultados
+suelo 0.50   -> 0 fragmentos, "la búsqueda no ha encontrado nada"
+suelo 0      -> 1 cita, "No se puede determinar el número de personas
+                 con dedicación al proyecto a partir de la evidencia"
 ```
 
-An explicit `IEP_RETRIEVAL_MIN_SIMILARITY=0.0` still turns it off for a
-learned provider too, and a test fails if the shipped default ever leaves the
-measured gap.
+The second is the better answer, and it is the reason the floor ships **off**.
+The asymmetry is not close: noise reaching the generator is recoverable,
+because it says the evidence does not support the question. Evidence removed
+before the generator sees it is not recoverable by anything, because nothing
+can report an absence it was never shown.
+
+The setting stays, for a deployment that has measured its own corpus and its
+own questions. What was delivered here is the filter and the measurements, not
+a number.
+
+### The embedding model
+
+Two are available locally, and one measures better:
+
+| Model | Params | Dims | Worst relevant (13 queries) |
+| --- | ---: | ---: | ---: |
+| `bge-m3` | 567M | 1024 | 0.4480 |
+| `qwen3-embedding:4b` | 4B | 2560 | **0.5649** |
+
+`qwen3-embedding:4b` scores every relevant query higher and orders them
+better, for 2.5 GB and about half a second more per batch, so it is the
+default. `bge-m3` remains a good smaller choice. Both are learned multilingual
+models and both are enormously better than the hashing baseline, whose worst
+relevant query scores 0.1626 - below half the irrelevant ones.
 
 ## What makes the questions endpoint RAG
 

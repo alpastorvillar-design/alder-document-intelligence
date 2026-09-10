@@ -142,7 +142,9 @@ jobs:
       - name: Rebuild the synthetic corpus and re-run the evaluation
         run: |
           python -m corpus.generate --out corpus/out
-          python -m evaluation.run_eval --corpus corpus/out --out evaluation/out             --call-page-url http://127.0.0.1:8080/public/convocatoria.html
+          # `--replace-dossiers` is safe here and only here: the Postgres
+          # service is created for this job and thrown away with it.
+          python -m evaluation.run_eval --corpus corpus/out --out evaluation/out             --call-page-url http://127.0.0.1:8080/public/convocatoria.html             --replace-dossiers
       - uses: actions/upload-artifact@v4
         with:
           name: evaluation-results

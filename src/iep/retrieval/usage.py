@@ -39,62 +39,80 @@ class ModelSpend:
     output_tokens: int
 
 
+def is_local(provider: str) -> bool:
+    """Whether a call stayed on this machine.
+
+    The distinction runs through everything here: a local call costs nothing,
+    so it does not belong in a spend meter and must not consume a budget whose
+    only purpose is to stop spending.
+    """
+    return provider.startswith("ollama")
+
+
 @dataclass(frozen=True)
 class Usage:
-    """Measured from the trail, over the same window as the call budget."""
+    """What was spent today, and how long until today ends.
 
-    window_days: int
-    calls: int
-    input_tokens: int
-    output_tokens: int
-    by_model: list[ModelSpend] = field(default_factory=list)
+    Today rather than a rolling week because that is the question somebody
+    actually asks - "how much have I used" means since this morning - and
+    because a window that resets at a knowable moment can be shown counting
+    down instead of being taken on trust.
+    """
+
+    cloud_calls: int = 0
+    cloud_tokens: int = 0
     local_calls: int = 0
-
-    @property
-    def total_tokens(self) -> int:
-        return self.input_tokens + self.output_tokens
+    local_tokens: int = 0
+    seconds_until_reset: int = 0
+    by_model: list[ModelSpend] = field(default_factory=list)
 
 
 def measured(session: Session, settings: Settings) -> Usage:
-    since = datetime.now(UTC) - timedelta(days=settings.rag_budget_window_days)
+    del settings  # the window is a day, not a setting
+    now = datetime.now(UTC).astimezone()
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow = midnight + timedelta(days=1)
     rows = list(
         session.execute(
             select(AuditEvent.payload).where(
                 AuditEvent.action == str(AuditAction.EVIDENCE_QUESTION_ANSWERED),
-                AuditEvent.created_at >= since,
+                AuditEvent.created_at >= midnight,
             )
         ).scalars()
     )
 
     per_model: dict[str, list[int]] = {}
-    got = wrote = local = 0
+    cloud_calls = cloud_tokens = local_calls = local_tokens = 0
     for payload in rows:
         if not isinstance(payload, dict):
             continue
         model = str(payload.get("model") or "desconocido")
-        # Older rows predate the token fields. Absent is not zero, but for a
-        # running total it has to be treated as such - and saying so here is
-        # cheaper than a nullable total nobody can add up.
+        # Rows written before the token fields existed count as zero tokens.
+        # Absent is not zero, but a running total cannot carry a null, and
+        # saying so here is cheaper than a total nobody can add up.
+        spent = _as_int(payload.get("input_tokens")) + _as_int(payload.get("output_tokens"))
         entry = per_model.setdefault(model, [0, 0, 0])
         entry[0] += 1
         entry[1] += _as_int(payload.get("input_tokens"))
         entry[2] += _as_int(payload.get("output_tokens"))
-        got += _as_int(payload.get("input_tokens"))
-        wrote += _as_int(payload.get("output_tokens"))
-        if str(payload.get("provider") or "").startswith("ollama"):
-            local += 1
+        if is_local(str(payload.get("provider") or "")):
+            local_calls += 1
+            local_tokens += spent
+        else:
+            cloud_calls += 1
+            cloud_tokens += spent
 
     by_model = [
         ModelSpend(model=model, calls=counts[0], input_tokens=counts[1], output_tokens=counts[2])
         for model, counts in sorted(per_model.items(), key=lambda item: -item[1][0])
     ]
     return Usage(
-        window_days=settings.rag_budget_window_days,
-        calls=len(rows),
-        input_tokens=got,
-        output_tokens=wrote,
+        cloud_calls=cloud_calls,
+        cloud_tokens=cloud_tokens,
+        local_calls=local_calls,
+        local_tokens=local_tokens,
+        seconds_until_reset=max(int((tomorrow - now).total_seconds()), 0),
         by_model=by_model,
-        local_calls=local,
     )
 
 
