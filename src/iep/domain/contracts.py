@@ -358,6 +358,11 @@ class RagAnswer(BaseModel):
     answer: str
     sufficient_evidence: bool
     citations: list[RagCitation]
+    # Retrieved segments withheld from the generator because their document is
+    # flagged as carrying instructions aimed at an automated reader. Reported
+    # rather than swallowed: a caller cannot audit an exclusion it is not told
+    # about.
+    withheld_hostile_segments: int = Field(default=0, ge=0)
     retrieval_mode: Literal["lexical", "vector", "hybrid"]
     generation_provider: str
     generation_model: str

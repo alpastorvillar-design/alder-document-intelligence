@@ -291,6 +291,17 @@ def answer_evidence_question(
             raise ServiceUnavailableError(
                 "No indexed evidence matches this retrieval configuration. Reprocess the dossier."
             )
+        # Evidence search may return a document flagged as carrying
+        # instructions aimed at an automated reader - a reviewer has to be able
+        # to find it. Quoting it into a prompt is a different act, so it is
+        # dropped here, between retrieval and generation.
+        hits, withheld = retrieval.without_hostile_documents(session, dossier_id, hits)
+        if not hits:
+            raise ServiceUnavailableError(
+                "Every retrieved segment came from a document flagged as carrying "
+                "instructions aimed at an automated reader, so none of it was sent "
+                "to the generator."
+            )
         generation = build_rag_generator(settings).generate(request.question, hits)
     except (EmbeddingProviderError, RagProviderError) as exc:
         raise ServiceUnavailableError(
@@ -317,6 +328,7 @@ def answer_evidence_question(
         answer=generation.answer,
         sufficient_evidence=generation.sufficient_evidence,
         citations=citations,
+        withheld_hostile_segments=withheld,
         retrieval_mode=request.retrieval_mode,
         generation_provider=generation.provider,
         generation_model=generation.model,
