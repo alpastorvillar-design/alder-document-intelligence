@@ -5,7 +5,8 @@
 ## What exists
 
 Each `document_chunks` row stores text, its evidence locator, PostgreSQL's
-Spanish `tsvector`, and a nullable `vector(512)`. Three retrieval modes share the
+Spanish `tsvector`, and a nullable dimensionless `vector`. Three retrieval modes
+share the
 same endpoint:
 
 | Mode | Signal | Best fit |
@@ -140,6 +141,85 @@ better, for 2.5 GB and about half a second more per batch, so it is the
 default. `bge-m3` remains a good smaller choice. Both are learned multilingual
 models and both are enormously better than the hashing baseline, whose worst
 relevant query scores 0.1626 - below half the irrelevant ones.
+
+### A question is not a phrase
+
+Lexical retrieval was returning nothing for the questions the copilot itself
+suggests. `plainto_tsquery` ANDs its terms, which is right for a phrase
+somebody lifted out of a document and wrong for a question: asked *¿Qué periodo
+de ejecución declara la memoria?* it demanded `periodo & ejecución & declara &
+memoria` in one segment, and `declara` and `memoria` belong to the question,
+not to the document that answers it. Measured on `INN-2025-042`, 64 segments:
+
+| Query shape | Segments matched |
+| --- | ---: |
+| every term (`plainto_tsquery`) | 0 |
+| any term (`websearch_to_tsquery`, OR) | 2 |
+
+The expediente says `Periodo de ejecución: 01/03/2024 - 30/11/2024` on its
+first page, and the copilot reported that those words were absent from it. In
+hybrid mode the vector half still found the segment, so the visible symptom
+depended on which mode was selected - which is the kind of defect a demo hides
+until somebody clicks the suggestion.
+
+Retrieval now tries every term first and falls back to any term, ranked by
+`ts_rank_cd`. The order matters: a segment carrying the whole query is a better
+match than one carrying part of it, and no ranking function can recover that
+distinction once both are in the same result set. Cover density is the right
+ranking for the fallback because it rewards a segment that matches more of the
+question with the matches closer together.
+
+An empty lexical result therefore still says something precise, and something
+stronger than before: not one word of the question appears anywhere in this
+expediente.
+
+The three published retrieval probes are unaffected - they quote document
+phrases, which the strict pass already matched - and that was checked rather
+than assumed: of eighteen probe/dossier pairs, seventeen return the identical
+chunk list and the one that changed went from zero hits to the correct
+document.
+
+### A configuration that cannot match
+
+Vector search requires the query and the rows to carry the same embedding
+configuration hash, which is what stops a 512-wide baseline vector being scored
+against a 2560-wide learned one. The cost is that pointing a process at a
+different embedding model turns every vector query into an empty result:
+correct, and indistinguishable from a question the expediente does not answer.
+
+That happened here. The corpus was re-indexed with `qwen3-embedding:4b` while a
+process configured for the previous model kept serving, and its copilot
+reported that a period printed on page one was absent. Silence is the one
+answer nobody can debug, so it is no longer given: `stored_embeddings()`
+reports which configurations a dossier is indexed under, and when none matches
+this process, both the empty answer and the status the screen renders say which
+model is stored, which is configured, and that `iep reindex` is the fix.
+
+### Why a local answer took two minutes
+
+`num_ctx` was not being sent, so Ollama allocated the model's maximum context.
+On `qwen3.5:9b` that is 262144 tokens, and the resulting KV cache does not fit
+in 16 GB of VRAM alongside the weights - it spills, and every generated token
+is then paid for at host-memory speed. Same request, same 68-token answer:
+
+| `num_ctx` | Generation | VRAM resident |
+| --- | ---: | ---: |
+| unset (262144) | ~35 s | 14.0 GB |
+| 8192 | ~1.2 s | 5.7 GB |
+
+End to end, a cited answer to a suggested question went from 97-151 s to about
+4-14 s. The window is sized from the prompt this system actually builds rather
+than picked for roundness: `rag_max_context_chars` is 12000 characters, Spanish
+runs about 3.5 characters per token, so evidence is ~3400 tokens, the system
+prompt ~500, and the answer up to `rag_max_output_tokens`. A test asserts the
+configured window exceeds that sum, because a window too small for the prompt
+is worse than a slow one: the model would answer from a truncated fragment of
+the evidence and cite it as whole.
+
+Model weights are also the number that predicts how an answer will feel, so
+the picker shows them (`qwen3.5:9b · 6,6 GB`) and preselects the model the
+process is configured for. Choosing a different local model evicts the resident
+one, which costs about a minute of loading before the first token.
 
 ## What makes the questions endpoint RAG
 

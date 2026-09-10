@@ -261,6 +261,7 @@ def _ollama(settings: Settings, model: str) -> RagGenerator:
         timeout_seconds=settings.ollama_timeout_seconds,
         max_output_tokens=settings.rag_max_output_tokens,
         max_context_chars=settings.rag_max_context_chars,
+        num_ctx=settings.ollama_num_ctx,
     )
 
 

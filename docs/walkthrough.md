@@ -333,7 +333,7 @@ The evidence index supports three retrieval modes:
 
 - It splits each document into segments, **each with its locator**.
 - PostgreSQL Spanish full-text search for exact terms;
-- exact cosine search over a `vector(512)` stored by pgvector;
+- exact cosine search over a `vector` stored by pgvector;
 - reciprocal-rank fusion of the lexical and vector lists.
 
 `GET /dossiers/{id}/evidence?q=periodo de ejecucion&mode=hybrid` returns the

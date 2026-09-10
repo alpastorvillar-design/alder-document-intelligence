@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, replace
 from typing import Any, Literal
@@ -85,6 +86,61 @@ def without_hostile_documents(
     return kept, len(hits) - len(kept)
 
 
+@dataclass(frozen=True)
+class StoredEmbedding:
+    """One embedding configuration present in a dossier's indexed chunks."""
+
+    config_hash: str
+    provider: str
+    model: str
+    chunks: int
+
+
+def stored_embeddings(session: Session, dossier_id: uuid.UUID) -> list[StoredEmbedding]:
+    """Which embedding configurations this dossier is actually indexed under.
+
+    Vector search requires the query and the rows to come from the same
+    configuration, which is what stops vectors of different widths being
+    compared as if they were commensurable. The failure mode is silence: point
+    the API at a different embedding model and every vector query returns
+    nothing, correctly and unhelpfully, because no row carries the new hash.
+
+    That happened here. The demo was re-indexed with `qwen3-embedding:4b`
+    while a process configured for the previous model kept running, and its
+    copilot reported that the expediente contained nothing about a period the
+    first page declares. Silence is the one answer a reviewer cannot debug, so
+    the caller is given the means to say which configuration is stored.
+    """
+    rows = session.execute(
+        select(
+            DocumentChunk.embedding_config_hash,
+            DocumentChunk.embedding_provider,
+            DocumentChunk.embedding_model,
+            func.count(DocumentChunk.id),
+        )
+        .where(
+            DocumentChunk.dossier_id == dossier_id,
+            DocumentChunk.embedding.is_not(None),
+            DocumentChunk.embedding_config_hash.is_not(None),
+        )
+        .group_by(
+            DocumentChunk.embedding_config_hash,
+            DocumentChunk.embedding_provider,
+            DocumentChunk.embedding_model,
+        )
+        .order_by(func.count(DocumentChunk.id).desc())
+    ).all()
+    return [
+        StoredEmbedding(
+            config_hash=str(config_hash),
+            provider=str(provider or "?"),
+            model=str(model or "?"),
+            chunks=int(count),
+        )
+        for config_hash, provider, model, count in rows
+    ]
+
+
 def has_indexed_evidence(session: Session, dossier_id: uuid.UUID) -> bool:
     """Whether there is anything to search at all.
 
@@ -96,23 +152,42 @@ def has_indexed_evidence(session: Session, dossier_id: uuid.UUID) -> bool:
     return session.execute(stmt).first() is not None
 
 
-def search(
-    session: Session, dossier_id: uuid.UUID, query: str, *, limit: int = 5
+# Words, including accented ones and figures - "2024" and "IVA" both matter in
+# an expediente. Punctuation goes, which is what makes the Spanish inverted
+# question mark harmless.
+_WORDS = re.compile(r"\w+", re.UNICODE)
+
+
+def _any_term_query(text: str) -> Any | None:
+    """The same question as "any of these words", or `None` if it has none.
+
+    `websearch_to_tsquery` is the right builder for text a person typed: it
+    never raises on unbalanced quotes or stray operators, unlike `to_tsquery`.
+    Stop words are still dropped by the Spanish dictionary, so a question made
+    only of them yields an empty query that matches nothing - correctly.
+    """
+    words = _WORDS.findall(text)
+    if not words:
+        return None
+    return func.websearch_to_tsquery(SEARCH_CONFIG, " or ".join(words))
+
+
+def _matching(
+    session: Session,
+    dossier_id: uuid.UUID,
+    tsquery: Any,
+    rank_function: Any,
+    *,
+    limit: int,
 ) -> list[EvidenceHit]:
-    """Top-k segments for `query`, reproducibly ordered.
+    """Segments matching `tsquery`, ordered by `rank_function` then stably.
 
     Ties are broken by document id and ordinal rather than left to the planner,
     so the same query over the same corpus returns the same list every time -
     which is what makes the retrieval numbers in docs/measured-results.md
     meaningful.
     """
-    cleaned = query.strip()
-    if not cleaned:
-        return []
-
-    tsquery = func.plainto_tsquery(SEARCH_CONFIG, cleaned)
-    rank = func.ts_rank(DocumentChunk.search_vector, tsquery).label("rank")
-
+    rank = rank_function(DocumentChunk.search_vector, tsquery).label("rank")
     stmt = (
         select(DocumentChunk, Document.original_filename, rank)
         .join(Document, Document.id == DocumentChunk.document_id)
@@ -123,7 +198,6 @@ def search(
         .order_by(rank.desc(), DocumentChunk.document_id.asc(), DocumentChunk.ordinal.asc())
         .limit(max(1, min(limit, 50)))
     )
-
     return [
         EvidenceHit(
             chunk_id=chunk.id,
@@ -137,6 +211,50 @@ def search(
         )
         for chunk, filename, score in session.execute(stmt).all()
     ]
+
+
+def search(
+    session: Session, dossier_id: uuid.UUID, query: str, *, limit: int = 5
+) -> list[EvidenceHit]:
+    """Top-k segments for `query`: every word first, then any word.
+
+    `plainto_tsquery` ANDs its terms, which is right for a phrase somebody
+    picked out of a document and wrong for a question. Asked "¿Qué periodo de
+    ejecución declara la memoria?" it demanded `periodo & ejecución & declara &
+    memoria` in one segment, and `declara` and `memoria` are words belonging to
+    the question, not to the document that answers it. Nothing matched, so the
+    copilot reported that those words were absent from an expediente that says
+    "Periodo de ejecución: 01/03/2024 - 30/11/2024" on its first page.
+
+    So: strict first, because a segment carrying every term is a better match
+    than one carrying some, and the ranking cannot express that on its own.
+    Only if nothing carries every term does it fall back to any of them, ranked
+    by cover density - `ts_rank_cd` rewards a segment that matches more of the
+    question with the matches closer together, which is exactly the ordering a
+    partial match needs.
+
+    An empty result therefore still means something precise, and something
+    stronger than before: not one word of the question appears anywhere in this
+    expediente.
+    """
+    cleaned = query.strip()
+    if not cleaned:
+        return []
+
+    every_term = _matching(
+        session,
+        dossier_id,
+        func.plainto_tsquery(SEARCH_CONFIG, cleaned),
+        func.ts_rank,
+        limit=limit,
+    )
+    if every_term:
+        return every_term
+
+    any_term = _any_term_query(cleaned)
+    if any_term is None:
+        return []
+    return _matching(session, dossier_id, any_term, func.ts_rank_cd, limit=limit)
 
 
 def vector_search(

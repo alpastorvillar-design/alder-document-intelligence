@@ -94,7 +94,7 @@ en ese momento, y los recuentos con los que se generó.
 
 Un segmento de texto acotado y enlazado a expediente y documento, con su
 localizador original, vector de búsqueda textual en español y un embedding
-`vector(512)` opcional. Proveedor, modelo, hash de configuración y fecha hacen
+`vector` opcional sin dimensión fija. Proveedor, modelo, hash de configuración y fecha hacen
 inspeccionable el reindexado y evitan mezclar espacios vectoriales incompatibles.
 
 ### Error de API

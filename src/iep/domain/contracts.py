@@ -459,6 +459,10 @@ class RagStatus(BaseModel):
     min_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
     # Why it is off, in the words the screen shows. Empty when it is on.
     unavailable_reason: str = ""
+    # Generation can be perfectly available while retrieval is misconfigured,
+    # and that combination is the one that looks like a working screen giving
+    # wrong answers. Empty when there is nothing wrong.
+    retrieval_warning: str = ""
     budget_used: int = Field(ge=0)
     budget_ceiling: int = Field(ge=0)
     budget_stop_at: int = Field(ge=0)

@@ -512,15 +512,26 @@ async function copilotLoad() {
       for (const model of status.models) {
         const option = document.createElement("option");
         option.value = model.id;
-        option.textContent = (model.local ? "🖥 " : "☁ ") + model.label;
+        /* The size is on the label, not only in a tooltip: a select's title
+           is invisible in most browsers, and this is the number that decides
+           whether an answer arrives in seconds or in minutes. */
+        option.textContent = (model.local ? "🖥 " : "☁ ") + model.label
+          + (model.note ? " · " + model.note : "");
         option.title = model.note || "";
         models.append(option);
       }
       let remembered = null;
       try { remembered = localStorage.getItem("copilot-model"); } catch (e) { /* ignore */ }
+      /* Preselect what this process is configured for. Falling back to the
+         first of the list offered a model nobody had chosen, and on Ollama
+         picking a different one evicts the resident weights - about a minute
+         of loading to answer a question the configured model was ready for. */
+      const configured = status.models.find(
+        m => m.id === status.model || m.label === status.model
+      );
       models.value = status.models.some(m => m.id === remembered)
         ? remembered
-        : status.models[0].id;
+        : (configured ? configured.id : status.models[0].id);
       models.onchange = () => {
         try { localStorage.setItem("copilot-model", models.value); } catch (e) { /* ignore */ }
       };
@@ -536,7 +547,13 @@ async function copilotLoad() {
     modes.value = status.retrieval_modes.includes("hybrid") ? "hybrid" : "lexical";
   }
 
-  if (status.enabled || status.models.length) {
+  if (status.retrieval_warning) {
+    // A working generator over unusable vectors is the worst of the three
+    // states, because the screen looks fine and the answers are empty. It
+    // takes precedence over the reassuring line below.
+    state.className = "copilot-state off";
+    state.textContent = status.retrieval_warning;
+  } else if (status.enabled || status.models.length) {
     state.className = "copilot-state on";
     state.textContent = status.embedding_is_learned
       ? "Embeddings «" + status.embedding_provider + "», modelo aprendido."

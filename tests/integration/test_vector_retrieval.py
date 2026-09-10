@@ -65,6 +65,177 @@ def add_chunk(db: Session, dossier: Dossier, content: str, suffix: str) -> Docum
     return chunk
 
 
+class TestARetrievalConfigurationThatCannotMatch:
+    """The failure that produced no error at all.
+
+    Vector search compares only vectors made the same way, which is what stops
+    a 512-wide baseline row being scored against a 2560-wide learned one. The
+    cost is that pointing the API at a different embedding model turns every
+    vector query into an empty result - correct, and indistinguishable from a
+    question the expediente does not answer. The demo was re-indexed with
+    `qwen3-embedding:4b` while a process configured for the previous model kept
+    serving, and its copilot reported that a period printed on page one was
+    absent.
+    """
+
+    def test_the_stored_configuration_is_reportable(self, db: Session) -> None:
+        from iep.retrieval.search import stored_embeddings
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-741")
+        add_chunk(db, dossier, "Periodo de ejecución del proyecto", "41")
+        add_chunk(db, dossier, "Gastos de personal", "42")
+
+        stored = stored_embeddings(db, dossier.id)
+
+        assert len(stored) == 1
+        assert stored[0].provider == "hashing"
+        assert stored[0].chunks == 2
+        assert stored[0].config_hash == HashingEmbeddingProvider(512).config_hash()
+
+    def test_a_matching_configuration_warns_about_nothing(self, db: Session) -> None:
+        from iep.api.routes.artifacts import _configuration_mismatch
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-742")
+        add_chunk(db, dossier, "Periodo de ejecución del proyecto", "43")
+
+        settings = Settings(embedding_provider="hashing", embedding_dimensions=512)
+
+        assert _configuration_mismatch(db, dossier.id, settings) == ""
+
+    def test_a_different_width_says_so_and_names_the_fix(self, db: Session) -> None:
+        """The sentence has to carry both configurations and the command.
+
+        "No results" sent somebody looking for a missing document. The stored
+        model, the configured one and `iep reindex` are what turns it back into
+        a five-second fix.
+        """
+        from iep.api.routes.artifacts import _configuration_mismatch
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-743")
+        add_chunk(db, dossier, "Periodo de ejecución del proyecto", "44")
+
+        settings = Settings(embedding_provider="hashing", embedding_dimensions=256)
+        warning = _configuration_mismatch(db, dossier.id, settings)
+
+        assert warning
+        assert "hashing" in warning
+        assert "iep reindex" in warning
+        assert "1 fragmentos" in warning
+
+    def test_an_unindexed_dossier_is_not_a_mismatch(self, db: Session) -> None:
+        """Nothing stored is a different problem with a different message, and
+        `has_indexed_evidence` already says "reprocess this one"."""
+        from iep.api.routes.artifacts import _configuration_mismatch
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-744")
+        settings = Settings(embedding_provider="hashing", embedding_dimensions=256)
+
+        assert _configuration_mismatch(db, dossier.id, settings) == ""
+
+    def test_the_status_endpoint_carries_the_warning(
+        self, db: Session, wired_settings: Settings, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Visible before a question is spent finding out."""
+        from iep.api.app import create_app
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-745")
+        add_chunk(db, dossier, "Periodo de ejecución del proyecto", "45")
+        db.commit()
+        monkeypatch.setenv("IEP_EMBEDDING_DIMENSIONS", "256")
+        # `wired_settings` has already built and cached the settings, so the
+        # variable only reaches the app if the cache is dropped after it is set.
+        get_settings.cache_clear()
+
+        with TestClient(create_app()) as client:
+            status = client.get(f"/dossiers/{dossier.id}/questions").json()
+
+        assert "iep reindex" in status["retrieval_warning"]
+
+    def test_a_matching_process_shows_no_warning_on_the_screen(
+        self, db: Session, wired_settings: Settings
+    ) -> None:
+        from iep.api.app import create_app
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-746")
+        add_chunk(db, dossier, "Periodo de ejecución del proyecto", "46")
+        db.commit()
+
+        with TestClient(create_app()) as client:
+            status = client.get(f"/dossiers/{dossier.id}/questions").json()
+
+        assert status["retrieval_warning"] == ""
+
+
+class TestQuestionShapedLexicalSearch:
+    """The copilot asks questions, and questions carry words of their own.
+
+    `plainto_tsquery` ANDs its terms. Asked "¿Qué periodo de ejecución declara
+    la memoria?" it required `declara` and `memoria` - words of the question,
+    not of the answer - to appear in the same segment as `periodo`. The
+    expediente says "Periodo de ejecución: 01/03/2024 - 30/11/2024" on page one
+    and the copilot answered that those words were not in it.
+    """
+
+    def test_a_question_finds_the_segment_that_answers_it(self, db: Session) -> None:
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-731")
+        target = add_chunk(db, dossier, "Periodo de ejecución: 01/03/2024 - 30/11/2024", "11")
+
+        hits = search(db, dossier.id, "¿Qué periodo de ejecución declara la memoria?")
+
+        assert [hit.chunk_id for hit in hits] == [target.id]
+
+    def test_every_term_still_beats_some_of_them(self, db: Session) -> None:
+        """The fallback is a fallback, not a replacement.
+
+        A segment carrying the whole query is a better match than one carrying
+        part of it, and ranking cannot express that on its own: the strict pass
+        has to run first and win outright when it matches.
+        """
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-732")
+        partial = add_chunk(db, dossier, "Periodo de carencia del préstamo", "12")
+        complete = add_chunk(db, dossier, "Periodo de ejecución del proyecto", "13")
+
+        hits = search(db, dossier.id, "periodo de ejecución")
+
+        assert [hit.chunk_id for hit in hits] == [complete.id]
+        assert partial.id not in {hit.chunk_id for hit in hits}
+
+    def test_words_that_are_absent_are_still_reported_absent(self, db: Session) -> None:
+        """What the empty answer claims has to stay true.
+
+        The copilot tells a reviewer that not one word of the question appears
+        in the expediente. Broadening the query must not turn that into a
+        result that merely happens to share a stop word.
+        """
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-733")
+        add_chunk(db, dossier, "Periodo de ejecución del proyecto", "14")
+
+        assert search(db, dossier.id, "¿La receta lleva pimentón?") == []
+
+    def test_a_question_made_only_of_stop_words_matches_nothing(self, db: Session) -> None:
+        """And does not raise. `websearch_to_tsquery` tolerates what a person
+        types; `to_tsquery` would have raised on half of it."""
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-734")
+        add_chunk(db, dossier, "Periodo de ejecución del proyecto", "15")
+
+        for question in ("¿de la?", "  ", "¿¿¿???", "y o de la el"):
+            assert search(db, dossier.id, question) == []
+
+
 class TestPgvectorRetrieval:
     def test_the_migrated_database_has_the_vector_extension(self, db: Session) -> None:
         version = db.execute(

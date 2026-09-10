@@ -38,7 +38,11 @@ from iep.retrieval import budget as rag_budget
 from iep.retrieval import catalogue
 from iep.retrieval import search as retrieval
 from iep.retrieval import usage as rag_usage
-from iep.retrieval.embeddings import EmbeddingProviderError, build_embedding_provider
+from iep.retrieval.embeddings import (
+    EmbeddingConfigurationError,
+    EmbeddingProviderError,
+    build_embedding_provider,
+)
 from iep.retrieval.prompting import AllEvidenceWithheldError
 from iep.retrieval.rag import RAG_PROMPT_VERSION, RagProviderError, build_rag_generator
 from iep.retrieval.rag_cli import available_tools
@@ -356,7 +360,14 @@ def answer_evidence_question(
                 raise ServiceUnavailableError(
                     "Este expediente no tiene evidencia indexada. Vuelve a procesarlo."
                 )
-            return _nothing_to_ground(request, _why_nothing_matched(request.retrieval_mode))
+            mismatch = (
+                ""
+                if request.retrieval_mode == "lexical"
+                else _configuration_mismatch(session, dossier_id, settings)
+            )
+            return _nothing_to_ground(
+                request, mismatch or _why_nothing_matched(request.retrieval_mode)
+            )
         # Evidence search may return a document flagged as carrying
         # instructions aimed at an automated reader - a reviewer has to be able
         # to find it. Quoting it into a prompt is a different act, so it is
@@ -492,6 +503,9 @@ def rag_status(
     cli_available = False
     model: str | None = None
     available = available_tools()
+    # Reported here as well as in the empty answer: a reviewer should see that
+    # retrieval cannot work before spending a question finding out.
+    retrieval_warning = _configuration_mismatch(session, dossier_id, settings)
 
     if provider == "disabled":
         reason = (
@@ -553,6 +567,7 @@ def rag_status(
         embedding_is_learned=settings.embedding_provider != "hashing",
         min_similarity=settings.effective_min_similarity,
         unavailable_reason=reason,
+        retrieval_warning=retrieval_warning,
         budget_used=allowance.used,
         budget_ceiling=allowance.ceiling,
         budget_stop_at=allowance.stop_at,
@@ -572,6 +587,45 @@ def rag_status(
     )
 
 
+def _configuration_mismatch(session: Session, dossier_id: uuid.UUID, settings: Settings) -> str:
+    """Whether this process can compare vectors with the ones stored, in words.
+
+    Returns the empty string when it can, which is the common case. When it
+    cannot, the sentence names both models and the command that fixes it,
+    because the alternative - an empty result - is indistinguishable from a
+    question the expediente genuinely does not answer.
+    """
+    if settings.embedding_provider == "disabled":
+        return ""
+    stored = retrieval.stored_embeddings(session, dossier_id)
+    if not stored:
+        return ""
+    try:
+        provider = build_embedding_provider(settings)
+    except EmbeddingConfigurationError as exc:
+        return str(exc)
+    if provider is None:
+        return ""
+    try:
+        current = provider.config_hash()
+    except (EmbeddingConfigurationError, EmbeddingProviderError) as exc:
+        # The width of an Ollama model is discovered by asking it, so this is
+        # also how "Ollama is not running" reaches the screen.
+        return str(exc)
+    if any(item.config_hash == current for item in stored):
+        return ""
+    indexed = ", ".join(
+        f"{item.provider}/{item.model} ({item.chunks} fragmentos)" for item in stored
+    )
+    return (
+        f"La búsqueda vectorial no puede usar lo que hay indexado: los fragmentos de "
+        f"este expediente se crearon con {indexed}, y este proceso está configurado "
+        f"con {provider.name}/{provider.model}. Vuelve a indexar con "
+        f"`iep reindex --reference <referencia>` o configura el modelo anterior. "
+        f"Mientras no coincidan, los modos vectorial e híbrido no encontrarán nada."
+    )
+
+
 def _why_nothing_matched(mode: str) -> str:
     """Why an empty result happened, in terms of the mode that produced it.
 
@@ -585,8 +639,8 @@ def _why_nothing_matched(mode: str) -> str:
     )
     if mode == "lexical":
         return shared + (
-            "En modo léxico eso significa que esas palabras no aparecen en los "
-            "documentos; prueba con otras, o cambia a híbrida o vectorial."
+            "En modo léxico eso significa que ninguna de esas palabras aparece en "
+            "los documentos; prueba con otras, o cambia a híbrida o vectorial."
         )
     if mode == "vector":
         return shared + (

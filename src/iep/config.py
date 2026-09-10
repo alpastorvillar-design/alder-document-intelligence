@@ -116,6 +116,24 @@ class Settings(BaseSettings):
     # A model on a laptop CPU takes tens of seconds for a five-segment
     # context, so this is not the CLI's timeout.
     ollama_timeout_seconds: float = Field(default=300.0, gt=0.0, le=900.0)
+    # How much context to ask Ollama for. Sent explicitly because the default
+    # is the model's maximum, and on `qwen3.5:9b` that is 262144 tokens - a KV
+    # cache that does not fit in 16 GB alongside the weights, so it spills and
+    # every token is then paid for at host-memory speed. Measured on this
+    # machine, same request, same 68 output tokens:
+    #
+    #   num_ctx default (262144)   ~35 s of generation, 14.0 GB of VRAM
+    #   num_ctx 8192                ~1.2 s of generation,  5.7 GB of VRAM
+    #
+    # A copilot answer took 97-151 seconds because of this, which reads as a
+    # hang and is why nobody waited for the answer.
+    #
+    # 8192 is sized from the prompt this system actually sends, not picked for
+    # roundness: `rag_max_context_chars` is 12000 characters, and Spanish runs
+    # about 3.5 characters per token, so evidence is ~3400 tokens, the system
+    # prompt ~500, the answer up to `rag_max_output_tokens`. That is under 4600
+    # with the question included, and the remainder is headroom.
+    ollama_num_ctx: int = Field(default=8192, ge=2048, le=131_072)
     rag_cli_model: str = ""
     rag_cli_timeout_seconds: float = Field(default=120.0, gt=0.0, le=600.0)
     # A ceiling this process enforces on itself, counted from the audit trail

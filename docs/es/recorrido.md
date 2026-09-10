@@ -335,7 +335,7 @@ El índice de evidencia ofrece tres modos:
 
 - Trocea cada documento en segmentos, **cada uno con su localizador**.
 - texto completo de PostgreSQL en español para términos exactos;
-- coseno exacto sobre un `vector(512)` almacenado con pgvector;
+- coseno exacto sobre un `vector` almacenado con pgvector;
 - fusión por rango recíproco de las listas lexical y vectorial.
 
 `GET /dossiers/{id}/evidence?q=periodo de ejecucion&mode=hybrid` devuelve los

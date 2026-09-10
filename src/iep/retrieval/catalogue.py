@@ -108,10 +108,17 @@ def ollama_models(settings: Settings) -> list[ModelChoice]:
 
 
 def _size_note(size_bytes: int) -> str:
+    """How big the weights are, shown next to the name rather than hidden.
+
+    It is the only number on that screen that predicts what choosing the model
+    will feel like: one that does not fit in VRAM alongside its KV cache runs
+    at host-memory speed, and switching models evicts the resident one, which
+    costs about a minute of loading before the first token.
+    """
     gigabytes = size_bytes / 1_000_000_000
     if gigabytes >= 1:
-        return f"{gigabytes:.1f} GB en disco"
-    return f"{size_bytes / 1_000_000:.0f} MB en disco"
+        return f"{gigabytes:.1f} GB".replace(".", ",")
+    return f"{size_bytes / 1_000_000:.0f} MB"
 
 
 def cli_models(available: dict[str, bool]) -> list[ModelChoice]:

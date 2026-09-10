@@ -5,7 +5,8 @@
 ## Qué existe
 
 Cada fila de `document_chunks` guarda texto, su localizador de evidencia, el
-`tsvector` español de PostgreSQL y un `vector(512)` anulable. Tres modos comparten
+`tsvector` español de PostgreSQL y un `vector` anulable sin dimensión fija. Tres
+modos comparten
 el mismo endpoint:
 
 | Modo | Señal | Uso adecuado |
@@ -143,6 +144,91 @@ predeterminado. `bge-m3` sigue siendo una buena opción más pequeña. Los dos
 son modelos multilingües aprendidos y los dos son enormemente mejores que la
 línea base hashing, cuya consulta relevante más baja puntúa 0,1626 — por
 debajo de la mitad de las irrelevantes.
+
+### Una pregunta no es una frase
+
+La recuperación léxica no devolvía nada para las preguntas que sugiere el
+propio copiloto. `plainto_tsquery` une sus términos con AND, que es lo correcto
+para una frase copiada de un documento y lo incorrecto para una pregunta: ante
+*¿Qué periodo de ejecución declara la memoria?* exigía `periodo & ejecución &
+declara & memoria` en un mismo fragmento, y `declara` y `memoria` son palabras
+de la pregunta, no del documento que la responde. Medido sobre `INN-2025-042`,
+64 fragmentos:
+
+| Forma de la consulta | Fragmentos que coinciden |
+| --- | ---: |
+| todos los términos (`plainto_tsquery`) | 0 |
+| cualquier término (`websearch_to_tsquery`, OR) | 2 |
+
+El expediente dice `Periodo de ejecución: 01/03/2024 - 30/11/2024` en su
+primera página, y el copiloto informaba de que esas palabras no aparecían. En
+modo híbrido la mitad vectorial seguía encontrando el fragmento, así que el
+síntoma visible dependía del modo elegido: justo el tipo de defecto que una
+demo esconde hasta que alguien pulsa la sugerencia.
+
+Ahora la recuperación prueba primero con todos los términos y, si nada
+coincide, con cualquiera de ellos, ordenados por `ts_rank_cd`. El orden
+importa: un fragmento que contiene la consulta entera es mejor coincidencia que
+uno que contiene una parte, y ninguna función de ranking puede recuperar esa
+distinción cuando los dos están ya en el mismo conjunto de resultados. La
+densidad de cobertura es el ranking adecuado para el respaldo porque premia al
+fragmento que cubre más de la pregunta con las coincidencias más cerca.
+
+Un resultado léxico vacío sigue afirmando algo preciso, y más fuerte que antes:
+ni una sola palabra de la pregunta aparece en este expediente.
+
+Las tres sondas de recuperación publicadas no se mueven - citan frases de los
+documentos, que la pasada estricta ya encontraba - y eso se comprobó en vez de
+suponerlo: de dieciocho pares sonda/expediente, diecisiete devuelven la misma
+lista de fragmentos y el único que cambia pasó de cero aciertos al documento
+correcto.
+
+### Una configuración que no puede coincidir
+
+La búsqueda vectorial exige que la consulta y las filas lleven el mismo hash de
+configuración de embeddings, que es lo que impide comparar un vector base de
+512 dimensiones con uno aprendido de 2560. El precio es que apuntar un proceso
+a otro modelo de embeddings convierte cualquier consulta vectorial en un
+resultado vacío: correcto, e indistinguible de una pregunta que el expediente
+no responde.
+
+Aquí pasó exactamente eso. El corpus se reindexó con `qwen3-embedding:4b`
+mientras seguía sirviendo un proceso configurado con el modelo anterior, y su
+copiloto informaba de que un periodo impreso en la primera página no estaba.
+El silencio es la única respuesta que nadie puede depurar, así que ya no se da:
+`stored_embeddings()` informa de con qué configuraciones está indexado un
+expediente y, cuando ninguna coincide con este proceso, tanto la respuesta
+vacía como el estado que pinta la pantalla dicen qué modelo hay almacenado,
+cuál está configurado y que `iep reindex` es el arreglo.
+
+### Por qué una respuesta local tardaba dos minutos
+
+No se enviaba `num_ctx`, así que Ollama reservaba el contexto máximo del
+modelo. En `qwen3.5:9b` son 262144 tokens, y la caché KV resultante no cabe en
+16 GB de VRAM junto a los pesos: se desborda, y cada token generado se paga
+entonces a velocidad de memoria del host. Misma petición, misma respuesta de
+68 tokens:
+
+| `num_ctx` | Generación | VRAM ocupada |
+| --- | ---: | ---: |
+| sin fijar (262144) | ~35 s | 14,0 GB |
+| 8192 | ~1,2 s | 5,7 GB |
+
+De extremo a extremo, una respuesta citada a una pregunta sugerida pasó de
+97-151 s a unos 4-14 s. La ventana se dimensiona a partir del prompt que este
+sistema construye de verdad, no por redondez: `rag_max_context_chars` son 12000
+caracteres, el español gasta unos 3,5 caracteres por token, así que la
+evidencia son ~3400 tokens, el prompt de sistema ~500 y la respuesta hasta
+`rag_max_output_tokens`. Una prueba comprueba que la ventana configurada supera
+esa suma, porque una ventana demasiado pequeña para el prompt es peor que una
+lenta: el modelo respondería a partir de un fragmento truncado de la evidencia
+y lo citaría como si estuviera completo.
+
+El tamaño de los pesos también es el número que predice cómo se va a sentir una
+respuesta, así que el selector lo muestra (`qwen3.5:9b · 6,6 GB`) y
+preselecciona el modelo con el que está configurado el proceso. Elegir otro
+modelo local desaloja al que está cargado, lo que cuesta cerca de un minuto de
+carga antes del primer token.
 
 ## Qué convierte el endpoint de preguntas en RAG
 

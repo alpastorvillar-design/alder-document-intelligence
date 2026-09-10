@@ -61,6 +61,7 @@ class OllamaRagGenerator:
         timeout_seconds: float,
         max_output_tokens: int,
         max_context_chars: int,
+        num_ctx: int,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         if not model:
@@ -70,6 +71,7 @@ class OllamaRagGenerator:
         self.timeout_seconds = timeout_seconds
         self.max_output_tokens = max_output_tokens
         self.max_context_chars = max_context_chars
+        self.num_ctx = num_ctx
         self.transport = transport
 
     def generate(self, question: str, hits: list[EvidenceHit]) -> RagGeneration:
@@ -87,7 +89,15 @@ class OllamaRagGenerator:
             # A local model's thinking tokens are minutes on this hardware and
             # nothing reads them.
             "think": False,
-            "options": {"temperature": 0, "num_predict": self.max_output_tokens},
+            "options": {
+                "temperature": 0,
+                "num_predict": self.max_output_tokens,
+                # Not a tuning preference: left unset, Ollama allocates the
+                # model's maximum context, and a KV cache that does not fit in
+                # VRAM turns a one-second answer into half a minute. See
+                # `Settings.ollama_num_ctx` for the measurement.
+                "num_ctx": self.num_ctx,
+            },
         }
 
         body = self._post(payload)

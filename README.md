@@ -128,18 +128,30 @@ whoever files it.
 ![The justification report, with the reconciliation table first](docs/img/05-report.png)
 
 **Asking the evidence** — the review and evidence screens carry the same
-read-only answer box. It retrieves the segments closest to the question and
-asks a model to draft an answer *citing them*; every citation is checked
-against what was actually sent, and an id the model was not given rejects the
-whole answer rather than appearing as a footnote. It cannot approve, reject or
-change a field, and asking is recorded in the audit trail.
+read-only copilot, in a drawer that opens beside the dossier rather than over
+it, because the table is the thing a reviewer needs to keep reading while they
+ask about it. It retrieves the segments closest to the question and asks a
+model to draft an answer *citing them*; every citation is checked against what
+was actually sent, and an id the model was not given rejects the whole answer
+rather than appearing as a footnote. It cannot approve, reject or change a
+field, and asking is recorded in the audit trail.
+
+The model is chosen on the screen, from what this machine can actually reach:
+local models discovered from Ollama, with their weights shown because that is
+what decides whether an answer takes seconds or minutes, and the `claude` or
+`codex` CLI when the API runs on the host. A model id from a client is resolved
+against that catalogue rather than trusted, because on the CLI backends it
+would otherwise reach `argv`. The meter reports tokens spent today, separating
+metered calls from local ones, which cost nothing and are not counted against
+any budget.
 
 ![The answer box, with the model and the call budget it runs under](docs/img/06-ask.png)
 
-Generation is off by default. `IEP_RAG_PROVIDER=cli` answers through `claude`
-or `codex` on the same host — a development-only provider, so the integration
-point can be shown without an API key — and `IEP_RAG_PROVIDER=openai` is the
-hosted path a deployment would use. Either way the box says which switch is
+Generation is off by default. `IEP_RAG_PROVIDER=ollama` answers from a model on
+this machine, with no key and nothing leaving it; `IEP_RAG_PROVIDER=cli` answers
+through `claude` or `codex` on the same host — a development-only provider, so
+the integration point can be shown without an API key — and
+`IEP_RAG_PROVIDER=openai` is the hosted path a deployment would use. Either way the box says which switch is
 missing when it is off, and how many calls the application has spent against
 the ceiling it enforces on itself. See [hybrid retrieval and optional
 RAG](docs/rag.md).

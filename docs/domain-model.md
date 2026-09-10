@@ -91,7 +91,8 @@ the counts it was generated from.
 ### Document chunk
 
 A bounded text segment tied to a dossier and document, with its original
-locator, Spanish full-text search vector and an optional `vector(512)` embedding.
+locator, Spanish full-text search vector and an optional dimensionless
+`vector` embedding.
 Provider, model, configuration hash and timestamp make re-indexing inspectable
 and prevent queries from mixing incompatible vector spaces.
 
