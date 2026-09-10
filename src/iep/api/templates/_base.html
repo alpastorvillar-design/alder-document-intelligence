@@ -33,6 +33,9 @@
   --ok:         #1b6540;
   --ok-wash:    #e5f2ea;
   --mark:       #f2c744;
+  --brand:      #7ac9a8;
+  --seal:       #eaa621;
+  --seal-ink:   #17201c;
   --shadow:     0 1px 2px rgba(20,33,29,.06), 0 6px 18px -10px rgba(20,33,29,.22);
   --radius:     10px;
   --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
@@ -58,6 +61,9 @@
     --ok:         #6cc894;
     --ok-wash:    #16271f;
     --mark:       #a8811a;
+    --brand:      #7ac9a8;
+    --seal:       #e0a83a;
+    --seal-ink:   #101613;
     --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 22px -12px rgba(0,0,0,.7);
   }
 }
@@ -67,6 +73,7 @@
   --accent:#4bbfa2; --accent-ink:#06231c; --accent-wash:#152925;
   --blocker:#f08b70; --blocker-wash:#2c1a16; --warning:#e0b45c;
   --warning-wash:#2a2317; --ok:#6cc894; --ok-wash:#16271f; --mark:#a8811a;
+  --brand:#7ac9a8; --seal:#e0a83a; --seal-ink:#101613;
   --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 22px -12px rgba(0,0,0,.7);
 }
 
@@ -93,11 +100,10 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
   display: flex; align-items: center; gap: .55rem; margin-right: auto;
   color: var(--ink); text-decoration: none;
 }
-.brand .mark { width: 1.45rem; height: 1.45rem; flex: 0 0 auto; }
+.brand .mark { width: 1.7rem; height: 1.7rem; flex: 0 0 auto; }
 .brand .wordmark {
-  font-weight: 660; font-size: .92rem; letter-spacing: -.01em; white-space: nowrap;
+  font-weight: 660; font-size: 1.02rem; letter-spacing: -.015em; white-space: nowrap;
 }
-.brand .wordmark b { color: var(--accent); margin: 0 .1em; font-weight: 700; }
 .brand:hover .wordmark { color: var(--accent); }
 main { max-width: 1120px; margin-inline: auto; padding: 1.6rem 1.25rem 5rem; }
 .wide { max-width: 1360px; }
@@ -125,14 +131,35 @@ h3 { font-size: .92rem; margin: 0 0 .35rem; }
 }
 .facts-row li span { color: var(--muted); font-size: .74rem; }
 .facts-row li strong { font-weight: 620; font-variant-numeric: tabular-nums; }
-/* A short explanation attached to a column header. */
-.hint-dot {
+/* An explanation attached to a heading. A native `title` needs a steady
+   hover, never appears on a touch screen and cannot be read at leisure, so
+   this is a button that opens a panel and stays open until dismissed. */
+.info { position: relative; display: inline-block; vertical-align: middle; margin-left: .35em; }
+.info > summary {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 1.05em; height: 1.05em; margin-left: .3em; border-radius: 999px;
+  width: 1.15em; height: 1.15em; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--muted); color: var(--muted);
-  font-size: .78em; font-weight: 700; cursor: help; text-transform: none;
-  letter-spacing: 0; vertical-align: middle;
+  font-size: .8em; font-weight: 700; line-height: 1;
+  text-transform: none; letter-spacing: 0; list-style: none;
 }
+.info > summary::-webkit-details-marker { display: none; }
+.info > summary:hover, .info[open] > summary {
+  border-color: var(--accent); color: var(--accent-ink); background: var(--accent);
+}
+.info > .panel {
+  position: absolute; z-index: 30; top: calc(100% + .45rem); left: -.5rem;
+  width: min(30rem, calc(100vw - 3rem));
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; box-shadow: var(--shadow);
+  padding: .8rem .9rem; text-align: left;
+  font-size: .84rem; font-weight: 400; line-height: 1.5;
+  color: var(--ink-soft); text-transform: none; letter-spacing: 0;
+}
+.info > .panel p { margin: 0 0 .55rem; }
+.info > .panel p:last-child { margin-bottom: 0; }
+.info > .panel strong { color: var(--ink); }
+/* Near the right edge a left-anchored panel would leave the viewport. */
+.info.right > .panel { left: auto; right: -.5rem; }
 .eyebrow {
   font-size: .68rem; text-transform: uppercase; letter-spacing: .09em;
   color: var(--muted); font-weight: 620; margin: 0 0 .3rem;
@@ -184,7 +211,7 @@ input[type=text], input[type=date], input[type=number], select, textarea {
 label.field { display: block; }
 label.field > span {
   display: block; font-size: .74rem; font-weight: 600; color: var(--ink-soft);
-  margin-bottom: .25rem; letter-spacing: .01em;
+  margin-bottom: .4rem; letter-spacing: .01em;
 }
 label.field > .hint { font-weight: 400; color: var(--muted); letter-spacing: 0; }
 
@@ -220,15 +247,24 @@ tbody tr:last-child td { border-bottom: none; }
     {# A page with the read value boxed on it: the mark is the product's own
        idea rather than decoration. Inline SVG so it scales, follows the
        theme, and needs no network. #}
-    <svg class="mark" viewBox="0 0 28 28" aria-hidden="true" focusable="false">
-      <rect x="4.5" y="2.5" width="17" height="23" rx="2.5"
-            fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <path d="M8.5 8h9M8.5 11.5h9M8.5 20.5h5"
-            stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".5"/>
-      <rect x="7.5" y="14.5" width="13" height="3.6" rx="1"
-            fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <g fill="none" stroke="var(--brand)" stroke-width="2.1"
+         stroke-linecap="round" stroke-linejoin="round">
+        <!-- the sheet behind -->
+        <path d="M9 6.5A2.5 2.5 0 0 1 11.5 4h6.6L23 8.9v1.6"/>
+        <path d="M9 6.5v14.2"/>
+        <!-- the sheet in front, with its folded corner -->
+        <path d="M13 11.5A2.5 2.5 0 0 1 15.5 9h5.1L26 14.4v10.1A2.5 2.5 0 0 1 23.5 27h-8A2.5 2.5 0 0 1 13 24.5z"/>
+        <path d="M20.4 9v4.4a1.1 1.1 0 0 0 1.1 1.1H26"/>
+        <path d="M16.6 16.6h5.4M16.6 19.6h4.2M16.6 22.6h2.8" stroke-width="1.9"/>
+      </g>
+      <!-- the seal: the check is what this product is for -->
+      <circle cx="24.4" cy="23.6" r="6.3" fill="var(--seal)"/>
+      <circle cx="24.4" cy="23.6" r="4.4" fill="var(--seal-ink)"/>
+      <path d="M22.1 23.7l1.7 1.7 3-3.4" fill="none" stroke="var(--seal)"
+            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
-    <span class="wordmark">Evidencia<b>·</b>Expedientes</span>
+    <span class="wordmark">Cotejo</span>
   </a>
   {% block topactions %}{% endblock %}
 </header>

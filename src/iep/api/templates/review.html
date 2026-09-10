@@ -56,6 +56,7 @@
   .was { color:var(--blocker); text-decoration:line-through; font-weight:400; }
   .conf { font-variant-numeric:tabular-nums; }
   .conf.low { color:var(--warning); font-weight:620; }
+  th.nowrap { white-space:nowrap; }
   .cell-actions { display:flex; gap:.3rem; align-items:center; flex-wrap:nowrap; }
   .cell-actions input { max-width:9rem; }
   /* The button was wrapping to two lines inside a narrow cell. */
@@ -123,7 +124,16 @@
      asked for a name. #}
   <label class="field" style="margin-right:auto; max-width:14rem">
     <span>Nombre del revisor
-      <span class="hint-dot" title="Queda registrado junto a cada decisión que tomes, con la fecha y el motivo. La auditoría es append-only: no se puede editar ni borrar.">i</span>
+      <details class="info">
+        <summary aria-label="Qué se hace con tu nombre">i</summary>
+        <div class="panel">
+          <p>Tu nombre queda registrado <strong>junto a cada decisión que tomes</strong>,
+             con la fecha y el motivo que escribas.</p>
+          <p>La auditoría es <strong>append-only</strong>: nada se edita ni se borra.
+             Por eso el campo empieza vacío — una decisión firmada por un nombre
+             de relleno no sirve para defender un expediente.</p>
+        </div>
+      </details>
     </span>
     <input type="text" id="actor" placeholder="escribe tu nombre" autocomplete="name">
   </label>
@@ -272,13 +282,39 @@
       <tr>
         <th>Campo</th>
         <th>Valor</th>
-        <th>Confianza
-          <span class="hint-dot" title="Lo segura que estaba la lectura. Un escaneo borroso baja este número, y por debajo del 75 % el campo se manda a revisión en lugar de darse por bueno.">i</span>
+        <th class="nowrap">Confianza
+          <details class="info">
+            <summary aria-label="Qué significa la confianza">i</summary>
+            <div class="panel">
+              <p>Lo segura que estaba la lectura, de 0 a 100 %.</p>
+              <p>En un <strong>PDF con texto</strong> es alta: el valor se leyó de la
+                 capa de texto junto a una etiqueta inequívoca. En un
+                 <strong>escaneo</strong> es la confianza que devuelve el motor de OCR
+                 sobre esas palabras concretas, así que un papel borroso, torcido o
+                 mal fotocopiado la baja.</p>
+              <p>Por debajo del <strong>75 %</strong> el campo no se da por bueno:
+                 pasa a «Necesita revisión» y <strong>bloquea la aprobación</strong>
+                 hasta que una persona lo confirme o lo corrija.</p>
+            </div>
+          </details>
         </th>
         <th>De dónde sale</th>
-        <th>Estado</th>
-        <th>Qué puedes hacer
-          <span class="hint-dot" title="«Ver evidencia» abre el documento con el sitio exacto marcado. «Corregir» guarda tu valor JUNTO al que leyó la máquina, nunca encima: se conserva el original, tu nombre, la fecha y el motivo. «Confirmar» deja el valor como está y registra que tú lo has comprobado. Las dos acciones piden motivo y quedan en la auditoría.">i</span>
+        <th class="nowrap">Estado</th>
+        <th class="nowrap">Qué puedes hacer
+          <details class="info right">
+            <summary aria-label="Qué hace cada acción">i</summary>
+            <div class="panel">
+              <p><strong>Ver evidencia</strong> abre el documento con el sitio exacto
+                 marcado, y desde ahí puedes abrir el original.</p>
+              <p><strong>Corregir</strong> guarda tu valor <strong>junto</strong> al que
+                 leyó la máquina, nunca encima. Se conserva la lectura original, tu
+                 nombre, la fecha y el motivo, y una nueva ejecución del pipeline
+                 no la sobrescribe.</p>
+              <p><strong>Confirmar</strong> deja el valor como está y registra que tú
+                 lo has comprobado contra el documento.</p>
+              <p>Las dos piden motivo y las dos quedan en la auditoría.</p>
+            </div>
+          </details>
         </th>
       </tr>
     </thead>
@@ -300,7 +336,7 @@
         <td class="conf mid {% if e.confidence|float < 0.75 %}low{% endif %}">
           {{ "%.0f"|format(e.confidence|float * 100) }} %
         </td>
-        <td style="font-size:.83rem">{{ locator_summary(e.locator) }}</td>
+        <td class="mid" style="font-size:.83rem">{{ locator_summary(e.locator) }}</td>
         <td class="mid"><span class="pill {{ ecss }}">{{ estatus }}</span></td>
         <td class="mid">
           <div class="cell-actions">

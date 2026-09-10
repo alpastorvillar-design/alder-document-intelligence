@@ -510,8 +510,9 @@ def locator_summary(locator: dict[str, Any]) -> str:
             return f"PDF · página {page}, caracteres {locator['char_start']}-{locator['char_end']}"
         return f"PDF · página {page}"
     if kind == "OCR_WORD_BOX":
-        confidence = float(locator.get("word_confidence") or 0)
-        return f"Escaneo · página {locator.get('page')}, confianza del OCR {confidence:.0f} %"
+        # The confidence has its own column on the review screen, so repeating
+        # it here only made the cell long enough to wrap onto two lines.
+        return f"Escaneo · página {locator.get('page')}"
     if kind == "EXCEL_CELL":
         return f"Excel · hoja «{locator.get('sheet')}», celda {locator.get('cell')}"
     if kind == "API_FIELD":

@@ -74,7 +74,20 @@
   </div>
 
   <div>
-    <p class="eyebrow" style="margin-bottom:.5rem">Documentos</p>
+    <p class="eyebrow" style="margin-bottom:.5rem">Documentos
+      <details class="info">
+        <summary aria-label="Qué formatos se aceptan">i</summary>
+        <div class="panel">
+          <p>Se aceptan <strong>PDF</strong>, escaneos <strong>JPEG</strong> o
+             <strong>PNG</strong> y libros <strong>.xlsx</strong>.</p>
+          <p>Cada fichero se comprueba por tamaño, por su <strong>firma real</strong>
+             y abriéndolo con su parser <strong>antes</strong> de guardarse: un
+             <code>.pdf</code> que en realidad es texto plano se rechaza.</p>
+          <p>Lo que se rechaza <strong>queda registrado con su motivo</strong>, para
+             que se vea qué falta en lugar de tener que adivinarlo.</p>
+        </div>
+      </details>
+    </p>
     <div class="drop" id="drop">
       <h3>Arrastra los ficheros aquí</h3>
       <p>PDF, escaneos JPEG o PNG, y libros de Excel. También puedes
