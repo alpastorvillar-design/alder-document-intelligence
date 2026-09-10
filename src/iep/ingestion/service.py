@@ -111,11 +111,11 @@ def ingest_upload(
 
     if len(data) > settings.max_upload_bytes:
         raise IngestionRejectedError(
-            f"payload of {len(data)} bytes exceeds the {settings.max_upload_bytes} byte limit",
+            f"el fichero ocupa {len(data)} bytes y el límite es {settings.max_upload_bytes} bytes",
             status=DocumentStatus.UNSUPPORTED,
         )
     if not data:
-        raise IngestionRejectedError("empty payload", status=DocumentStatus.CORRUPT)
+        raise IngestionRejectedError("el fichero está vacío", status=DocumentStatus.CORRUPT)
 
     try:
         media_kind = sniff(data, max_decompressed_bytes=settings.max_decompressed_bytes)
@@ -277,8 +277,8 @@ def _validate_content(media_kind: MediaKind, data: bytes, settings: Settings) ->
                     pixels = image.width * image.height
                     if pixels > settings.max_image_pixels:
                         raise IngestionRejectedError(
-                            f"image has {pixels} pixels, above the "
-                            f"{settings.max_image_pixels} pixel limit",
+                            f"la imagen tiene {pixels} píxeles y el límite es "
+                            f"{settings.max_image_pixels}",
                             status=DocumentStatus.UNSUPPORTED,
                         )
                     image.verify()
@@ -286,12 +286,12 @@ def _validate_content(media_kind: MediaKind, data: bytes, settings: Settings) ->
             raise
         except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
             raise IngestionRejectedError(
-                "image exceeds the safe decompression limit",
+                "la imagen supera el límite seguro de descompresión",
                 status=DocumentStatus.UNSUPPORTED,
             ) from exc
         except (UnidentifiedImageError, OSError, SyntaxError) as exc:
             raise IngestionRejectedError(
-                f"image could not be opened: {type(exc).__name__}",
+                f"la imagen no se pudo abrir: {type(exc).__name__}",
                 status=DocumentStatus.CORRUPT,
             ) from exc
         return None
@@ -303,20 +303,22 @@ def _validate_content(media_kind: MediaKind, data: bytes, settings: Settings) ->
     try:
         with pymupdf.open(stream=data, filetype="pdf") as doc:
             if doc.needs_pass:
-                raise IngestionRejectedError("encrypted PDF", status=DocumentStatus.UNSUPPORTED)
+                raise IngestionRejectedError(
+                    "el PDF está cifrado", status=DocumentStatus.UNSUPPORTED
+                )
             pages = doc.page_count
     except IngestionRejectedError:
         raise
     except Exception as exc:  # pymupdf raises a broad family for malformed input
         raise IngestionRejectedError(
-            f"PDF could not be opened: {type(exc).__name__}", status=DocumentStatus.CORRUPT
+            f"el PDF no se pudo abrir: {type(exc).__name__}", status=DocumentStatus.CORRUPT
         ) from exc
 
     if pages > settings.max_pdf_pages:
         raise IngestionRejectedError(
-            f"PDF has {pages} pages, above the {settings.max_pdf_pages} page limit",
+            f"el PDF tiene {pages} páginas y el límite es {settings.max_pdf_pages}",
             status=DocumentStatus.UNSUPPORTED,
         )
     if pages == 0:
-        raise IngestionRejectedError("PDF has no pages", status=DocumentStatus.CORRUPT)
+        raise IngestionRejectedError("el PDF no tiene páginas", status=DocumentStatus.CORRUPT)
     return pages

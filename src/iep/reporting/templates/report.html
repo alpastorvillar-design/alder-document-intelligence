@@ -530,7 +530,7 @@ footer p { margin: 0 0 .4rem; max-width: 82ch; }
       <td>{{ field_label(e.field_path) }}</td>
       <td class="was mono">{{ e.original_value_text }}</td>
       <td class="value">
-        {% if e.value_number is not none %}{{ e.value_number|money }}
+        {% if e.value_number is not none %}{{ e.value_number|money }} {{ unit_of(e.field_path) }}
         {% elif e.value_date %}{{ e.value_date|fecha }}
         {% else %}{{ e.value_text }}{% endif %}
       </td>

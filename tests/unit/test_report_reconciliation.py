@@ -228,3 +228,34 @@ class TestTwoEvidenceLinksAreNeverTheSameWord:
             extraction_on("invoice.issue_date", uuid.uuid4()),
         ]
         assert [row for row, _ in vocab.evidence_links(rows, {})] == rows
+
+
+class TestAnAmountNeverAppearsWithoutItsUnit:
+    """`400.000,00` beside a date and a code is an unlabelled number.
+
+    The unit comes from the field path, so there is no second table to fall
+    out of step with the first.
+    """
+
+    def test_euros_and_hours_are_recognised(self) -> None:
+        assert vocab.unit_of("call.max_funding_eur") == "€"
+        assert vocab.unit_of("invoice.total_eur") == "€"
+        assert vocab.unit_of("timesheet.rows[0].hourly_rate_eur") == "€"
+        assert vocab.unit_of("timesheet.rows[0].hours") == "h"
+
+    def test_a_code_a_date_and_a_count_get_nothing(self) -> None:
+        for path in (
+            "call.code",
+            "report.period_start",
+            "invoices.count",
+            "timesheet.row_count",
+            "invoice.supplier_name",
+        ):
+            assert vocab.unit_of(path) == "", path
+
+    def test_every_money_field_in_the_catalogue_has_a_unit(self) -> None:
+        """Read from the label table, so a field added later is covered."""
+        money_paths = [p for p in vocab._FIELD_LABELS if p.endswith("_eur")]
+        assert money_paths
+        for path in money_paths:
+            assert vocab.unit_of(path) == "€", path

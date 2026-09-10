@@ -79,6 +79,62 @@ loopback: `http://127.0.0.1:8000/docs`, `http://127.0.0.1:8000/ui/dossiers` y
 `http://127.0.0.1:8080`. La interfaz opcional de workflows se describe en
 [`automation/n8n/README.es.md`](automation/n8n/README.es.md).
 
+## La pantalla de revisión
+
+Lo que produce el pipeline es una decisión que alguien tiene que tomar y
+defender, así que tiene pantalla y no sólo API. Cinco, en el orden en que un
+expediente las recorre: la bandeja, el alta, el progreso, la revisión y la
+evidencia detrás de un valor. Jinja renderizado en servidor contra la misma
+API JSON que llamaría una integración: sin paso de compilación, sin una segunda
+implementación de las reglas y sin nada que se cargue de la red, así que
+funciona sin conexión a Internet.
+
+La interfaz está en español. El dominio, los documentos y las personas que la
+usarían lo son; las rutas, los `field_path` y los identificadores de regla
+siguen en inglés porque son claves, no prosa.
+
+**La bandeja** — los expedientes que esperan una decisión, con lo que los
+bloquea.
+
+![La bandeja de revisión](docs/img/01-queue.png)
+
+**El alta** — se arrastran los ficheros del expediente. Cada uno se comprueba
+por tamaño, por su firma real y abriéndolo con su parser *antes* de guardarse,
+y un rechazo dice qué fichero es y por qué. Nada que no se pueda abrir llega al
+almacén, pero el rechazo queda registrado, así que se ve qué falta en lugar de
+tener que adivinarlo.
+
+![Alta de un expediente y subida de sus documentos](docs/img/02-intake.png)
+
+**La revisión** — primero el veredicto, y después cada incidencia como una
+ficha: cómo se llama en lenguaje llano, las cifras que la provocan, los
+documentos a los que afecta, por qué salta la regla y el requisito que aplica.
+Eso último es lo que convierte una incidencia en algo discutible en lugar de
+una opinión. La aprobación se niega mientras haya un bloqueante abierto o un
+campo sin confirmar; descartar una incidencia como falso positivo exige motivo
+y queda registrado.
+
+![La pantalla de revisión de un expediente con once incidencias bloqueantes](docs/img/03-review.png)
+
+**La evidencia** — para cualquier valor, el documento del que se leyó con el
+sitio exacto recuadrado. El recuadro se dibuja con las coordenadas que se
+guardaron durante la extracción, no recalculadas al mostrarlo. Desde aquí se
+abre el original: un PDF como PDF, un escaneo como imagen, un libro como
+descarga que abre Excel.
+
+![Un justificante escaneado con el total recuadrado donde se leyó](docs/img/04-evidence.png)
+
+**El informe** — el documento que sale de la casa, y lo único de aquí escrito
+para alguien que no estaba delante. Empieza por la comprobación sobre la que se
+sostiene la justificación: para cada concepto de gasto, lo que declara la
+memoria frente a lo que suman los documentos que la soportan, la diferencia y
+si cuadra. Una cifra que no se llegó a leer sigue faltando en lugar de
+convertirse en un cero. «Descargar PDF» es el propio diálogo de impresión del
+navegador: la hoja de estilos de impresión es lo que hace de eso un documento
+utilizable, con un recuadro rotulado en el encabezado para quien lo archive.
+
+![El informe de justificación, con la tabla de reconciliación primero](docs/img/05-report.png)
+
 ## Documentación
 
 Toda la documentación existe en español y en inglés, con un selector de idioma en

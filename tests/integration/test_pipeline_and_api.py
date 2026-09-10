@@ -1329,7 +1329,7 @@ class TestTheOriginalDocumentIsWhatOpens:
             content_sha256="f" * 64,
             storage_key="",
             page_count=None,
-            rejection_reason="unrecognised file signature",
+            rejection_reason="la firma del fichero no corresponde a ningún formato aceptado",
         )
         db.add(row)
         db.commit()

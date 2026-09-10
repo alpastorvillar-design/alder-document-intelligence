@@ -213,9 +213,11 @@
                     <span class="pill n mono">{{ document_names.get(did|string, did) }}</span>
                   {% endfor %}
                 {% endif %}
+                {# `|lower` is not applied to the whole label: it would lowercase
+                   the filename that disambiguates two links to the same field. #}
                 {% for e, label in evidence_links(fields[:4], document_names) %}
                   <a class="btn small" href="/ui/evidence/{{ e.id }}"
-                     title="Abre el documento con el sitio exacto marcado">Ver {{ label|lower }}</a>
+                     title="Abre el documento con el sitio exacto marcado">Ver {{ label }}</a>
                 {% endfor %}
                 {% if fields|length > 4 %}
                   <span class="muted">y {{ fields|length - 4 }} campo{{ "s" if fields|length - 4 != 1 }} más</span>

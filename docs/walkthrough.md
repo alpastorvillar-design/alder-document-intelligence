@@ -141,8 +141,12 @@ value alongside, with who changed it, when and why.
 
 | Endpoint | What it is for |
 | --- | --- |
-| `GET /ui/dossiers` | The list. **This is the page to start from** |
-| `GET /ui/dossiers/{id}` | One dossier's review: findings, fields, buttons |
+| `GET /ui/dossiers` | The queue. **This is the page to start from** |
+| `GET /ui/dossiers/new` | Create a dossier and drop its documents in |
+| `GET /ui/dossiers/{id}/progress` | The pipeline's stages while the worker runs |
+| `GET /ui/dossiers/{id}` | One dossier's review: verdict, findings, fields, actions |
+| `GET /ui/evidence/{id}` | One value's source, with the place boxed |
+| `GET /ui/documents/{id}/original` | The document's own bytes, so the original opens |
 
 ## 5. Running the demonstration
 
@@ -171,9 +175,9 @@ The script, in order:
 
 ```
 INN-2025-041: 4 accepted, 0 duplicate, 0 rejected
-  rejected justificante-danado.pdf: PDF has no pages
-  rejected notas-internas.txt: unrecognised file signature: an accepted
-    document is a PDF, a PNG or JPEG scan, or an .xlsx workbook
+  rejected justificante-danado.pdf: el PDF no tiene páginas
+  rejected notas-internas.txt: la firma del fichero no corresponde a ninguno
+    de los formatos aceptados: PDF, escaneo PNG o JPEG, o libro .xlsx
 INN-2025-042: 8 accepted, 1 duplicate, 2 rejected
 ```
 
@@ -210,7 +214,8 @@ is five screens in the order a dossier moves through them.
 The intake screen makes the **same three calls** an integration would: create
 the dossier, upload each file, enqueue the run. So a file refused here is
 refused identically anywhere else, and it says so by name:
-*"justificante-danado.pdf - PDF has no pages"*.
+*"justificante-danado.pdf - el PDF no tiene páginas"*. Refusal reasons are
+Spanish because they are read by the person who just dropped the file in.
 
 ### The route worth walking
 

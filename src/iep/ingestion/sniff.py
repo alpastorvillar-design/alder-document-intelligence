@@ -42,7 +42,7 @@ class CorruptFileError(Exception):
 def sniff(data: bytes, *, max_decompressed_bytes: int) -> MediaKind:
     """Classify `data`, raising rather than guessing when it is not supported."""
     if not data:
-        raise CorruptFileError("empty payload")
+        raise CorruptFileError("el fichero está vacío")
 
     for signature, kind in _SIGNATURES:
         if data.startswith(signature):
@@ -56,8 +56,8 @@ def sniff(data: bytes, *, max_decompressed_bytes: int) -> MediaKind:
     # needs to know which of its files to drop instead - "unrecognised file
     # signature" on its own is accurate and tells them nothing.
     raise UnsupportedMediaError(
-        "unrecognised file signature: an accepted document is a PDF, a PNG or "
-        "JPEG scan, or an .xlsx workbook"
+        "la firma del fichero no corresponde a ninguno de los formatos aceptados: "
+        "PDF, escaneo PNG o JPEG, o libro .xlsx"
     )
 
 
@@ -65,29 +65,29 @@ def _sniff_zip(data: bytes, *, max_decompressed_bytes: int) -> MediaKind:
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             if archive.testzip() is not None:
-                raise CorruptFileError("zip container has a corrupt member")
+                raise CorruptFileError("el contenedor zip tiene un miembro dañado")
             names = archive.namelist()
             # Decompression bomb guard: refuse before any member is expanded.
             declared = sum(info.file_size for info in archive.infolist())
             if declared > max_decompressed_bytes:
                 raise UnsupportedMediaError(
-                    f"declared uncompressed size {declared} exceeds the {max_decompressed_bytes} "
-                    "byte ceiling"
+                    f"el tamaño descomprimido que declara ({declared} bytes) supera el "
+                    f"límite de {max_decompressed_bytes} bytes"
                 )
             # An encrypted member cannot be parsed and must not be stored as if
             # it were readable.
             if any(info.flag_bits & 0x1 for info in archive.infolist()):
-                raise UnsupportedMediaError("encrypted archive member")
+                raise UnsupportedMediaError("el archivo contiene miembros cifrados")
             if _XLSX_MARKER in names:
                 if any(
                     name.startswith("xl/macrosheets/") or name.endswith(".bin") for name in names
                 ):
-                    raise UnsupportedMediaError("macro-enabled workbook")
+                    raise UnsupportedMediaError("el libro contiene macros")
                 return MediaKind.XLSX
     except zipfile.BadZipFile as exc:
-        raise CorruptFileError(f"not a readable zip container: {exc}") from exc
+        raise CorruptFileError(f"no es un contenedor zip legible: {exc}") from exc
 
-    raise UnsupportedMediaError("zip container is not a supported workbook")
+    raise UnsupportedMediaError("el contenedor zip no es un libro de los admitidos")
 
 
 def guess_from_name(filename: str) -> str | None:

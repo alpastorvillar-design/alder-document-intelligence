@@ -75,6 +75,58 @@ The API, review screen, and local source simulator bind only to loopback:
 `http://127.0.0.1:8080`. The optional workflow UI is described in
 [`automation/n8n/README.md`](automation/n8n/README.md).
 
+## The review screen
+
+The pipeline's output is a decision somebody has to make and defend, so it has
+a screen rather than only an API. Five of them, in the order a dossier moves
+through: the queue, intake, progress, the review itself, and the evidence
+behind one value. Server-rendered Jinja against the same JSON API an
+integration would call — no build step, no second implementation of the rules,
+and nothing loaded from the network, so it works with no Internet access.
+
+The interface is in Spanish. The domain, the documents and the people who
+would use it are Spanish; route paths, field paths and rule ids stay in
+English because they are keys, not prose.
+
+**The queue** — every dossier waiting on a decision, with what is blocking it.
+
+![The review queue](docs/img/01-queue.png)
+
+**Intake** — drag the dossier's files in. Each one is checked by size, by its
+real signature, and by opening it with its parser *before* it is stored, and a
+refusal names the file and the reason. Nothing unparsable reaches the store,
+but the refusal is recorded, so what is missing is visible instead of having to
+be guessed.
+
+![Creating a dossier and uploading its documents](docs/img/02-intake.png)
+
+**Review** — the verdict first, then every finding as a card: what it is called
+in plain language, the figures behind it, the documents it affects, why the
+rule fires, and the requirement it enforces. That last part is what makes a
+finding arguable rather than an opinion. Approval is refused while a blocker is
+open or a field is unconfirmed; dismissing a finding as a false positive needs
+a reason and is recorded.
+
+![The review screen for a dossier with eleven blocking findings](docs/img/03-review.png)
+
+**Evidence** — for any value, the document it was read from with the exact
+place boxed. The box is drawn from the coordinates stored during extraction,
+not recomputed for display. From here the original opens: a PDF as a PDF, a
+scan as an image, a workbook as a download Excel takes.
+
+![A scanned receipt with the total boxed where it was read](docs/img/04-evidence.png)
+
+**The report** — the artefact that leaves the building, and the one thing here
+written for somebody who was not in the room. It leads with the check the
+justification rests on: for each concepto de gasto, what the memoria declares
+against what the supporting documents add up to, the difference, and whether it
+cuadra. A figure that was never read stays missing rather than becoming a zero.
+"Descargar PDF" is the browser's own print dialogue — the print stylesheet is
+what makes that a usable document, with a labelled frame in the header for
+whoever files it.
+
+![The justification report, with the reconciliation table first](docs/img/05-report.png)
+
 ## Documentation
 
 Every document exists in English and Spanish, with a switcher on its first line.

@@ -11,12 +11,15 @@
   .sheetwrap { position:relative; display:block; width:100%; }
   .sheetwrap.zoom { width:240%; }
   .sheetwrap img { display:block; width:100%; height:auto; background:#fff; }
-  .mark {
+  /* Not `.mark`: the shell's brand SVG is `.brand .mark`, and an unscoped
+     `.mark { position:absolute }` here took it out of flow, so the logo sat
+     on top of the wordmark. */
+  .hit {
     position:absolute; border:2px solid var(--mark);
     background:color-mix(in srgb, var(--mark) 22%, transparent);
     border-radius:2px; box-shadow:0 0 0 1px rgba(0,0,0,.35);
   }
-  .mark::after {
+  .hit::after {
     content:"aquí"; position:absolute; left:calc(100% + 5px); top:50%;
     transform:translateY(-50%);
     background:var(--mark); color:#2a1f00; font:600 .62rem/1.6 var(--sans);
@@ -71,7 +74,7 @@
           <img src="/ui/evidence/{{ extraction.id }}/image"
                alt="Página del documento de la que se leyó el valor" id="page">
           {% for box in view.boxes %}
-          <span class="mark" id="mark{{ loop.index }}"
+          <span class="hit" id="hit{{ loop.index }}"
                 style="left:{{ (100 * box.left / view.image_width)|round(4) }}%;
                        top:{{ (100 * box.top / view.image_height)|round(4) }}%;
                        width:{{ (100 * box.width / view.image_width)|round(4) }}%;
@@ -133,7 +136,7 @@
           <tr>
             <td>{{ field_label(i.field_path) }}</td>
             <td class="num">
-              {% if i.value_number is not none %}{{ i.value_number|money }}
+              {% if i.value_number is not none %}{{ i.value_number|money }} {{ unit_of(i.field_path) }}
               {% elif i.value_date %}{{ i.value_date|fecha }}
               {% else %}{{ i.value_text }}{% endif %}
             </td>
@@ -152,7 +155,7 @@
       <div>
         <dt>Valor leído</dt>
         <dd class="bigvalue">
-          {% if extraction.value_number is not none %}{{ extraction.value_number|money }}
+          {% if extraction.value_number is not none %}{{ extraction.value_number|money }} {{ unit_of(extraction.field_path) }}
           {% elif extraction.value_date %}{{ extraction.value_date|fecha }}
           {% else %}{{ extraction.value_text }}{% endif %}
         </dd>
@@ -226,7 +229,7 @@ function toggleZoom() {
 }
 
 function scrollToMark() {
-  const mark = document.getElementById("mark1");
+  const mark = document.getElementById("hit1");
   const viewer = document.getElementById("viewer");
   if (!mark || !viewer) return;
   const box = mark.getBoundingClientRect();

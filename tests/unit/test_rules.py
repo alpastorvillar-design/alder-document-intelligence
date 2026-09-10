@@ -167,7 +167,7 @@ class TestDocumentIntake:
                         DocumentKind.UNKNOWN,
                         status=DocumentStatus.UNSUPPORTED,
                         filename="notas.txt",
-                        reason="unrecognised file signature",
+                        reason="la firma del fichero no corresponde a ningún formato aceptado",
                     )
                 ]
             )
@@ -185,7 +185,7 @@ class TestDocumentIntake:
                             uuid.uuid4(),
                             DocumentKind.UNKNOWN,
                             status=DocumentStatus.CORRUPT,
-                            reason="PDF has no pages",
+                            reason="el PDF no tiene páginas",
                         )
                     ]
                 )

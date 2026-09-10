@@ -141,8 +141,12 @@ al lado, con quién lo cambió, cuándo y por qué.
 
 | Endpoint | Para qué sirve |
 | --- | --- |
-| `GET /ui/dossiers` | La lista. **Es la página por la que empezar** |
-| `GET /ui/dossiers/{id}` | La revisión de un expediente: incidencias, campos, botones |
+| `GET /ui/dossiers` | La bandeja. **Es la página por la que empezar** |
+| `GET /ui/dossiers/new` | Crear un expediente y arrastrar sus documentos |
+| `GET /ui/dossiers/{id}/progress` | Las etapas del pipeline mientras trabaja el worker |
+| `GET /ui/dossiers/{id}` | La revisión: veredicto, incidencias, campos y acciones |
+| `GET /ui/evidence/{id}` | El origen de un valor, con el sitio recuadrado |
+| `GET /ui/documents/{id}/original` | Los bytes del documento, para abrir el original |
 
 ## 5. Cómo lanzar la demostración
 
@@ -171,9 +175,9 @@ El script hace, en orden:
 
 ```
 INN-2025-041: 4 accepted, 0 duplicate, 0 rejected
-  rejected justificante-danado.pdf: PDF has no pages
-  rejected notas-internas.txt: unrecognised file signature: an accepted
-    document is a PDF, a PNG or JPEG scan, or an .xlsx workbook
+  rejected justificante-danado.pdf: el PDF no tiene páginas
+  rejected notas-internas.txt: la firma del fichero no corresponde a ninguno
+    de los formatos aceptados: PDF, escaneo PNG o JPEG, o libro .xlsx
 INN-2025-042: 8 accepted, 1 duplicate, 2 rejected
 ```
 
@@ -210,7 +214,9 @@ cinco pantallas en el orden en que un expediente pasa por ellas.
 La pantalla de alta hace las **mismas tres llamadas** que haría una integración:
 crear el expediente, subir cada fichero, encolar el procesado. Por eso lo que
 rechaza aquí lo rechazaría igual desde cualquier otro sitio, y lo dice con el
-nombre del fichero: *«justificante-danado.pdf — PDF has no pages»*.
+nombre del fichero: *«justificante-danado.pdf — el PDF no tiene páginas»*.
+Los motivos de rechazo están en español porque los lee la persona que acaba de
+soltar el fichero.
 
 ### El recorrido que conviene enseñar
 
