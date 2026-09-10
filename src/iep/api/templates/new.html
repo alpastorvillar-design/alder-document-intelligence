@@ -1,0 +1,214 @@
+{% extends "_base.html" %}
+{% block title %}Nuevo expediente{% endblock %}
+
+{% block head %}
+<style>
+  .form-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(13rem, 1fr)); gap:.9rem; }
+  .form-grid .span2 { grid-column: span 2; }
+  @media (max-width: 34rem) { .form-grid .span2 { grid-column: span 1; } }
+
+  .drop {
+    border: 2px dashed var(--line); border-radius: var(--radius);
+    background: var(--card-sunk); padding: 2rem 1.25rem; text-align: center;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .drop.hot { border-color: var(--accent); background: var(--accent-wash); }
+  .drop h3 { margin: 0 0 .3rem; }
+  .drop p { margin: 0; color: var(--muted); font-size: .87rem; }
+
+  .files { list-style: none; margin: .9rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
+  .files li {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .45rem .6rem; border: 1px solid var(--line-soft);
+    border-radius: 7px; background: var(--card); font-size: .87rem;
+  }
+  .files .name { flex: 1 1 auto; overflow-wrap: anywhere; }
+  .files .size { color: var(--muted); font-variant-numeric: tabular-nums; font-size: .8rem; }
+  .files li[data-state="ok"]      { border-color: color-mix(in srgb, var(--ok) 35%, var(--line-soft)); }
+  .files li[data-state="dup"]     { border-color: color-mix(in srgb, var(--warning) 35%, var(--line-soft)); }
+  .files li[data-state="refused"] { border-color: color-mix(in srgb, var(--blocker) 35%, var(--line-soft)); }
+  .files .why { color: var(--blocker); font-size: .8rem; }
+</style>
+{% endblock %}
+
+{% block topactions %}
+<a class="btn" href="/ui/dossiers">Volver a la bandeja</a>
+{% endblock %}
+
+{% block content %}
+<p class="eyebrow">Alta de expediente</p>
+<h1>Nuevo expediente</h1>
+<p class="lede">
+  Primero los datos de la justificación, y después los documentos que la
+  soportan. Cada fichero se comprueba por tamaño, por su firma real y abriéndolo
+  con su parser <strong>antes</strong> de guardarse; si no pasa, te lo dice aquí
+  mismo y con el motivo.
+</p>
+
+<form id="form" class="card stack" style="gap:1.1rem" autocomplete="off">
+  <div class="form-grid">
+    <label class="field">
+      <span>Referencia <span class="hint">formato INN-AAAA-NNN</span></span>
+      <input type="text" id="reference" value="INN-2025-050" required>
+    </label>
+    <label class="field span2">
+      <span>Título del proyecto</span>
+      <input type="text" id="title" value="Sistema de vision artificial para control de calidad" required>
+    </label>
+    <label class="field">
+      <span>Inicio del periodo</span>
+      <input type="date" id="period_start" value="2025-01-01" required>
+    </label>
+    <label class="field">
+      <span>Fin del periodo</span>
+      <input type="date" id="period_end" value="2025-12-31" required>
+    </label>
+    <label class="field">
+      <span>Importe reclamado <span class="hint">en euros</span></span>
+      <input type="number" id="claimed_total_eur" step="0.01" min="0" value="85000.00" required>
+    </label>
+    <label class="field span2">
+      <span>Página de la convocatoria <span class="hint">opcional; de aquí sale la ventana de gasto elegible</span></span>
+      <input type="text" id="call_page_url" value="http://devsources:8080/public/convocatoria.html">
+    </label>
+  </div>
+
+  <div>
+    <p class="eyebrow" style="margin-bottom:.5rem">Documentos</p>
+    <div class="drop" id="drop">
+      <h3>Arrastra los ficheros aquí</h3>
+      <p>PDF, escaneos JPEG o PNG, y libros de Excel. También puedes
+         <label style="color:var(--accent); cursor:pointer; text-decoration:underline">
+           elegirlos<input type="file" id="picker" multiple hidden>
+         </label>.
+      </p>
+    </div>
+    <ul class="files" id="files"></ul>
+  </div>
+
+  <div class="row">
+    <button type="submit" class="primary" id="submit">Crear y procesar</button>
+    <span class="muted" style="font-size:.83rem" id="status"></span>
+  </div>
+</form>
+
+<div class="note" style="margin-top:1.4rem">
+  Esta pantalla no tiene lógica propia: hace las mismas tres llamadas que haría
+  una integración —crear el expediente, subir cada documento, encolar el
+  procesado— contra la API que está documentada en <a href="/docs" target="_blank" rel="noopener">/docs</a>.
+  Por eso lo que aquí se rechaza se rechaza igual desde cualquier otro sitio.
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const picked = [];
+const drop = document.getElementById("drop");
+const list = document.getElementById("files");
+
+function human(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+  return (bytes / 1024 / 1024).toFixed(1) + " MB";
+}
+
+function draw() {
+  list.innerHTML = "";
+  picked.forEach((entry, index) => {
+    const li = document.createElement("li");
+    li.dataset.state = entry.state || "";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = entry.file.name;
+    const size = document.createElement("span");
+    size.className = "size";
+    size.textContent = human(entry.file.size);
+    li.append(name, size);
+    if (entry.note) {
+      const why = document.createElement("span");
+      why.className = entry.state === "refused" ? "why" : "size";
+      why.textContent = entry.note;
+      li.append(why);
+    }
+    if (!entry.state) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "small";
+      remove.textContent = "Quitar";
+      remove.onclick = () => { picked.splice(index, 1); draw(); };
+      li.append(remove);
+    }
+    list.append(li);
+  });
+}
+
+function add(files) {
+  for (const file of files) {
+    if (!picked.some(e => e.file.name === file.name && e.file.size === file.size)) {
+      picked.push({ file, state: "", note: "" });
+    }
+  }
+  draw();
+}
+
+["dragenter", "dragover"].forEach(name =>
+  drop.addEventListener(name, event => { event.preventDefault(); drop.classList.add("hot"); }));
+["dragleave", "drop"].forEach(name =>
+  drop.addEventListener(name, event => { event.preventDefault(); drop.classList.remove("hot"); }));
+drop.addEventListener("drop", event => add(event.dataTransfer.files));
+document.getElementById("picker").addEventListener("change", event => add(event.target.files));
+
+document.getElementById("form").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!picked.length) { flash("Añade al menos un documento."); return; }
+
+  const submit = document.getElementById("submit");
+  const status = document.getElementById("status");
+  submit.disabled = true;
+
+  const url = document.getElementById("call_page_url").value.trim();
+  status.textContent = "Creando el expediente…";
+  const dossier = await post("/dossiers", {
+    reference: document.getElementById("reference").value.trim(),
+    title: document.getElementById("title").value.trim(),
+    period_start: document.getElementById("period_start").value,
+    period_end: document.getElementById("period_end").value,
+    claimed_total_eur: document.getElementById("claimed_total_eur").value,
+    call_page_url: url || null,
+  });
+  if (!dossier) { submit.disabled = false; return; }
+
+  /* One request per file, sequentially: each one is checked and stored on its
+     own, so a refusal names the file it refers to. */
+  let accepted = 0;
+  for (const entry of picked) {
+    status.textContent = `Subiendo ${entry.file.name}…`;
+    const body = new FormData();
+    body.append("file", entry.file);
+    const response = await fetch(`/dossiers/${dossier.id}/documents`, { method: "POST", body });
+    if (response.status === 201) {
+      entry.state = "ok"; entry.note = "aceptado"; accepted++;
+    } else if (response.status === 200) {
+      entry.state = "dup"; entry.note = "ya estaba: mismos bytes";
+    } else {
+      let why = response.statusText;
+      try { why = (await response.json()).message || why; } catch (e) { /* keep status */ }
+      entry.state = "refused"; entry.note = why;
+    }
+    draw();
+  }
+
+  if (!accepted) {
+    status.textContent = "";
+    flash("No se aceptó ningún documento, así que no hay nada que procesar.");
+    submit.disabled = false;
+    return;
+  }
+
+  status.textContent = "Encolando el procesado…";
+  const job = await post(`/dossiers/${dossier.id}/process`, {});
+  if (!job) { submit.disabled = false; return; }
+  location.href = `/ui/dossiers/${dossier.id}/progress`;
+});
+</script>
+{% endblock %}

@@ -1,0 +1,235 @@
+{% extends "_base.html" %}
+{% block title %}Evidencia · {{ field_label(extraction.field_path) }}{% endblock %}
+
+{% block head %}
+<style>
+  .split { display:grid; grid-template-columns:minmax(0,1fr) 20rem; gap:1.2rem; align-items:start; }
+  @media (max-width: 60rem) { .split { grid-template-columns:minmax(0,1fr); } }
+
+  .viewer { border:1px solid var(--line); border-radius:var(--radius); background:var(--card-sunk);
+            overflow:auto; max-height:min(78vh, 900px); position:relative; }
+  .sheetwrap { position:relative; display:block; width:100%; }
+  .sheetwrap.zoom { width:240%; }
+  .sheetwrap img { display:block; width:100%; height:auto; background:#fff; }
+  .mark {
+    position:absolute; border:2px solid var(--mark);
+    background:color-mix(in srgb, var(--mark) 22%, transparent);
+    border-radius:2px; box-shadow:0 0 0 1px rgba(0,0,0,.35);
+  }
+  .mark::after {
+    content:"aquí"; position:absolute; left:calc(100% + 5px); top:50%;
+    transform:translateY(-50%);
+    background:var(--mark); color:#2a1f00; font:600 .62rem/1.6 var(--sans);
+    padding:0 .35rem; border-radius:3px; letter-spacing:.04em; white-space:nowrap;
+  }
+
+  .side dl { margin:0; display:flex; flex-direction:column; gap:.6rem; }
+  .side dt { font-size:.7rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:640; }
+  .side dd { margin:.1rem 0 0; font-size:.9rem; overflow-wrap:anywhere; }
+  .bigvalue { font-size:1.5rem; font-weight:640; font-variant-numeric:tabular-nums; letter-spacing:-.015em; }
+
+  .snippet {
+    font-family:var(--mono); font-size:.82rem; white-space:pre-wrap;
+    background:var(--card-sunk); border:1px solid var(--line-soft);
+    border-radius:7px; padding:.7rem .8rem; overflow-x:auto; margin:0;
+  }
+  .grid { border-collapse:collapse; font-size:.83rem; font-family:var(--mono); }
+  .grid td { border:1px solid var(--line-soft); padding:.3rem .5rem; white-space:nowrap; }
+  .grid td.h { background:var(--card-sunk); color:var(--muted); text-align:center; font-weight:640; }
+  .grid td.t {
+    background:color-mix(in srgb, var(--mark) 30%, transparent);
+    outline:2px solid var(--mark); font-weight:700;
+  }
+</style>
+{% endblock %}
+
+{% block topactions %}
+<a class="btn" href="/ui/dossiers/{{ dossier.id }}">Volver a {{ dossier.reference }}</a>
+{% endblock %}
+
+{% block content %}
+<p class="eyebrow">{{ dossier.reference }} · de dónde sale este dato</p>
+<h1 style="font-size:1.3rem">{{ field_label(extraction.field_path) }}</h1>
+<p class="lede" style="margin-bottom:1.2rem">{{ view.summary }}</p>
+
+<div class="split">
+  <div>
+    {% if view.has_image %}
+      <div class="row" style="margin-bottom:.6rem">
+        <button class="small" id="zoombtn" onclick="toggleZoom()">Ampliar</button>
+        <a class="btn small" href="/ui/evidence/{{ extraction.id }}/image" target="_blank" rel="noopener">
+          Abrir el documento entero
+        </a>
+        {% if view.box_note %}<span class="muted" style="font-size:.83rem">{{ view.box_note }}</span>{% endif %}
+      </div>
+      <div class="viewer" id="viewer">
+        <div class="sheetwrap" id="sheet">
+          <img src="/ui/evidence/{{ extraction.id }}/image"
+               alt="Página del documento de la que se leyó el valor" id="page">
+          {% for box in view.boxes %}
+          <span class="mark" id="mark{{ loop.index }}"
+                style="left:{{ (100 * box.left / view.image_width)|round(4) }}%;
+                       top:{{ (100 * box.top / view.image_height)|round(4) }}%;
+                       width:{{ (100 * box.width / view.image_width)|round(4) }}%;
+                       height:{{ (100 * box.height / view.image_height)|round(4) }}%"></span>
+          {% endfor %}
+        </div>
+      </div>
+      <p class="muted" style="font-size:.8rem; margin-top:.5rem">
+        Imagen de {{ view.image_width }}×{{ view.image_height }} píxeles.
+        El recuadro está dibujado con las coordenadas que se guardaron en la base
+        de datos durante la extracción, no calculadas ahora.
+      </p>
+
+    {% elif view.rows %}
+      <p class="eyebrow">Hoja «{{ view.sheet }}», con las celdas de alrededor</p>
+      <div class="scroll card" style="padding:.6rem">
+        <table class="grid">
+          {% for line in view.rows %}
+          <tr>
+            {% for cell in line %}
+            <td class="{% if cell.is_header %}h{% elif cell.is_target %}t{% endif %}">{{ cell.value }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+      <p class="muted" style="font-size:.8rem; margin-top:.5rem">
+        Se lee la celda concreta, no la hoja entera. Si su contenido fuese una
+        fórmula en vez de un valor, no se usaría como evidencia.
+      </p>
+
+    {% elif view.snippet %}
+      <p class="eyebrow">Fragmento de origen</p>
+      <pre class="snippet">{{ view.snippet }}</pre>
+
+    {% else %}
+      <div class="card"><p class="muted" style="margin:0">
+        {{ view.note or "Este localizador no tiene una vista gráfica." }}
+      </p></div>
+    {% endif %}
+
+    {% if view.note and (view.has_image or view.rows or view.snippet) %}
+      <div class="note" style="margin-top:.9rem">{{ view.note }}</div>
+    {% endif %}
+
+    {% if inputs %}
+      <h2>Valores que se han sumado</h2>
+      <div class="card" style="padding:0; overflow:hidden">
+      <table>
+        <thead><tr><th>Campo</th><th>Valor</th><th>De dónde sale</th><th></th></tr></thead>
+        <tbody>
+        {% for i in inputs %}
+          <tr>
+            <td>{{ field_label(i.field_path) }}</td>
+            <td class="num">
+              {% if i.value_number is not none %}{{ i.value_number|money }}
+              {% elif i.value_date %}{{ i.value_date|fecha }}
+              {% else %}{{ i.value_text }}{% endif %}
+            </td>
+            <td style="font-size:.83rem">{{ locator_summary(i.locator) }}</td>
+            <td><a class="btn small" href="/ui/evidence/{{ i.id }}">Ver</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    {% endif %}
+  </div>
+
+  <aside class="side card">
+    <dl>
+      <div>
+        <dt>Valor leído</dt>
+        <dd class="bigvalue">
+          {% if extraction.value_number is not none %}{{ extraction.value_number|money }}
+          {% elif extraction.value_date %}{{ extraction.value_date|fecha }}
+          {% else %}{{ extraction.value_text }}{% endif %}
+        </dd>
+      </div>
+      {% if extraction.original_value_text %}
+      <div>
+        <dt>Lo que había leído la máquina</dt>
+        <dd class="mono" style="color:var(--blocker); text-decoration:line-through">
+          {{ extraction.original_value_text }}</dd>
+      </div>
+      {% endif %}
+      <div>
+        <dt>Forma de lectura</dt>
+        <dd>{{ locator_kind.get(view.kind, view.kind) }}</dd>
+      </div>
+      <div>
+        <dt>Confianza</dt>
+        <dd class="num">{{ "%.0f"|format(extraction.confidence|float * 100) }} %</dd>
+      </div>
+      <div>
+        <dt>Estado</dt>
+        {% set estatus, ecss = field_status.get(extraction.status|string, (extraction.status|string, "n")) %}
+        <dd><span class="pill {{ ecss }}">{{ estatus }}</span></dd>
+      </div>
+      {% if document %}
+      <div>
+        <dt>Documento</dt>
+        <dd class="mono">{{ document.original_filename }}</dd>
+      </div>
+      <div>
+        <dt>Tipo</dt>
+        <dd>{{ media_kind.get(document.media_kind|string, document.media_kind|string) }}
+          {% if document.document_kind %}<br><span class="muted">clasificado como
+            {{ document_kind.get(document.document_kind|string, document.document_kind|string)|lower }}</span>{% endif %}</dd>
+      </div>
+      <div>
+        <dt>Huella del contenido</dt>
+        <dd class="mono" style="font-size:.72rem">{{ document.content_sha256 }}</dd>
+      </div>
+      {% endif %}
+      {% if view.facts %}
+        {% for label_, value in view.facts %}
+        <div><dt>{{ label_ }}</dt><dd class="mono" style="font-size:.78rem">{{ value }}</dd></div>
+        {% endfor %}
+      {% endif %}
+      <div>
+        <dt>Extractor</dt>
+        <dd class="mono" style="font-size:.78rem">{{ extraction.extractor_version }}</dd>
+      </div>
+      <div>
+        <dt>Versión del contrato</dt>
+        <dd class="mono" style="font-size:.78rem">{{ extraction.contract_version }}</dd>
+      </div>
+    </dl>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if view.has_image %}
+<script>
+/* Zooming is a CSS width change on the wrapper, so the percentage-positioned
+   box scales with the image instead of drifting away from it. */
+function toggleZoom() {
+  const sheet = document.getElementById("sheet");
+  const button = document.getElementById("zoombtn");
+  sheet.classList.toggle("zoom");
+  const zoomed = sheet.classList.contains("zoom");
+  button.textContent = zoomed ? "Reducir" : "Ampliar";
+  if (zoomed) scrollToMark();
+}
+
+function scrollToMark() {
+  const mark = document.getElementById("mark1");
+  const viewer = document.getElementById("viewer");
+  if (!mark || !viewer) return;
+  const box = mark.getBoundingClientRect();
+  const frame = viewer.getBoundingClientRect();
+  viewer.scrollTop += box.top - frame.top - frame.height / 2 + box.height / 2;
+  viewer.scrollLeft += box.left - frame.left - frame.width / 2 + box.width / 2;
+}
+
+/* Bringing the box into view once the page has painted is the difference
+   between "the evidence is on this page somewhere" and seeing it. */
+const page = document.getElementById("page");
+if (page.complete) scrollToMark();
+else page.addEventListener("load", scrollToMark);
+</script>
+{% endif %}
+{% endblock %}

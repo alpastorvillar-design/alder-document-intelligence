@@ -24,14 +24,18 @@ from sqlalchemy.orm import Session
 from iep.config import Settings
 from iep.connectors.public_page import PublicPageScraper
 from iep.connectors.registry import RegistryConnector
-from iep.db.models import DocumentChunk, Dossier, Extraction, Finding
+from iep.db.models import Document, DocumentChunk, Dossier, Extraction, Finding
 from iep.domain.contracts import DossierCreate
 from iep.domain.enums import (
+    DocumentKind,
+    DocumentStatus,
     DossierStatus,
     ExtractionMethod,
     FieldStatus,
     FindingStatus,
+    MediaKind,
     Severity,
+    SourceKind,
 )
 from iep.dossiers import service as dossiers
 from iep.ingestion.service import IngestionRejectedError, ingest_upload
@@ -974,7 +978,26 @@ class TestReviewPages:
         response = client.get("/ui/dossiers")
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
-        assert "Dossiers" in response.text
+        assert "Expedientes pendientes" in response.text
+
+    def test_the_intake_screen_can_actually_receive_files(self, client: TestClient) -> None:
+        """Without a file input the only way in is the CLI or Swagger.
+
+        A reviewer is not going to use either, so the presence of the upload
+        control is part of the product working, not a cosmetic detail.
+        """
+        response = client.get("/ui/dossiers/new")
+        assert response.status_code == 200
+        assert 'type="file"' in response.text
+        assert "/dossiers/${dossier.id}/documents" in response.text
+
+    def test_new_is_not_read_as_a_dossier_id(self, client: TestClient) -> None:
+        """`/dossiers/new` and `/dossiers/{uuid}` share a prefix.
+
+        Declaration order decides, so a reordering that broke this would give a
+        422 on the intake screen rather than an obvious error.
+        """
+        assert client.get("/ui/dossiers/new").status_code == 200
 
     def test_the_bare_ui_path_redirects_to_the_list(self, client: TestClient) -> None:
         response = client.get("/ui", follow_redirects=False)
@@ -995,3 +1018,172 @@ class TestReviewPages:
         response = client.get(f"/ui/dossiers/{created['id']}")
         assert response.status_code == 200
         assert "Review page" in response.text
+
+
+class TestEvidenceViewer:
+    """A locator is only worth storing if it can be walked backwards.
+
+    These drive the viewer with a real scan and a real workbook out of the
+    corpus, so a coordinate that no longer lands on the page shows up here
+    rather than in front of a reviewer.
+    """
+
+    @pytest.fixture
+    def client(self, wired_settings: Settings, db: Session) -> Iterator[TestClient]:
+        from iep.api.app import create_app
+
+        with TestClient(create_app()) as client:
+            yield client
+
+    def _document(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        dossier_id: uuid.UUID,
+        path: Path,
+        media: MediaKind,
+    ) -> Document:
+        import hashlib
+
+        data = path.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        row = Document(
+            id=uuid.uuid4(),
+            dossier_id=dossier_id,
+            original_filename=path.name,
+            declared_media_type=None,
+            media_kind=media,
+            document_kind=DocumentKind.EXPENSE_INVOICE,
+            status=DocumentStatus.EXTRACTED,
+            source_kind=SourceKind.UPLOAD,
+            size_bytes=len(data),
+            content_sha256=digest,
+            storage_key=store.put(digest, data),
+            page_count=1,
+        )
+        db.add(row)
+        db.flush()
+        return row
+
+    def _extraction(
+        self, db: Session, dossier_id: uuid.UUID, document_id: uuid.UUID, locator: dict[str, Any]
+    ) -> Extraction:
+        row = Extraction(
+            id=uuid.uuid4(),
+            dossier_id=dossier_id,
+            document_id=document_id,
+            field_path="invoice.total_eur",
+            value_text="18.392,00",
+            value_number=Decimal("18392.00"),
+            value_date=None,
+            locator=locator,
+            method=ExtractionMethod.OCR_TESSERACT,
+            extractor_version="test/1",
+            contract_version="1.0.0",
+            confidence=Decimal("0.64"),
+            status=FieldStatus.NEEDS_REVIEW,
+            dedup_key=uuid.uuid4().hex,
+        )
+        db.add(row)
+        db.flush()
+        return row
+
+    def test_a_scan_is_served_with_the_box_the_engine_reported(
+        self,
+        client: TestClient,
+        db: Session,
+        store: LocalObjectStore,
+        corpus_dir: Path,
+    ) -> None:
+        from tests.conftest import new_dossier
+
+        scan = next((corpus_dir / DOSSIER_B.reference).glob("justificante-01-*.jpg"))
+        dossier = new_dossier(db)
+        document = self._document(db, store, dossier.id, scan, MediaKind.JPEG)
+        extraction = self._extraction(
+            db,
+            dossier.id,
+            document.id,
+            {
+                "kind": "OCR_WORD_BOX",
+                "page": 1,
+                "left": 240,
+                "top": 800,
+                "width": 512,
+                "height": 28,
+                "word_confidence": 64.0,
+                "snippet": "TOTAL FACTURA",
+            },
+        )
+        db.commit()
+
+        page = client.get(f"/ui/evidence/{extraction.id}")
+        assert page.status_code == 200
+        # The box is positioned as a percentage of the image, so it survives
+        # the browser scaling the page down to fit.
+        assert 'class="mark"' in page.text
+        assert "left:" in page.text
+        assert "Confianza del OCR" in page.text
+
+        image = client.get(f"/ui/evidence/{extraction.id}/image")
+        assert image.status_code == 200
+        assert image.headers["content-type"] == "image/jpeg"
+        assert image.content == scan.read_bytes()
+
+    def test_a_workbook_cell_is_shown_with_its_neighbours(
+        self,
+        client: TestClient,
+        db: Session,
+        store: LocalObjectStore,
+        corpus_dir: Path,
+    ) -> None:
+        """A cell reference means nothing without the row it sits in."""
+        from tests.conftest import new_dossier
+
+        workbook = (corpus_dir / DOSSIER_B.reference) / "partes-horarios.xlsx"
+        dossier = new_dossier(db)
+        document = self._document(db, store, dossier.id, workbook, MediaKind.XLSX)
+        extraction = self._extraction(
+            db,
+            dossier.id,
+            document.id,
+            {
+                "kind": "EXCEL_CELL",
+                "sheet": "Partes horarios",
+                "cell": "E7",
+                "row": 7,
+                "column": "E",
+            },
+        )
+        db.commit()
+
+        page = client.get(f"/ui/evidence/{extraction.id}")
+        assert page.status_code == 200
+        assert 'class="grid"' in page.text
+        # The target cell is marked, and the header row travels with it.
+        assert page.text.count('class="t"') == 1
+
+    def test_a_derived_total_lists_the_values_it_was_computed_from(
+        self, client: TestClient, db: Session
+    ) -> None:
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db)
+        part = self._extraction(db, dossier.id, None, {"kind": "PDF_PAGE", "page": 1})
+        total = self._extraction(
+            db,
+            dossier.id,
+            None,
+            {"kind": "DERIVED", "inputs": [str(part.id)], "rule": "sum_of_invoice_totals"},
+        )
+        db.commit()
+
+        page = client.get(f"/ui/evidence/{total.id}")
+        assert page.status_code == 200
+        assert "Valores que se han sumado" in page.text
+        assert f"/ui/evidence/{part.id}" in page.text
+
+    def test_an_unknown_extraction_is_a_clean_404(self, client: TestClient) -> None:
+        response = client.get(f"/ui/evidence/{uuid.uuid4()}")
+        assert response.status_code == 404
+        assert "Traceback" not in response.text

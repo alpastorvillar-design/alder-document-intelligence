@@ -1,0 +1,227 @@
+{# Shared shell for every review screen.
+
+   No external stylesheet, font or script: the demonstration has to run with no
+   Internet access, and a screen that silently loses its typography when the
+   container is offline is worse than one that never asked for it.
+
+   Colour is defined once as tokens on `:root` and redefined for dark, so a
+   component never carries a literal that only works in one theme. #}
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Revisión de expedientes{% endblock %}</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --paper:      #eef1f0;
+  --card:       #ffffff;
+  --card-sunk:  #f6f8f7;
+  --ink:        #16211d;
+  --ink-soft:   #3d4b46;
+  --muted:      #667873;
+  --line:       #d3dbd8;
+  --line-soft:  #e4eae8;
+  --accent:     #0d5949;
+  --accent-ink: #ffffff;
+  --accent-wash:#e3efeb;
+  --blocker:    #a1331d;
+  --blocker-wash:#fbeae6;
+  --warning:    #7f5810;
+  --warning-wash:#fbf2df;
+  --ok:         #1b6540;
+  --ok-wash:    #e5f2ea;
+  --mark:       #f2c744;
+  --shadow:     0 1px 2px rgba(20,33,29,.06), 0 6px 18px -10px rgba(20,33,29,.22);
+  --radius:     10px;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:      #111614;
+    --card:       #19201e;
+    --card-sunk:  #141a18;
+    --ink:        #e7ede9;
+    --ink-soft:   #c2cec9;
+    --muted:      #8a9c96;
+    --line:       #2c3835;
+    --line-soft:  #232d2a;
+    --accent:     #4bbfa2;
+    --accent-ink: #06231c;
+    --accent-wash:#152925;
+    --blocker:    #f08b70;
+    --blocker-wash:#2c1a16;
+    --warning:    #e0b45c;
+    --warning-wash:#2a2317;
+    --ok:         #6cc894;
+    --ok-wash:    #16271f;
+    --mark:       #a8811a;
+    --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 22px -12px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"] {
+  --paper:#111614; --card:#19201e; --card-sunk:#141a18; --ink:#e7ede9;
+  --ink-soft:#c2cec9; --muted:#8a9c96; --line:#2c3835; --line-soft:#232d2a;
+  --accent:#4bbfa2; --accent-ink:#06231c; --accent-wash:#152925;
+  --blocker:#f08b70; --blocker-wash:#2c1a16; --warning:#e0b45c;
+  --warning-wash:#2a2317; --ok:#6cc894; --ok-wash:#16271f; --mark:#a8811a;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 22px -12px rgba(0,0,0,.7);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 15px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---- shell ------------------------------------------------------------ */
+.top {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--card); border-bottom: 1px solid var(--line);
+  padding: .6rem 1.25rem;
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+}
+.brand {
+  font-weight: 640; font-size: .84rem; letter-spacing: .02em;
+  display: flex; align-items: baseline; gap: .5rem; margin-right: auto;
+}
+.brand a { color: var(--ink); text-decoration: none; }
+.brand small { color: var(--muted); font-weight: 400; letter-spacing: 0; }
+main { max-width: 1120px; margin-inline: auto; padding: 1.6rem 1.25rem 5rem; }
+.wide { max-width: 1360px; }
+
+h1 { font-size: 1.5rem; line-height: 1.2; margin: 0 0 .3rem; text-wrap: balance; letter-spacing: -.012em; }
+h2 { font-size: 1.02rem; margin: 2.2rem 0 .8rem; letter-spacing: -.005em; }
+h3 { font-size: .92rem; margin: 0 0 .35rem; }
+.lede { color: var(--ink-soft); margin: 0 0 1.4rem; max-width: 66ch; }
+.eyebrow {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--muted); font-weight: 620; margin: 0 0 .3rem;
+}
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: .86em; font-variant-numeric: tabular-nums; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---- primitives ------------------------------------------------------- */
+.card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1rem 1.1rem;
+}
+.stack { display: flex; flex-direction: column; gap: .8rem; }
+.row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.grow { flex: 1 1 auto; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .12rem .5rem; border-radius: 999px;
+  font-size: .72rem; font-weight: 620; letter-spacing: .01em;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.pill.n { background: var(--card-sunk); color: var(--ink-soft); border-color: var(--line); }
+.pill.b { background: var(--blocker-wash); color: var(--blocker); border-color: color-mix(in srgb, var(--blocker) 30%, transparent); }
+.pill.w { background: var(--warning-wash); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 30%, transparent); }
+.pill.o { background: var(--ok-wash); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.pill.a { background: var(--accent-wash); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+button, .btn {
+  font: inherit; font-size: .85rem; font-weight: 520;
+  padding: .42rem .85rem; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  text-decoration: none; display: inline-flex; align-items: center; gap: .4rem;
+  transition: background .12s ease, border-color .12s ease;
+}
+button:hover, .btn:hover { background: var(--card-sunk); border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.primary:hover { filter: brightness(1.08); }
+button.primary[disabled] { opacity: .45; cursor: not-allowed; filter: none; }
+button.danger { color: var(--blocker); border-color: color-mix(in srgb, var(--blocker) 40%, var(--line)); }
+button.small, .btn.small { font-size: .78rem; padding: .25rem .55rem; }
+
+input[type=text], input[type=date], input[type=number], select, textarea {
+  font: inherit; font-size: .88rem; padding: .42rem .55rem;
+  border: 1px solid var(--line); border-radius: 7px;
+  background: var(--card); color: var(--ink); width: 100%;
+}
+label.field { display: block; }
+label.field > span {
+  display: block; font-size: .74rem; font-weight: 600; color: var(--ink-soft);
+  margin-bottom: .25rem; letter-spacing: .01em;
+}
+label.field > .hint { font-weight: 400; color: var(--muted); letter-spacing: 0; }
+
+table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+th {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted); font-weight: 640; border-bottom-color: var(--line);
+}
+tbody tr:last-child td { border-bottom: none; }
+.scroll { overflow-x: auto; }
+
+.note {
+  background: var(--card-sunk); border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--accent); border-radius: 6px;
+  padding: .7rem .9rem; font-size: .87rem; color: var(--ink-soft);
+}
+.empty { color: var(--muted); font-style: italic; padding: .8rem 0; }
+
+#flash {
+  position: fixed; left: 50%; bottom: 1.4rem; transform: translateX(-50%);
+  background: var(--ink); color: var(--paper); padding: .6rem 1rem;
+  border-radius: 8px; font-size: .87rem; box-shadow: var(--shadow);
+  display: none; max-width: min(90vw, 520px); z-index: 40;
+}
+</style>
+{% block head %}{% endblock %}
+</head>
+<body{% block bodyattrs %}{% endblock %}>
+
+<header class="top">
+  <span class="brand">
+    <a href="/ui/dossiers">Revisión de expedientes</a>
+    <small>justificación de ayudas a la innovación</small>
+  </span>
+  {% block topactions %}{% endblock %}
+</header>
+
+<main class="{% block mainclass %}{% endblock %}">
+{% block content %}{% endblock %}
+</main>
+
+<div id="flash" role="status" aria-live="polite"></div>
+
+<script>
+function flash(message) {
+  const el = document.getElementById("flash");
+  el.textContent = message;
+  el.style.display = "block";
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.style.display = "none"; }, 4200);
+}
+
+/* Every action on these screens goes through the same JSON API an
+   integration would call, so a refusal here reads exactly as it would there. */
+async function post(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  if (response.ok) return response.status === 204 ? {} : response.json().catch(() => ({}));
+  let detail = response.statusText;
+  try { detail = (await response.json()).message || detail; } catch (e) { /* keep status text */ }
+  flash("Rechazado: " + detail);
+  return null;
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

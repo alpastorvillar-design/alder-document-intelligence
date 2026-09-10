@@ -1,0 +1,115 @@
+{% extends "_base.html" %}
+{% block title %}Procesando {{ dossier.reference }}{% endblock %}
+
+{% block head %}
+<style>
+  .stages { list-style:none; margin:1rem 0 0; padding:0; display:flex; flex-direction:column; gap:.55rem; }
+  .stages li { display:flex; gap:.7rem; align-items:flex-start; font-size:.9rem; }
+  .stages .dot {
+    flex:0 0 auto; width:1.4rem; height:1.4rem; border-radius:999px;
+    background:var(--card-sunk); border:1px solid var(--line);
+    display:grid; place-items:center; font-size:.72rem; font-weight:640; color:var(--muted);
+    font-variant-numeric:tabular-nums;
+  }
+  .stages small { display:block; color:var(--muted); }
+  .spinner {
+    width:1rem; height:1rem; border-radius:999px;
+    border:2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-top-color:var(--accent); animation:spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation:none; } }
+</style>
+{% endblock %}
+
+{% block topactions %}
+<a class="btn" href="/ui/dossiers">Bandeja</a>
+{% endblock %}
+
+{% block content %}
+<p class="eyebrow">{{ dossier.reference }}</p>
+<h1>{{ dossier.title }}</h1>
+
+<div class="card stack" data-dossier="{{ dossier.id }}" id="panel">
+  <div class="row">
+    <span class="spinner" id="spin" aria-hidden="true"></span>
+    <strong id="headline" class="grow">Procesando el expediente…</strong>
+    <span class="pill n mono" id="state">{{ job_status.get(job.status|string, "—") if job else "en cola" }}</span>
+  </div>
+
+  <p class="muted" style="margin:0; font-size:.88rem">
+    El trabajo está en una cola dentro de PostgreSQL y lo coge un proceso
+    aparte, el <em>worker</em>. Puedes cerrar esta pestaña: el procesado sigue
+    igualmente y el resultado te espera en la bandeja.
+  </p>
+
+  <ol class="stages">
+    <li><span class="dot">1</span><div><strong>Capturar las fuentes externas</strong>
+      <small>Consulta el registro de personal por API y captura la página de la convocatoria.</small></div></li>
+    <li><span class="dot">2</span><div><strong>Leer cada documento</strong>
+      <small>Texto nativo si el PDF lo tiene; OCR con Tesseract si es un escaneo; celda a celda si es Excel.</small></div></li>
+    <li><span class="dot">3</span><div><strong>Clasificar</strong>
+      <small>Decide qué es cada documento: memoria, factura o parte horario.</small></div></li>
+    <li><span class="dot">4</span><div><strong>Agregar</strong>
+      <small>Suma las facturas y el parte horario, dejando constancia de qué valores ha sumado.</small></div></li>
+    <li><span class="dot">5</span><div><strong>Validar</strong>
+      <small>Cruza la memoria, el Excel, los justificantes, el registro y la convocatoria entre sí.</small></div></li>
+  </ol>
+
+  <div class="note" id="failure" hidden></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const dossierId = document.getElementById("panel").dataset.dossier;
+const finished = ["NEEDS_REVIEW", "APPROVED", "REJECTED"];
+let attempts = 0;
+
+async function tick() {
+  attempts += 1;
+  let dossier;
+  try {
+    dossier = await (await fetch(`/dossiers/${dossierId}`)).json();
+  } catch (error) {
+    /* A single failed poll says nothing; keep waiting. */
+    return setTimeout(tick, 1200);
+  }
+
+  if (finished.includes(dossier.status)) {
+    location.href = `/ui/dossiers/${dossierId}`;
+    return;
+  }
+
+  if (dossier.status === "FAILED") {
+    document.getElementById("spin").remove();
+    document.getElementById("headline").textContent = "El procesado ha fallado";
+    document.getElementById("state").textContent = "FAILED";
+    document.getElementById("state").className = "pill b mono";
+    const jobs = await (await fetch(`/jobs?dossier_id=${dossierId}`)).json().catch(() => []);
+    const last = Array.isArray(jobs) && jobs.length ? jobs[0] : null;
+    const box = document.getElementById("failure");
+    box.hidden = false;
+    box.textContent = last && last.last_error
+      ? `Último error: ${last.last_error}`
+      : "Mira los registros del worker: docker compose logs --tail=100 worker";
+    return;
+  }
+
+  document.getElementById("state").textContent =
+    dossier.status === "QUEUED" ? "En cola" : "Procesando";
+
+  /* The corpus runs in about two seconds. Anything much longer than a minute
+     means the worker is not running, and saying so beats spinning forever. */
+  if (attempts > 60) {
+    document.getElementById("headline").textContent =
+      "Sigue en cola más de lo normal";
+    document.getElementById("failure").hidden = false;
+    document.getElementById("failure").textContent =
+      "¿Está arrancado el worker? Compruébalo con: docker compose ps worker";
+  }
+  setTimeout(tick, 1000);
+}
+tick();
+</script>
+{% endblock %}

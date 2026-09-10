@@ -1,0 +1,89 @@
+{% extends "_base.html" %}
+{% block title %}Expedientes pendientes{% endblock %}
+
+{% block topactions %}
+<a class="btn" href="/docs" target="_blank" rel="noopener">API</a>
+<a class="btn" href="/ui/dossiers/new">Nuevo expediente</a>
+{% endblock %}
+
+{% block content %}
+<p class="eyebrow">Bandeja de revisión</p>
+<h1>Expedientes pendientes de decisión</h1>
+<p class="lede">
+  Un expediente es una justificación de gasto: una memoria técnica, las facturas
+  que la respaldan, el parte horario del equipo, el registro de personal y la
+  convocatoria. El sistema cruza esas fuentes entre sí y marca lo que no cuadra,
+  <strong>pero no decide</strong>: aprobar o rechazar es siempre tuyo, con un
+  motivo que queda registrado.
+</p>
+
+{% if dossiers %}
+<div class="card" style="padding:0; overflow:hidden">
+<div class="scroll">
+<table>
+  <thead>
+    <tr>
+      <th>Referencia</th>
+      <th>Proyecto</th>
+      <th>Estado</th>
+      <th style="text-align:right">Reclamado</th>
+      <th>Documentos</th>
+      <th>Incidencias</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for d in dossiers %}
+    {% set label, hint = dossier_status.get(d.status|string, (d.status|string, "")) %}
+    {% set f = finding_counts.get(d.id, {"open": 0, "blockers": 0}) %}
+    {% set docs = document_counts.get(d.id, {"accepted": 0, "refused": 0}) %}
+    <tr>
+      <td class="mono" style="white-space:nowrap">{{ d.reference }}</td>
+      <td style="min-width:16rem">{{ d.title }}
+        <div class="muted" style="font-size:.8rem">
+          {{ d.period_start|fecha }} – {{ d.period_end|fecha }}
+        </div>
+      </td>
+      <td>
+        <span class="pill {% if d.status|string == 'APPROVED' %}o{% elif d.status|string in ('FAILED','REJECTED') %}b{% elif d.status|string == 'NEEDS_REVIEW' %}w{% else %}n{% endif %}"
+              title="{{ hint }}">{{ label }}</span>
+      </td>
+      <td class="num" style="text-align:right; white-space:nowrap">{{ d.claimed_total_eur|money }} €</td>
+      <td style="white-space:nowrap">
+        {{ docs.accepted }} aceptados
+        {% if docs.refused %}<span class="muted">· {{ docs.refused }} rechazados</span>{% endif %}
+      </td>
+      <td style="white-space:nowrap">
+        {% if f.blockers %}
+          <span class="pill b">{{ f.blockers }} bloqueante{{ "s" if f.blockers != 1 }}</span>
+        {% elif f.open %}
+          <span class="pill w">{{ f.open }} abierta{{ "s" if f.open != 1 }}</span>
+        {% else %}
+          <span class="pill o">sin incidencias</span>
+        {% endif %}
+      </td>
+      <td><a class="btn small" href="/ui/dossiers/{{ d.id }}">Revisar</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+</div>
+
+<p class="muted" style="font-size:.83rem; margin-top:1rem">
+  «Bloqueante» significa que el sistema se niega a aprobar el expediente hasta
+  que alguien resuelva esa incidencia con un motivo.
+</p>
+
+{% else %}
+<div class="card stack">
+  <h3>Todavía no hay ningún expediente</h3>
+  <p class="muted" style="margin:0">
+    Puedes crear uno desde esta misma pantalla, o cargar los dos expedientes de
+    demostración desde la terminal:
+  </p>
+  <pre class="mono" style="background:var(--card-sunk); padding:.8rem; border-radius:6px; overflow-x:auto; margin:0">powershell -ExecutionPolicy Bypass -File scripts/demo.ps1 -Fresh</pre>
+  <div class="row"><a class="btn primary" href="/ui/dossiers/new">Crear un expediente</a></div>
+</div>
+{% endif %}
+{% endblock %}
