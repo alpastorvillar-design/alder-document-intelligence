@@ -57,12 +57,20 @@ def technical_report(spec: DossierSpec) -> bytes:
             "2. Personal investigador con dedicacion al proyecto", size=12, bold=True, space_after=6
         )
     )
+    # Split across two lines: at 10.5pt the single line these used to be ran
+    # past the right margin and was clipped by the page edge.
     for person in spec.personnel:
         lines.append(
             Line(
-                f"  - {person.employee_id}  {person.full_name}  ({person.role}), "
-                f"categoria {CATEGORY_BY_ROLE.get(person.role, DEFAULT_CATEGORY)}, "
-                f"coste horario {_eur(person.hourly_rate_eur)}/hora"
+                f"  - {person.employee_id}  {person.full_name}  ({person.role})",
+                space_after=1.0,
+            )
+        )
+        lines.append(
+            Line(
+                f"      categoria {CATEGORY_BY_ROLE.get(person.role, DEFAULT_CATEGORY)}, "
+                f"coste horario {_eur(person.hourly_rate_eur)}/hora",
+                size=9.5,
             )
         )
     lines.append(
@@ -105,9 +113,15 @@ def technical_report(spec: DossierSpec) -> bytes:
     for invoice in spec.invoices:
         lines.append(
             Line(
-                f"  - Factura {invoice.invoice_number} de {invoice.supplier_name}, "
-                f"emitida el {invoice.issue_date.isoformat()}, "
-                f"importe total {_eur(invoice.total_eur)}"
+                f"  - Factura {invoice.invoice_number} de {invoice.supplier_name}",
+                space_after=1.0,
+            )
+        )
+        lines.append(
+            Line(
+                f"      emitida el {invoice.issue_date.isoformat()}, "
+                f"importe total {_eur(invoice.total_eur)}",
+                size=9.5,
             )
         )
 

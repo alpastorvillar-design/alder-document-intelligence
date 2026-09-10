@@ -528,3 +528,32 @@ def test_evaluate_runs_every_rule() -> None:
     # With an empty dossier the only thing that can fire is missing evidence.
     assert ids(findings) == {"INSUFFICIENT_EVIDENCE"}
     assert len(rules.ALL_RULES) == 11
+
+
+class TestFindingReferencesAreStable:
+    """A finding's id lists are persisted, so their order has to be decided.
+
+    Rules collect them by walking documents and extractions, so the order is
+    whatever the database returned that run. Two runs over identical input then
+    wrote rows differing only in the arrangement of a list, and the replay
+    comparison - which is how "processing twice changes nothing" is proved -
+    failed on a difference that meant nothing.
+    """
+
+    def test_the_same_ids_in_any_order_persist_identically(self) -> None:
+        from iep.validation.engine import _references
+
+        a = uuid.UUID("1ea87ec8-cc2e-4d4a-83fd-e535952abb1a")
+        b = uuid.UUID("04980751-f20d-4b98-942b-836fb709da42")
+        assert _references((a, b)) == _references((b, a))
+
+    def test_a_repeated_id_is_listed_once(self) -> None:
+        from iep.validation.engine import _references
+
+        a = uuid.UUID("1ea87ec8-cc2e-4d4a-83fd-e535952abb1a")
+        assert _references((a, a)) == [str(a)]
+
+    def test_nothing_points_nowhere(self) -> None:
+        from iep.validation.engine import _references
+
+        assert _references(()) == []

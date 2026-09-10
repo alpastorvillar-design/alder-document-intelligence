@@ -20,6 +20,19 @@ from iep.domain.enums import FindingStatus, Severity
 from iep.validation.rules import RULES_VERSION, RuleFinding
 
 
+def _references(ids: tuple[uuid.UUID, ...]) -> list[str]:
+    """The ids a finding points at, in a stable order.
+
+    A rule collects these by walking documents and extractions, so the order
+    is whatever the database returned. The order carries no meaning - it is a
+    set of references - but it is persisted, so two runs over identical input
+    wrote rows that differed only in how the list happened to be arranged and
+    replay stopped being a no-op. Sorting once here fixes it for every rule
+    rather than asking each one to remember.
+    """
+    return sorted({str(value) for value in ids})
+
+
 @dataclass(frozen=True)
 class ValidationSummary:
     created: int
@@ -60,8 +73,8 @@ def persist(
                     status=FindingStatus.OPEN,
                     message=finding.message,
                     detail=dict(finding.detail),
-                    extraction_ids=[str(i) for i in finding.extraction_ids],
-                    document_ids=[str(i) for i in finding.document_ids],
+                    extraction_ids=_references(finding.extraction_ids),
+                    document_ids=_references(finding.document_ids),
                     fingerprint=fingerprint,
                 )
             )
@@ -71,8 +84,8 @@ def persist(
         # Refresh the evidence but leave a reviewer's decision alone.
         row.message = finding.message
         row.detail = dict(finding.detail)
-        row.extraction_ids = [str(i) for i in finding.extraction_ids]
-        row.document_ids = [str(i) for i in finding.document_ids]
+        row.extraction_ids = _references(finding.extraction_ids)
+        row.document_ids = _references(finding.document_ids)
         row.rule_version = RULES_VERSION
         if row.status == FindingStatus.RESOLVED:
             # It came back, so it is open again.
