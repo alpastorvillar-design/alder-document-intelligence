@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
-CORPUS_VERSION = "1.0.0"
+CORPUS_VERSION = "1.1.0"
 
 # The eligible window published by the (synthetic) funding call.
 CALL_CODE = "CALL-SYN-2025-A"
@@ -370,7 +370,312 @@ DOSSIER_B = DossierSpec(
     notes="Seeded dossier. Each defect maps to exactly one rule in the catalogue.",
 )
 
-DOSSIERS: tuple[DossierSpec, ...] = (DOSSIER_A, DOSSIER_B)
+# --------------------------------------------------------------------------
+# Dossier C: one defect, of the kind that actually turns up most often.
+#
+# A and B are the two extremes - nothing wrong, and everything wrong. Neither
+# looks like an ordinary claim, and a reviewer's judgement is mostly spent on
+# claims with one or two problems. This is that case.
+# --------------------------------------------------------------------------
+
+_C_TIMESHEET = (
+    # Charged at 40,00 while the registry holds 42,50: the single most common
+    # real finding, and it under-claims rather than over-claims.
+    TimesheetRow(
+        "EMP-0142",
+        "Nerea Talvi",
+        "Investigadora principal",
+        "2025-03",
+        Decimal("120"),
+        Decimal("40.00"),
+    ),
+    TimesheetRow(
+        "EMP-0203",
+        "Marta Uxeli",
+        "Ingeniera de software",
+        "2025-03",
+        Decimal("140"),
+        Decimal("34.75"),
+    ),
+    TimesheetRow(
+        "EMP-0203",
+        "Marta Uxeli",
+        "Ingeniera de software",
+        "2025-04",
+        Decimal("150"),
+        Decimal("34.75"),
+    ),
+    TimesheetRow(
+        "EMP-0299",
+        "Hector Balze",
+        "Ingeniero de procesos",
+        "2025-04",
+        Decimal("110"),
+        Decimal("38.10"),
+    ),
+)
+
+_C_INVOICES = (
+    Invoice(
+        invoice_number="FS-2025-2210",
+        supplier_name="Laboratorio Sintetico Iota S.L.",
+        supplier_tax_id="ES-SYN-0011",
+        issue_date=date(2025, 3, 18),
+        base_eur=Decimal("8400.00"),
+        vat_rate=Decimal("0.21"),
+        project_code="INN-2025-043",
+        concept="Ensayos de caracterizacion de materiales",
+        blur=0.35,
+        noise=6,
+        rotation=0.2,
+        jpeg_quality=90,
+    ),
+    Invoice(
+        invoice_number="FS-2025-2311",
+        supplier_name="Ingenieria Sintetica Kappa S.L.",
+        supplier_tax_id="ES-SYN-0012",
+        issue_date=date(2025, 5, 6),
+        base_eur=Decimal("12750.00"),
+        vat_rate=Decimal("0.21"),
+        project_code="INN-2025-043",
+        concept="Desarrollo de firmware para el banco de ensayo",
+        blur=0.4,
+        noise=7,
+        rotation=-0.25,
+        jpeg_quality=89,
+    ),
+)
+
+DOSSIER_C = DossierSpec(
+    reference="INN-2025-043",
+    title="Recubrimientos funcionales para componentes de alta temperatura",
+    summary=(
+        "El proyecto desarrolla un recubrimiento ceramico de bajo espesor para componentes "
+        "sometidos a ciclos termicos severos, con un banco de ensayo instrumentado para medir "
+        "la degradacion en condiciones controladas."
+    ),
+    period_start=date(2025, 1, 1),
+    period_end=date(2025, 12, 31),
+    personnel=(
+        REGISTRY_BY_ID["EMP-0142"],
+        REGISTRY_BY_ID["EMP-0203"],
+        REGISTRY_BY_ID["EMP-0299"],
+    ),
+    timesheet=_C_TIMESHEET,
+    invoices=_C_INVOICES,
+    declared_personnel_cost_eur=sum((r.amount_eur for r in _C_TIMESHEET), Decimal("0.00")),
+    declared_external_cost_eur=sum((i.total_eur for i in _C_INVOICES), Decimal("0.00")),
+    expected_findings=("PERSONNEL_RATE_MISMATCH",),
+    notes=(
+        "One rate that disagrees with the registry, everything else consistent. "
+        "The realistic middle case between A and B."
+    ),
+)
+
+
+# --------------------------------------------------------------------------
+# Dossier D: the two ceiling rules, which no other dossier reached.
+#
+# CLAIM_ABOVE_CALL_MAXIMUM and HOURS_ABOVE_ANNUAL_CEILING were in the
+# catalogue and covered by unit tests, but nothing in the corpus made them
+# fire end to end. A rule that has never fired against a real document is a
+# rule nobody has watched work.
+# --------------------------------------------------------------------------
+
+# 1.800 hours across twelve months: 150 a month stays under the monthly
+# ceiling, so only the annual one fires and the finding is unambiguous.
+_D_HEAVY_MONTHS = tuple(f"2025-{month:02d}" for month in range(1, 13))
+_D_TIMESHEET = (
+    *(
+        TimesheetRow(
+            "EMP-0299",
+            "Hector Balze",
+            "Ingeniero de procesos",
+            month,
+            Decimal("150"),
+            Decimal("38.10"),
+        )
+        for month in _D_HEAVY_MONTHS
+    ),
+    TimesheetRow(
+        "EMP-0244",
+        "Pablo Vindel",
+        "Tecnico de laboratorio",
+        "2025-02",
+        Decimal("160"),
+        Decimal("28.20"),
+    ),
+    TimesheetRow(
+        "EMP-0244",
+        "Pablo Vindel",
+        "Tecnico de laboratorio",
+        "2025-03",
+        Decimal("160"),
+        Decimal("28.20"),
+    ),
+)
+
+_D_INVOICES = (
+    Invoice(
+        invoice_number="FS-2025-3401",
+        supplier_name="Centro Sintetico de Investigacion Lambda",
+        supplier_tax_id="ES-SYN-0013",
+        issue_date=date(2025, 2, 11),
+        base_eur=Decimal("148000.00"),
+        vat_rate=Decimal("0.21"),
+        project_code="INN-2025-044",
+        concept="Colaboracion externa con centro de investigacion",
+        blur=0.38,
+        noise=6,
+        rotation=0.15,
+        jpeg_quality=90,
+    ),
+    Invoice(
+        invoice_number="FS-2025-3512",
+        supplier_name="Planta Piloto Sintetica Mu S.L.",
+        supplier_tax_id="ES-SYN-0014",
+        issue_date=date(2025, 7, 24),
+        base_eur=Decimal("142000.00"),
+        vat_rate=Decimal("0.21"),
+        project_code="INN-2025-044",
+        concept="Construccion de planta piloto y puesta en marcha",
+        blur=0.42,
+        noise=8,
+        rotation=-0.2,
+        jpeg_quality=88,
+    ),
+)
+
+DOSSIER_D = DossierSpec(
+    reference="INN-2025-044",
+    title="Planta piloto de recuperacion de disolventes por membranas",
+    summary=(
+        "El proyecto escala a planta piloto un proceso de separacion por membranas para "
+        "recuperar disolventes de un efluente industrial, con el objetivo de reducir el "
+        "consumo de materia prima virgen y el volumen de residuo peligroso."
+    ),
+    period_start=date(2025, 1, 1),
+    period_end=date(2025, 12, 31),
+    personnel=(
+        REGISTRY_BY_ID["EMP-0244"],
+        REGISTRY_BY_ID["EMP-0299"],
+    ),
+    timesheet=_D_TIMESHEET,
+    invoices=_D_INVOICES,
+    declared_personnel_cost_eur=sum((r.amount_eur for r in _D_TIMESHEET), Decimal("0.00")),
+    declared_external_cost_eur=sum((i.total_eur for i in _D_INVOICES), Decimal("0.00")),
+    expected_findings=(
+        "HOURS_ABOVE_ANNUAL_CEILING",
+        "CLAIM_ABOVE_CALL_MAXIMUM",
+    ),
+    notes=(
+        "Claims above the published maximum and imputes more hours to one person "
+        "than a year holds. Both rules existed and neither had ever fired against "
+        "a document."
+    ),
+)
+
+
+# --------------------------------------------------------------------------
+# Dossier E: an invoice that belongs to another claim.
+#
+# PROJECT_CODE_MISMATCH is a different failure from MISSING_PROJECT_CODE: the
+# traceability is not absent, it points somewhere else. In a consultancy running
+# many claims at once for the same client, that is the likelier mistake.
+# --------------------------------------------------------------------------
+
+_E_TIMESHEET = (
+    TimesheetRow(
+        "EMP-0187",
+        "Iker Rondel",
+        "Ingeniero de datos",
+        "2025-06",
+        Decimal("130"),
+        Decimal("36.00"),
+    ),
+    TimesheetRow(
+        "EMP-0187",
+        "Iker Rondel",
+        "Ingeniero de datos",
+        "2025-07",
+        Decimal("120"),
+        Decimal("36.00"),
+    ),
+    TimesheetRow(
+        "EMP-0203",
+        "Marta Uxeli",
+        "Ingeniera de software",
+        "2025-07",
+        Decimal("145"),
+        Decimal("34.75"),
+    ),
+)
+
+_E_INVOICES = (
+    Invoice(
+        invoice_number="FS-2025-4102",
+        supplier_name="Consultoria Sintetica Nu S.L.",
+        supplier_tax_id="ES-SYN-0015",
+        issue_date=date(2025, 6, 30),
+        base_eur=Decimal("9600.00"),
+        vat_rate=Decimal("0.21"),
+        project_code="INN-2025-045",
+        concept="Analisis de requisitos y arquitectura de datos",
+        blur=0.36,
+        noise=6,
+        rotation=0.18,
+        jpeg_quality=90,
+    ),
+    Invoice(
+        invoice_number="FS-2025-4188",
+        supplier_name="Consultoria Sintetica Nu S.L.",
+        supplier_tax_id="ES-SYN-0015",
+        issue_date=date(2025, 8, 12),
+        base_eur=Decimal("7400.00"),
+        vat_rate=Decimal("0.21"),
+        # Charged to the wrong claim: this reference belongs to dossier A.
+        project_code="INN-2025-041",
+        concept="Integracion con el sistema de planta",
+        blur=0.4,
+        noise=7,
+        rotation=-0.22,
+        jpeg_quality=89,
+    ),
+)
+
+DOSSIER_E = DossierSpec(
+    reference="INN-2025-045",
+    title="Gemelo digital de la red de aire comprimido de una planta",
+    summary=(
+        "El proyecto construye un modelo en tiempo casi real de la red de aire comprimido de "
+        "una planta para detectar fugas y desviaciones de consumo antes de que se traduzcan en "
+        "coste energetico, cruzando telemetria con los partes de mantenimiento."
+    ),
+    period_start=date(2025, 1, 1),
+    period_end=date(2025, 12, 31),
+    personnel=(
+        REGISTRY_BY_ID["EMP-0187"],
+        REGISTRY_BY_ID["EMP-0203"],
+    ),
+    timesheet=_E_TIMESHEET,
+    invoices=_E_INVOICES,
+    declared_personnel_cost_eur=sum((r.amount_eur for r in _E_TIMESHEET), Decimal("0.00")),
+    declared_external_cost_eur=sum((i.total_eur for i in _E_INVOICES), Decimal("0.00")),
+    expected_findings=("PROJECT_CODE_MISMATCH",),
+    notes=(
+        "One invoice charged to a different claim. Traceability is present but "
+        "points elsewhere, which MISSING_PROJECT_CODE would not catch."
+    ),
+)
+
+
+DOSSIERS: tuple[DossierSpec, ...] = (
+    DOSSIER_A,
+    DOSSIER_B,
+    DOSSIER_C,
+    DOSSIER_D,
+    DOSSIER_E,
+)
 
 
 def dossier_by_reference(reference: str) -> DossierSpec:

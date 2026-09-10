@@ -81,14 +81,14 @@ nothing is invented: the document goes to review unclassified.
 
 ### Cost
 
-Measured over the whole corpus (12 documents, ~27,600 estimated input tokens,
+Measured over the whole corpus (24 documents, ~55,000 estimated input tokens,
 ~800 output tokens per document):
 
 | Model | Input/output per million | Estimated cost for the whole corpus |
 | --- | --- | --- |
-| `claude-haiku-4-5` | $1 / $5 | **~€0.07** |
-| `claude-sonnet-5` | $2 / $10 | ~€0.14 |
-| `claude-opus-5` | $5 / $25 | ~€0.35 |
+| `claude-haiku-4-5` | $1 / $5 | **~€0.13** |
+| `claude-sonnet-5` | $2 / $10 | ~€0.27 |
+| `claude-opus-5` | $5 / $25 | ~€0.67 |
 
 Cents - but real money, and the estimate is parameterised rather than measured.
 

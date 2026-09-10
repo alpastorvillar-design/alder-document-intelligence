@@ -152,7 +152,7 @@ Desde el repositorio, en PowerShell:
 powershell -ExecutionPolicy Bypass -File scripts/demo.ps1 -Fresh
 ```
 
-`-Fresh` borra los dos expedientes de demostración antes de empezar. Sin él, la
+`-Fresh` borra los expedientes de demostración antes de empezar. Sin él, la
 segunda vez te dirá que ya están en revisión y no volverá a cargarlos — un
 expediente en revisión rechaza documentos nuevos por diseño.
 
@@ -162,9 +162,9 @@ El script hace, en orden:
 2. construye la imagen (omitible con `-SkipBuild`);
 3. levanta `postgres`, `devsources`, `api` y `worker` y espera a que estén sanos;
 4. genera el corpus sintético dentro del contenedor;
-5. crea los dos expedientes y sube sus documentos;
-6. procesa los dos;
-7. genera los dos informes;
+5. crea los expedientes y sube sus documentos;
+6. los procesa;
+7. genera sus informes;
 8. imprime el inventario y los enlaces.
 
 ### Qué deberías ver
@@ -176,22 +176,63 @@ INN-2025-041: 4 accepted, 0 duplicate, 0 rejected
 INN-2025-042: 8 accepted, 1 duplicate, 2 rejected
 ```
 
-- `INN-2025-041` es el **camino limpio**: 0 incidencias.
-- `INN-2025-042` lleva defectos sembrados a propósito: 17 incidencias, 11 bloqueantes.
-- Los dos rechazos y el duplicado **son parte del guion**: un PDF truncado, un
-  `.txt` que no es formato admitido, y una copia byte a byte de la memoria.
+| Expediente | Para qué está |
+| --- | --- |
+| `INN-2025-041` | El **camino limpio**: 0 incidencias. Prueba de que las reglas no saltan sobre un expediente consistente |
+| `INN-2025-042` | Todos los defectos sembrados: **17 incidencias, 11 bloqueantes** |
+| `INN-2025-043` | Una tarifa que no coincide con el registro. El caso realista intermedio |
+| `INN-2025-044` | Reclama por encima del máximo de la convocatoria, y más horas al año de las que tiene un año |
+| `INN-2025-045` | Una factura imputada a otro expediente |
 
-### Dónde mirar después
+Los dos rechazos y el duplicado de `INN-2025-042` **son parte del guion**: un
+PDF truncado, un `.txt` que no es formato admitido, y una copia byte a byte de
+la memoria.
 
-1. `http://127.0.0.1:8000/ui/dossiers` — la lista. Pulsa *review* en `INN-2025-042`.
-2. En esa pantalla verás arriba las incidencias y abajo cada campo con su
-   **evidencia**: "página 1, caracteres 120-141" o "hoja 'Partes horarios',
-   celda E7" o "página 1, caja (243,801) 512x28, confianza OCR 64 %".
-3. Escribe tu nombre en el recuadro, escribe un motivo en una incidencia y pulsa
-   *Dismiss*. Recarga: verás quién y por qué.
-4. Pulsa *Generate report*: se abre el informe HTML.
-5. Intenta *Approve* con bloqueantes abiertos: **te lo va a rechazar**. Ese es el
-   comportamiento correcto, y es lo que conviene enseñar.
+`041` y `042` son los dos extremos, y ninguno se parece a un expediente
+ordinario. `043`, `044` y `045` llevan uno o dos problemas cada uno, que es en
+lo que de verdad se pasa el día quien revisa — y entre los tres hacen saltar
+tres reglas que hasta ahora sólo habían ejercitado las pruebas unitarias.
+
+### Las cinco pantallas
+
+Todo lo que hay que enseñar está en `http://127.0.0.1:8000/ui/dossiers`, y son
+cinco pantallas en el orden en que un expediente pasa por ellas.
+
+| Pantalla | Dónde | Qué hace |
+| --- | --- | --- |
+| **Bandeja** | `/ui/dossiers` | Qué hay esperando, qué lleva cada expediente y si algo lo bloquea |
+| **Alta** | `/ui/dossiers/new` | Los datos de la justificación y una zona para **arrastrar y soltar** los ficheros |
+| **Progreso** | `/ui/dossiers/{id}/progress` | Las etapas del pipeline mientras el worker trabaja |
+| **Revisión** | `/ui/dossiers/{id}` | Las incidencias y todos los campos, con acciones |
+| **Evidencia** | `/ui/evidence/{id}` | **El documento con el sitio exacto marcado** |
+
+La pantalla de alta hace las **mismas tres llamadas** que haría una integración:
+crear el expediente, subir cada fichero, encolar el procesado. Por eso lo que
+rechaza aquí lo rechazaría igual desde cualquier otro sitio, y lo dice con el
+nombre del fichero: *«justificante-danado.pdf — PDF has no pages»*.
+
+### El recorrido que conviene enseñar
+
+1. Abre la **bandeja** y pulsa *Revisar* en `INN-2025-042`.
+2. Arriba verás **⛔ No se puede aprobar todavía** con el recuento, y el botón
+   *Aprobar* deshabilitado. Ese es el comportamiento correcto: el sistema se
+   niega, no falla al pulsarlo.
+3. Cada incidencia dice **en español** qué está mal, enseña las cifras que ha
+   comparado, y despliega *¿Por qué salta esto?* con la **exigencia de
+   justificación** de la que sale. Eso es lo que convierte una incidencia en algo
+   discutible en lugar de una opinión.
+4. Pulsa **«Ver total de la factura»** en una incidencia: se abre el escaneo con
+   un **recuadro amarillo alrededor de las palabras que leyó el OCR**, dibujado
+   con las coordenadas que se guardaron durante la extracción. Ahí es donde se
+   entiende de qué va el proyecto.
+5. Baja a *Campos extraídos*: prueba **Ver evidencia** en una celda de Excel (sale
+   la celda con sus vecinas y su fila de cabecera) y en un campo de la
+   convocatoria (sale el fragmento y el selector).
+6. Escribe tu nombre, pon un motivo en una incidencia y pulsa *Falso positivo*.
+   Recarga: queda quién y por qué.
+7. Pulsa *Generar informe*: se abre el informe HTML.
+8. Ahora abre `INN-2025-043`, que sólo tiene **una** incidencia. Ese es el caso
+   que se parece a un expediente real.
 
 ## 6. Cómo abrir n8n y ver el workflow
 

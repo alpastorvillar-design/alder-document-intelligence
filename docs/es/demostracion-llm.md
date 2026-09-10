@@ -103,14 +103,14 @@ un LLM" y "sé qué parte de mi integración está demostrada".
 
 ### Coste
 
-Medido sobre el corpus completo (12 documentos, ~27.600 tokens de entrada
+Medido sobre el corpus completo (24 documentos, ~55.000 tokens de entrada
 estimados, ~800 de salida por documento):
 
 | Modelo | Precio entrada/salida por millón | Coste estimado del corpus entero |
 | --- | --- | --- |
-| `claude-haiku-4-5` | 1 $ / 5 $ | **~0,07 €** |
-| `claude-sonnet-5` | 2 $ / 10 $ | ~0,14 € |
-| `claude-opus-5` | 5 $ / 25 $ | ~0,35 € |
+| `claude-haiku-4-5` | 1 $ / 5 $ | **~0,13 €** |
+| `claude-sonnet-5` | 2 $ / 10 $ | ~0,27 € |
+| `claude-opus-5` | 5 $ / 25 $ | ~0,67 € |
 
 Son céntimos. Aun así, **es dinero real**: la estimación es parametrizada y
 puede quedarse corta si repites el corpus muchas veces.

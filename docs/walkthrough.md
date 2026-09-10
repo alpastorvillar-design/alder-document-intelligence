@@ -152,9 +152,9 @@ From the repository, in PowerShell:
 powershell -ExecutionPolicy Bypass -File scripts/demo.ps1 -Fresh
 ```
 
-`-Fresh` deletes the two demonstration dossiers first. Without it, the second
-run reports that they are already in review and does not reload them - a dossier
-in review refuses new documents by design.
+`-Fresh` deletes the demonstration dossiers first. Without it, the second run
+reports that they are already in review and does not reload them - a dossier in
+review refuses new documents by design.
 
 The script, in order:
 
@@ -162,9 +162,9 @@ The script, in order:
 2. builds the image (skippable with `-SkipBuild`);
 3. starts `postgres`, `devsources`, `api` and `worker` and waits for health;
 4. generates the synthetic corpus inside the container;
-5. creates both dossiers and uploads their documents;
-6. processes both;
-7. generates both reports;
+5. creates the dossiers and uploads their documents;
+6. processes them;
+7. generates their reports;
 8. prints the inventory and the links.
 
 ### What you should see
@@ -176,23 +176,61 @@ INN-2025-041: 4 accepted, 0 duplicate, 0 rejected
 INN-2025-042: 8 accepted, 1 duplicate, 2 rejected
 ```
 
-- `INN-2025-041` is the **clean path**: 0 findings.
-- `INN-2025-042` carries deliberately seeded defects: 17 findings, 11 blocking.
-- The two rejections and the duplicate **are part of the script**: a truncated
-  PDF, a `.txt` that is not an accepted format, and a byte-for-byte copy of the
-  report.
+| Dossier | What it is for |
+| --- | --- |
+| `INN-2025-041` | The **clean path**: 0 findings. Proof the rules do not fire on a consistent claim |
+| `INN-2025-042` | Every seeded defect: **17 findings, 11 blocking** |
+| `INN-2025-043` | One rate that disagrees with the registry. The realistic middle case |
+| `INN-2025-044` | Claims above the call's maximum, and more hours in a year than a year holds |
+| `INN-2025-045` | An invoice charged to a different claim |
 
-### Where to look next
+The two rejections and the duplicate on `INN-2025-042` **are part of the
+script**: a truncated PDF, a `.txt` that is not an accepted format, and a
+byte-for-byte copy of the report.
 
-1. `http://127.0.0.1:8000/ui/dossiers` - the list. Click *review* on `INN-2025-042`.
-2. On that screen the findings are at the top and every field below, with its
-   **evidence**: "page 1, characters 120-141", or "sheet 'Partes horarios',
-   cell E7", or "page 1, box (243,801) 512x28, OCR confidence 64 %".
-3. Type your name in the box, type a reason on a finding and press *Dismiss*.
-   Reload: you will see who and why.
-4. Press *Generate report*: the HTML report opens.
-5. Try *Approve* with blocking findings open: **it will refuse you.** That is the
-   correct behaviour and the thing worth showing.
+`041` and `042` are the two extremes, and neither looks like an ordinary claim.
+`043`, `044` and `045` each carry one or two problems, which is what a reviewer
+actually spends the day on - and between them they make three rules fire that
+had only ever been exercised by unit tests.
+
+### The five screens
+
+Everything worth showing starts at `http://127.0.0.1:8000/ui/dossiers`, and it
+is five screens in the order a dossier moves through them.
+
+| Screen | Where | What it does |
+| --- | --- | --- |
+| **Queue** | `/ui/dossiers` | What is waiting, what each dossier holds, and whether anything blocks it |
+| **Intake** | `/ui/dossiers/new` | The claim's own fields and a **drop zone** for its documents |
+| **Progress** | `/ui/dossiers/{id}/progress` | The pipeline's stages while the worker runs |
+| **Review** | `/ui/dossiers/{id}` | The findings and every field, with the actions |
+| **Evidence** | `/ui/evidence/{id}` | **The document with the place marked** |
+
+The intake screen makes the **same three calls** an integration would: create
+the dossier, upload each file, enqueue the run. So a file refused here is
+refused identically anywhere else, and it says so by name:
+*"justificante-danado.pdf - PDF has no pages"*.
+
+### The route worth walking
+
+1. Open the **queue** and click *Revisar* on `INN-2025-042`.
+2. The top of the screen says **the dossier cannot be approved**, with the
+   count, and the approve button is disabled. That is the correct behaviour:
+   the system refuses rather than failing when pressed.
+3. Each finding says what is wrong in plain language, shows the figures it
+   compared, and expands to the **justification requirement** it enforces.
+   That is what makes a finding arguable rather than an opinion.
+4. Press the evidence button on a finding: the scan opens with a **box around
+   the words the engine read**, drawn from the coordinates stored during
+   extraction. This is where the project explains itself.
+5. Further down, try the evidence link on a workbook cell (it comes back with
+   its neighbours and its header row) and on a call-page field (the matched
+   fragment and the selector).
+6. Type your name, give a reason on a finding and dismiss it. Reload: who and
+   why are recorded.
+7. Generate the report.
+8. Then open `INN-2025-043`, which has exactly **one** finding. That is the one
+   that looks like an ordinary claim.
 
 ## 6. Opening n8n and seeing the workflow
 

@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 import pytest
-from corpus.dataset import DOSSIER_A, DOSSIER_B
+from corpus.dataset import DOSSIER_A, DOSSIER_B, DOSSIERS, DossierSpec
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -209,29 +209,54 @@ class TestPipeline:
         db.refresh(dossier)
         assert DossierStatus(dossier.status) is DossierStatus.NEEDS_REVIEW
 
-    def test_every_seeded_defect_is_found(
+    @pytest.mark.parametrize("spec", DOSSIERS, ids=lambda spec: spec.reference)
+    def test_each_dossier_produces_exactly_the_findings_it_was_built_for(
         self,
+        spec: DossierSpec,
         db: Session,
         store: LocalObjectStore,
         settings: Settings,
         corpus_dir: Path,
         requires_ocr: None,
     ) -> None:
+        """Both directions matter, and the second one is the harder claim.
+
+        Missing rules mean a defect walked past. Extra rules mean a false
+        positive, and a reviewer who is shown findings that are not real stops
+        reading the ones that are - so "0 false positives" is only worth
+        stating if something asserts it.
+        """
         dossier = seed(
             db,
             store,
             settings,
             corpus_dir,
-            DOSSIER_B.reference,
-            claimed_total=DOSSIER_B.claimed_total_eur,
+            spec.reference,
+            claimed_total=spec.claimed_total_eur,
         )
         run(db, store, settings, dossier)
         found = {
             f.rule_id
             for f in db.execute(select(Finding).where(Finding.dossier_id == dossier.id)).scalars()
         }
-        missing = set(DOSSIER_B.expected_findings) - found
-        assert missing == set(), f"rules that did not fire: {sorted(missing)}"
+        expected = set(spec.expected_findings)
+        assert found - expected == set(), f"false positives: {sorted(found - expected)}"
+        assert expected - found == set(), f"rules that did not fire: {sorted(expected - found)}"
+
+    def test_the_corpus_exercises_the_rules_it_claims_to(self) -> None:
+        """Three rules were in the catalogue with nothing to make them fire.
+
+        A rule covered only by a unit test has never met a document: it has
+        never been through ingestion, extraction and aggregation. This pins the
+        coverage so it cannot quietly shrink again.
+        """
+        seeded = {rule_id for spec in DOSSIERS for rule_id in spec.expected_findings}
+        for rule_id in (
+            "CLAIM_ABOVE_CALL_MAXIMUM",
+            "HOURS_ABOVE_ANNUAL_CEILING",
+            "PROJECT_CODE_MISMATCH",
+        ):
+            assert rule_id in seeded, f"{rule_id} has no document that makes it fire"
 
     def test_every_extraction_carries_a_locator_and_a_version(
         self,

@@ -18,6 +18,22 @@ def _eur(value: Decimal) -> str:
     return f"{value:,.2f} EUR".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
+# Personnel imputed to a project is classified by academic qualification, and
+# the categories are fixed by the justification instructions rather than chosen
+# per project. Carrying them makes the synthetic report read like the real
+# thing to somebody who fills these in for a living.
+CATEGORY_BY_ROLE = {
+    "Investigadora principal": "Doctores",
+    "Investigador principal": "Doctores",
+    "Ingeniero de datos": "Titulados Universitarios",
+    "Ingeniera de software": "Titulados Universitarios",
+    "Ingeniero de procesos": "Titulados Universitarios",
+    "Analista de calidad": "Titulados Universitarios",
+    "Tecnico de laboratorio": "Otros",
+}
+DEFAULT_CATEGORY = "Titulados Universitarios"
+
+
 def technical_report(spec: DossierSpec) -> bytes:
     """The native-text PDF. Extraction of this file must not go near OCR."""
     lines: list[Line] = [
@@ -36,25 +52,56 @@ def technical_report(spec: DossierSpec) -> bytes:
     lines += [Line(chunk) for chunk in wrap(spec.summary)]
     lines.append(Line("", space_after=10))
 
-    lines.append(Line("2. Personal investigador imputado", size=12, bold=True, space_after=6))
+    lines.append(
+        Line(
+            "2. Personal investigador con dedicacion al proyecto", size=12, bold=True, space_after=6
+        )
+    )
     for person in spec.personnel:
         lines.append(
             Line(
                 f"  - {person.employee_id}  {person.full_name}  ({person.role}), "
-                f"tarifa de referencia {_eur(person.hourly_rate_eur)}/hora"
+                f"categoria {CATEGORY_BY_ROLE.get(person.role, DEFAULT_CATEGORY)}, "
+                f"coste horario {_eur(person.hourly_rate_eur)}/hora"
             )
         )
+    lines.append(
+        Line(
+            "  Las dedicaciones se acreditan mediante partes horarios firmados, "
+            "con desglose mensual.",
+            size=9.5,
+        )
+    )
     lines.append(Line("", space_after=10))
 
-    lines.append(Line("3. Resumen economico declarado", size=12, bold=True, space_after=6))
+    lines.append(
+        Line("3. Presupuesto ejecutado por conceptos de gasto", size=12, bold=True, space_after=6)
+    )
     lines += [
-        Line(f"  Coste de personal declarado: {_eur(spec.declared_personnel_cost_eur)}"),
-        Line(f"  Colaboraciones externas declaradas: {_eur(spec.declared_external_cost_eur)}"),
-        Line(f"  TOTAL DECLARADO: {_eur(spec.declared_total_eur)}", bold=True),
+        Line(f"  Gastos de personal declarados: {_eur(spec.declared_personnel_cost_eur)}"),
+        Line(
+            "  Gastos de colaboraciones externas declarados: "
+            f"{_eur(spec.declared_external_cost_eur)}"
+        ),
+        Line(f"  TOTAL GASTOS DECLARADOS: {_eur(spec.declared_total_eur)}", bold=True),
     ]
+    lines.append(
+        Line(
+            "  No se imputan gastos de amortizacion de activos, materiales ni costes "
+            "de gestion en este periodo.",
+            size=9.5,
+        )
+    )
     lines.append(Line("", space_after=10))
 
-    lines.append(Line("4. Justificantes aportados", size=12, bold=True, space_after=6))
+    lines.append(
+        Line(
+            "4. Gastos cuya justificacion requiere factura",
+            size=12,
+            bold=True,
+            space_after=6,
+        )
+    )
     for invoice in spec.invoices:
         lines.append(
             Line(
@@ -71,7 +118,8 @@ def technical_report(spec: DossierSpec) -> bytes:
     lines.append(Line("", space_after=12))
     lines.append(
         Line(
-            "Documento sintetico generado para pruebas. No corresponde a ninguna entidad real.",
+            "Entidad beneficiaria: dato sintetico. Documento generado para pruebas; "
+            "no corresponde a ninguna entidad real.",
             size=8.5,
         )
     )

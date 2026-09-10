@@ -28,14 +28,22 @@ CELL_CONFIDENCE = 0.98
 # Penalty applied when an amount only parsed after OCR digit repair.
 REPAIRED_PENALTY = 0.75
 
+# Both wordings are accepted for the three declared amounts. The corpus writes
+# the partida names used by the published justification instructions ("gastos
+# de personal", "colaboraciones externas"); the earlier phrasing is kept so a
+# report written against the previous template still reads correctly.
 REPORT_LABELS: dict[str, str] = {
     "report.project_code": r"expediente",
     "report.call_code": r"convocatoria",
     "report.title": r"titulo\s+del\s+proyecto",
     "report.period": r"periodo\s+de\s+ejecucion",
-    "report.declared_personnel_cost_eur": r"coste\s+de\s+personal\s+declarado",
-    "report.declared_external_cost_eur": r"colaboraciones\s+externas\s+declaradas",
-    "report.declared_total_eur": r"total\s+declarado",
+    "report.declared_personnel_cost_eur": (
+        r"(?:coste|gastos)\s+de\s+personal\s+(?:declarado|declarados|imputados)"
+    ),
+    "report.declared_external_cost_eur": (
+        r"(?:gastos\s+de\s+)?colaboraciones\s+externas\s+(?:declaradas|declarados|imputadas)"
+    ),
+    "report.declared_total_eur": r"total\s+(?:gastos\s+)?declarados?",
 }
 
 INVOICE_LABELS: dict[str, str] = {
