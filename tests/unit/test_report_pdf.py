@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 import pytest
 
@@ -74,6 +76,11 @@ class TestWhatTheRendererIsGiven:
         """The report is already on disk, so it is opened as a file rather
         than fetched over HTTP: no network, and a container that cannot reach
         its own API still produces the document.
+
+        The URI is turned back into a path with `url2pathname` rather than by
+        stripping `file:///`. Stripping three slashes leaves an absolute path
+        on Windows (`C:/...`) and a relative one on Linux (`tmp/...`), so the
+        first version of this test passed here and failed on the runner.
         """
         seen: dict[str, object] = {}
 
@@ -86,7 +93,7 @@ class TestWhatTheRendererIsGiven:
             target = next(
                 arg.split("=", 1)[1] for arg in command if arg.startswith("--print-to-pdf=")
             )
-            source = Path(command[-1].removeprefix("file:///"))
+            source = Path(url2pathname(urlparse(command[-1]).path))
             seen["html"] = source.read_bytes()
             Path(target).write_bytes(b"%PDF-1.4 fake")
             return Result()
