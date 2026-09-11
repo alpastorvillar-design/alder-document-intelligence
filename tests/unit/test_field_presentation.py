@@ -262,3 +262,60 @@ class TestWhereACallPageValueCameFrom:
     def test_an_unmapped_field_still_says_something(self) -> None:
         locator = {"kind": "HTML_SELECTOR", "selector": '[data-field="new-thing"]'}
         assert vocab.locator_summary(locator) == "Página publicada · apartado «new-thing»"
+
+
+class TestTheBriefLocator:
+    """The filed report lists every field, and one column was 72 characters.
+
+    In the personnel section every row carried
+    `API de personal · $.pages[*].items[employee_id=EMP-0142].hourly_rate_eur`
+    - which wraps onto three printed lines and repeats, on all 31 rows, the
+    employee id that the block heading above them already states. Thirty-one
+    rows at three lines each is most of a page.
+    """
+
+    def test_an_api_path_keeps_only_the_field_it_names(self) -> None:
+        locator = {
+            "kind": "API_FIELD",
+            "endpoint": "/api/v1/personnel",
+            "json_path": "$.pages[*].items[employee_id=EMP-0142].hourly_rate_eur",
+        }
+        assert vocab.locator_brief(locator) == "API de personal · hourly_rate_eur"
+        # And the full path is still available for the screen, where there is
+        # room for it and no block heading to lean on.
+        assert "employee_id=EMP-0142" in vocab.locator_summary(locator)
+
+    def test_a_path_with_nothing_to_trim_is_left_alone(self) -> None:
+        locator = {"kind": "API_FIELD", "endpoint": "/x", "json_path": "$"}
+        assert vocab.locator_brief(locator) == "API de personal · $"
+
+    def test_a_cell_drops_the_sheet_the_section_already_names(self) -> None:
+        locator = {
+            "kind": "EXCEL_CELL",
+            "sheet": "Partes horarios",
+            "cell": "G5",
+            "row": 5,
+            "column": "G",
+        }
+        assert vocab.locator_brief(locator) == "Excel · celda G5"
+
+    def test_every_kind_gets_shorter_or_stays_the_same(self) -> None:
+        """A brief form that is longer than the full one is a bug, not a
+        shortening."""
+        cases = [
+            {"kind": "PDF_PAGE", "page": 1, "char_start": 105, "char_end": 168},
+            {"kind": "PDF_PAGE", "page": 2},
+            {"kind": "OCR_WORD_BOX", "page": 1},
+            {"kind": "EXCEL_CELL", "sheet": "Hoja", "cell": "A5", "row": 5, "column": "A"},
+            {"kind": "API_FIELD", "endpoint": "/x", "json_path": "$.a[b=c].d"},
+            {"kind": "HTML_SELECTOR", "selector": '[data-field="status"]'},
+            {"kind": "DERIVED", "inputs": [1, 2, 3]},
+        ]
+        for locator in cases:
+            brief = vocab.locator_brief(locator)
+            assert len(brief) <= len(vocab.locator_summary(locator)), locator["kind"]
+            assert brief, locator["kind"]
+
+    def test_an_unknown_kind_falls_back_to_the_full_summary(self) -> None:
+        locator = {"kind": "SOMETHING_NEW"}
+        assert vocab.locator_brief(locator) == vocab.locator_summary(locator)

@@ -904,6 +904,43 @@ _ALWAYS_USEFUL = (
 # --------------------------------------------------------------------------
 
 
+_TAIL = re.compile(r"[.\]]([\w-]+)$")
+
+
+def locator_brief(locator: dict[str, Any]) -> str:
+    """The same provenance, as short as it can be inside a block.
+
+    The filed report lists every field read, and in the personnel section
+    every row carried `API de personal · $.pages[*].items[employee_id=EMP-0142]
+    .hourly_rate_eur` - 72 characters that wrap onto three printed lines and
+    repeat, on all 31 rows, the employee id that the block heading above them
+    already states. Thirty-one rows at three lines each is most of a page.
+
+    So inside a block the locator names only the part that varies. The whole
+    path is still in the JSON and CSV exports, which are generated from the
+    same data and carry the same hashes.
+    """
+    kind = locator.get("kind")
+    if kind == "API_FIELD":
+        path = str(locator.get("json_path") or "")
+        tail = _TAIL.search(path)
+        return f"API de personal · {tail.group(1)}" if tail else f"API de personal · {path}"
+    if kind == "EXCEL_CELL":
+        return f"Excel · celda {locator.get('cell')}"
+    if kind == "PDF_PAGE":
+        page = locator.get("page")
+        if locator.get("char_start") is not None:
+            return f"PDF · pág. {page}, car. {locator['char_start']}-{locator['char_end']}"
+        return f"PDF · pág. {page}"
+    if kind == "OCR_WORD_BOX":
+        return f"Escaneo · pág. {locator.get('page')}"
+    if kind == "HTML_SELECTOR":
+        return f"Página publicada · «{_call_page_label(locator)}»"
+    if kind == "DERIVED":
+        return f"Calculado desde {len(locator.get('inputs') or ())} valores"
+    return locator_summary(locator)
+
+
 def locator_summary(locator: dict[str, Any]) -> str:
     """One short line naming where a value came from, in Spanish."""
     kind = locator.get("kind")

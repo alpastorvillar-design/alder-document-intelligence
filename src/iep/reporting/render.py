@@ -109,7 +109,9 @@ _env.globals.update(
     locator_kind=vocab.LOCATOR_KIND,
     rule=vocab.rule,
     field_label=vocab.field_label,
+    field_label_short=vocab.field_label_short,
     locator_summary=vocab.locator_summary,
+    locator_brief=vocab.locator_brief,
     detail_rows=vocab.detail_rows,
     evidence_links=vocab.evidence_links,
     unit_of=vocab.unit_of,
@@ -172,6 +174,18 @@ def collect(session: Session, dossier_id: uuid.UUID) -> dict[str, Any]:
         "refused": refused,
         "extractions": extractions,
         "grouped": vocab.group_extractions(extractions),
+        # The same nesting the screen shows, so a figure sits under the same
+        # heading in the artefact somebody files as on the screen they read it
+        # from. Sixteen invoice fields listed flat carry two "Base imponible"
+        # rows with nothing saying which invoice either belongs to.
+        "sections": vocab.group_sections(
+            extractions, {str(d.id): d.original_filename for d in documents}
+        ),
+        # What a reader should look at before the complete listing: the fields
+        # the machine was unsure about and the ones a person has already
+        # touched. Ninety-three rows of "read correctly, 98 %" say nothing that
+        # the summary above does not; these say where the judgement went.
+        "attention": _needs_attention(extractions),
         "findings": ordered_findings,
         "by_severity": [
             (level, [f for f in ordered_findings if Severity(f.severity) is level])
@@ -195,6 +209,31 @@ def collect(session: Session, dossier_id: uuid.UUID) -> dict[str, Any]:
         # old UUID-keyed map plus the flat summary.
         "names_by_uuid": {d.id: d.original_filename for d in documents},
     }
+
+
+def _needs_attention(extractions: list[Extraction]) -> list[Extraction]:
+    """Fields that were not simply read and accepted, in the order they matter.
+
+    A justification report exists to be argued with, and the arguable parts
+    are these: what the reader could not read confidently, and what a person
+    overrode or signed off. Everything else is in the appendix.
+    """
+    order = {
+        FieldStatus.NEEDS_REVIEW: 0,
+        FieldStatus.CORRECTED: 1,
+        FieldStatus.CONFIRMED: 2,
+    }
+    picked = [
+        row for row in extractions if row.status in order or row.original_value_text is not None
+    ]
+    return sorted(
+        picked,
+        key=lambda row: (
+            order.get(FieldStatus(row.status), 9),
+            float(row.confidence),
+            row.field_path,
+        ),
+    )
 
 
 def render_html(session: Session, dossier_id: uuid.UUID) -> RenderedReport:

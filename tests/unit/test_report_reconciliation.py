@@ -259,3 +259,59 @@ class TestAnAmountNeverAppearsWithoutItsUnit:
         assert money_paths
         for path in money_paths:
             assert vocab.unit_of(path) == "€", path
+
+
+class TestWhatTheReportLeadsWith:
+    """Ninety-three rows of "read correctly, 98 %" say nothing the summary
+    above them does not. The fields worth a reader's attention are the ones
+    the machine could not read confidently and the ones a person has already
+    touched, so those get their own section before the appendix."""
+
+    def picked(self, rows: list[Extraction]) -> list[str]:
+        from iep.reporting.render import _needs_attention
+
+        return [row.field_path for row in _needs_attention(rows)]
+
+    def test_a_field_read_and_accepted_is_not_in_it(self) -> None:
+        row = extraction("report.declared_total_eur", "100.00")
+        assert self.picked([row]) == []
+
+    def test_a_field_that_needs_review_is(self) -> None:
+        row = extraction("invoice.base_eur", "100.00")
+        row.status = FieldStatus.NEEDS_REVIEW
+        assert self.picked([row]) == ["invoice.base_eur"]
+
+    def test_a_confirmed_field_is_too(self) -> None:
+        """Somebody signed it off against the document, which is a decision
+        worth showing next to the one that needed making."""
+        row = extraction("invoice.total_eur", "100.00")
+        row.status = FieldStatus.CONFIRMED
+        assert self.picked([row]) == ["invoice.total_eur"]
+
+    def test_a_corrected_field_is_in_it_whatever_its_status_says(self) -> None:
+        """The original reading is kept beside the correction, so the presence
+        of one is the signal - not the status column."""
+        row = extraction("timesheet.rows[0].hours", "120.00")
+        row.original_value_text = "12"
+        assert self.picked([row]) == ["timesheet.rows[0].hours"]
+
+    def test_what_needs_deciding_comes_before_what_was_decided(self) -> None:
+        needs = extraction("a.one", "1.00")
+        needs.status = FieldStatus.NEEDS_REVIEW
+        confirmed = extraction("a.two", "2.00")
+        confirmed.status = FieldStatus.CONFIRMED
+        corrected = extraction("a.three", "3.00")
+        corrected.status = FieldStatus.CORRECTED
+
+        assert self.picked([confirmed, corrected, needs]) == ["a.one", "a.three", "a.two"]
+
+    def test_the_least_confident_reading_is_first(self) -> None:
+        """Within a group, the row a reviewer should look at hardest."""
+        sure = extraction("a.sure", "1.00")
+        sure.status = FieldStatus.NEEDS_REVIEW
+        sure.confidence = Decimal("0.74")
+        unsure = extraction("a.unsure", "1.00")
+        unsure.status = FieldStatus.NEEDS_REVIEW
+        unsure.confidence = Decimal("0.41")
+
+        assert self.picked([sure, unsure]) == ["a.unsure", "a.sure"]

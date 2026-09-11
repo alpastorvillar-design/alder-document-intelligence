@@ -153,3 +153,85 @@ class TestAPopoverIsNotClippedByWhateverScrollsAboveIt:
         assert block is not None
         assert "overflow: visible" in block.group(1)
         assert "overflow-y: auto" not in block.group(1)
+
+
+REPORT = TEMPLATE_DIR.parent.parent / "reporting" / "templates" / "report.html"
+
+
+class TestTheFiledReportPrintsWithItsColours:
+    """A printed report came out flat: the confidence marker, the state tags
+    and the severity bands all appeared as plain text.
+
+    The cause is not in the stylesheet's colours - they are all defined for
+    print - but in the print dialogue, which has "Background graphics" off by
+    default and drops every fill. `print-color-adjust: exact` is what asks for
+    them back, and it is the one declaration whose removal is invisible until
+    somebody prints the thing.
+    """
+
+    def test_the_report_asks_for_its_backgrounds(self) -> None:
+        rules = stylesheet(REPORT)
+        assert "print-color-adjust: exact" in rules
+        assert "-webkit-print-color-adjust: exact" in rules
+
+    def test_the_field_tables_have_fixed_columns(self) -> None:
+        """Without them the personnel section's JSON paths widen their column
+        until "Estado" runs off the sheet - which is how a printed report
+        ended up reading "Leído por la má"."""
+        rules = stylesheet(REPORT)
+        block = re.search(r"table\.fields \{(.*?)\}", rules, flags=re.DOTALL)
+        assert block is not None, "las tablas de campos ya no se declaran"
+        assert "table-layout: fixed" in block.group(1)
+        for column in ("f-field", "f-value", "f-conf", "f-where", "f-state"):
+            assert f"col.{column}" in rules, column
+
+    def test_every_state_is_also_a_word(self) -> None:
+        """So a genuinely monochrome printer still reads correctly: the tags
+        carry text, not only a colour."""
+        from iep.api.vocabulary import FIELD_STATUS
+
+        for label, _ in FIELD_STATUS.values():
+            assert label.strip(), FIELD_STATUS
+
+
+class TestEveryStateTheVocabularyCanEmitIsStyled:
+    """The defect this catches was invisible on screen for the whole project.
+
+    `vocabulary.py` hands templates the long class name - `neutral`,
+    `warning`, `ok`, `blocker`, `muted` - and the shell's stylesheet only
+    defined the one-letter codes `n b w o`. So `<span class="pill warning">`
+    matched `.pill` and nothing else: transparent background, transparent
+    border, and a label that read as coloured text rather than a tag. The
+    report's stylesheet happened to define both spellings, which is why the
+    same state looked like a tag in the filed PDF and not on the screen.
+    """
+
+    def state_classes(self) -> set[str]:
+        """The two tables whose second element is a class name.
+
+        `DOSSIER_STATUS` and `DOCUMENT_STATUS` also hold pairs, but theirs is
+        a description a screen prints - not a selector. Reading them as
+        classes is how the first version of this test asked the stylesheet to
+        define `.pill.Creado, todavía sin documentos`.
+        """
+        from iep.api.vocabulary import FIELD_STATUS, FINDING_STATUS
+
+        return {
+            str(value[1]) for table in (FIELD_STATUS, FINDING_STATUS) for value in table.values()
+        }
+
+    def test_the_vocabulary_names_some_states(self) -> None:
+        """A guard on the guard."""
+        names = self.state_classes()
+        assert {"neutral", "warning", "ok"} <= names, names
+
+    @pytest.mark.parametrize("sheet", ["shell", "report"])
+    def test_each_one_has_a_rule(self, sheet: str) -> None:
+        path = SHELL if sheet == "shell" else REPORT
+        rules = stylesheet(path)
+        declared = set(re.findall(r"\.pill\.([\w-]+)", rules))
+        missing = sorted(self.state_classes() - declared)
+        assert missing == [], (
+            f"{path.name} no estiliza {missing}: esas píldoras salen "
+            f"transparentes y el estado se lee como texto"
+        )

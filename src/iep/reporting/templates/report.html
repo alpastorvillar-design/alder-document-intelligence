@@ -137,10 +137,17 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   padding: .12rem .5rem; border-radius: 999px;
   font-size: .72rem; font-weight: 620; border: 1px solid transparent; white-space: nowrap;
 }
-.pill.neutral, .pill.n { background: var(--card-sunk); color: var(--ink-soft); border-color: var(--line); }
-.pill.blocker, .pill.b { background: var(--blocker-wash); color: var(--blocker); border-color: color-mix(in srgb, var(--blocker) 30%, transparent); }
-.pill.warning, .pill.w { background: var(--warning-wash); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 30%, transparent); }
-.pill.ok, .pill.o { background: var(--ok-wash); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+/* The background is mixed from the state's own colour into the card rather
+   than taken from a `--*-wash` token. On the dark theme those washes sit
+   within a shade or two of the card, so a pill read as coloured text with no
+   tag around it - which is exactly the difference somebody noticed between
+   this report and the screen. Mixing works out in both themes. */
+.pill.neutral, .pill.n { background: color-mix(in srgb, var(--muted) 14%, var(--card)); color: var(--ink-soft); border-color: color-mix(in srgb, var(--muted) 45%, transparent); }
+.pill.blocker, .pill.b { background: color-mix(in srgb, var(--blocker) 16%, var(--card)); color: var(--blocker); border-color: color-mix(in srgb, var(--blocker) 50%, transparent); }
+.pill.warning, .pill.w { background: color-mix(in srgb, var(--warning) 16%, var(--card)); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 50%, transparent); }
+.pill.ok, .pill.o { background: color-mix(in srgb, var(--ok) 16%, var(--card)); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+/* A discarded field or a dismissed finding: present, and deliberately quiet. */
+.pill.muted { background: transparent; color: var(--muted); border-color: var(--line); }
 .pill.muted { background: var(--card-sunk); color: var(--muted); border-color: var(--line-soft); }
 
 table { width: 100%; border-collapse: collapse; font-size: .88rem; }
@@ -245,6 +252,36 @@ footer {
 footer p { margin: 0 0 .4rem; max-width: 82ch; }
 
 /* ---- paper ------------------------------------------------------------ */
+/* The field tables, on screen and on paper. Without fixed columns the
+   registry's JSON paths - `$.pages[*].items[employee_id=EMP-0142].role` - widen
+   their column until "Estado" runs off the right edge of the sheet, which is
+   how a printed report ended up with "Leído por la má". */
+table.fields { table-layout: fixed; width: 100%; }
+/* Measured against the content: with the brief locator the provenance column
+   needs about 200px of a 960px table, not the 326 it had, and the value
+   column - project titles, supplier names - needs the difference. Four lines
+   per row became one for most of them. */
+col.f-field { width: 26%; }
+col.f-value { width: 32%; }
+col.f-conf  { width: 8%; }
+col.f-where { width: 23%; }
+col.f-state { width: 11%; }
+table.fields td { vertical-align: top; overflow-wrap: anywhere; }
+/* The appendix is ninety-odd rows. A line of padding on each is a page. */
+.group table.fields td, .group table.fields th { padding: .3rem .5rem; }
+table.fields td.where { font-size: .82rem; }
+table.fields td.where .muted { display: block; font-size: .76rem; }
+
+/* Where a group repeats per document, per row or per person. */
+.blockhead {
+  padding: .55rem .6rem .35rem; border-top: 1px solid var(--line-soft);
+  background: var(--card-sunk); font-size: .82rem;
+}
+.blockhead-name { color: var(--ink); font-weight: 650; }
+.blockhead-detail { color: var(--ink-soft); margin-left: .45rem; }
+.blockhead-detail::before { content: "· "; color: var(--muted); }
+.blockhead-count { color: var(--muted); margin-left: .45rem; font-size: .78rem; }
+
 @page { size: A4; margin: 15mm 13mm 17mm; }
 @media print {
   /* Forced light: an auditor's copy comes out of a printer, and a dark theme
@@ -258,6 +295,13 @@ footer p { margin: 0 0 .4rem; max-width: 82ch; }
   }
   html { color-scheme: light; }
   body { background: #fff; font-size: 10.5pt; }
+  /* Chrome's print dialogue has "Background graphics" off by default, which
+     drops every wash and every pill fill - the confidence marker, the state
+     tags, the severity bands on findings all print as plain text and the page
+     loses the one thing that says which rows need attention. This asks for
+     them to be kept. The states are also written as words, so a genuinely
+     monochrome printer still reads correctly. */
+  * { print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
   .sheet { max-width: none; padding: 0; }
   .noprint { display: none !important; }
   /* On paper a link is text. Keeping the colour and underline would suggest
@@ -290,6 +334,11 @@ footer p { margin: 0 0 .4rem; max-width: 82ch; }
   /* A group heading alone at the foot of a page is a heading with nothing
      under it. */
   .group > .cap { break-after: avoid; }
+  .blockhead { break-after: avoid; break-inside: avoid; }
+  /* The appendix prints a point smaller than the body. It is a reference
+     listing, read with a finger on a line, not prose. */
+  .group table.fields { font-size: 9pt; }
+  .group table.fields td, .group table.fields th { padding: .22rem .4rem; }
   .masthead, .card, .verdict, .finding, .group, .note { box-shadow: none; }
   /* A finding split across a page break loses the half that explains it. */
   .finding, .verdict, .group > .cap, tr { break-inside: avoid; }
@@ -543,30 +592,12 @@ footer p { margin: 0 0 .4rem; max-width: 82ch; }
 </div>
 {% endif %}
 
-<h2>Campos leídos y su evidencia</h2>
-<p class="lede">
-  Cada valor se leyó de un sitio concreto de un documento concreto, y la
-  columna «de dónde sale» dice cuál. En pantalla es un enlace que abre el
-  documento con ese sitio marcado.
-</p>
-<div class="note" style="margin-bottom:1rem">
-  <strong>Confianza</strong> es lo segura que estaba la lectura, de 0 a 100 %.
-  En un PDF con texto es alta, porque el valor se leyó de la capa de texto
-  junto a una etiqueta inequívoca; en un escaneo es la que devuelve el motor
-  de OCR sobre esas palabras, así que un papel borroso o torcido la baja. Por
-  debajo del <strong>75 %</strong> el campo no se da por bueno: pasa a
-  «necesita revisión» y bloquea la aprobación hasta que una persona lo
-  confirme o lo corrija.
-</div>
-
-{% for title, subtitle, rows in grouped %}
-<div class="group">
-  <div class="cap">
-    <h3>{{ title }}</h3>
-    <small>{{ rows|length }} campo{{ "s" if rows|length != 1 }}{% if subtitle %} · {{ subtitle }}{% endif %}</small>
-  </div>
-  <div class="scroll">
-  <table>
+{% macro fields_table(rows, short) %}
+  <table class="fields">
+    <colgroup>
+      <col class="f-field"><col class="f-value"><col class="f-conf">
+      <col class="f-where"><col class="f-state">
+    </colgroup>
     <thead>
       <tr>
         <th>Campo</th>
@@ -580,9 +611,7 @@ footer p { margin: 0 0 .4rem; max-width: 82ch; }
     {% for e in rows %}
       {% set estatus, ecss = field_status.get(e.status|string, (e.status|string, "neutral")) %}
       <tr>
-        <td>{{ field_label(e.field_path) }}
-          <div class="muted mono" style="font-size:.75rem">{{ e.field_path }}</div>
-        </td>
+        <td>{% if short %}{{ field_label_short(e.field_path) }}{% else %}{{ field_label(e.field_path) }}{% endif %}</td>
         <td>
           {% if e.original_value_text %}<span class="was">{{ e.original_value_text }}</span><br>{% endif %}
           <span class="value">
@@ -592,19 +621,71 @@ footer p { margin: 0 0 .4rem; max-width: 82ch; }
           </span>
         </td>
         {% set pct = (e.confidence|float * 100) %}
-        <td class="num mid"><span class="conf {{ "low" if pct < 75 }}">{{ "%.0f"|format(pct) }} %</span></td>
-        <td class="mid" style="font-size:.83rem">
-          <a href="/ui/evidence/{{ e.id }}">{{ locator_summary(e.locator) }}</a>
-          {% if e.document_id %}
-          <div class="muted mono" style="font-size:.74rem">{{ document_names.get(e.document_id|string, "") }}</div>
-          {% endif %}
+        <td class="num"><span class="conf {{ "low" if pct < 75 }}">{{ "%.0f"|format(pct) }} %</span></td>
+        <td class="where">
+          <a href="/ui/evidence/{{ e.id }}">{% if short %}{{ locator_brief(e.locator) }}{% else %}{{ locator_summary(e.locator) }}{% endif %}</a>
+          {% if not short and e.document_id %}<span class="muted">{{ document_names.get(e.document_id|string, "") }}</span>{% endif %}
         </td>
-        <td class="mid"><span class="pill {{ ecss }}">{{ estatus }}</span></td>
+        {# In the appendix the state is only printed when it is not the
+           default one. Ninety of ninety-three rows said "Leído por la
+           máquina", which is a column of identical text hiding the three
+           rows that say something else. The intro states what blank means. #}
+        <td>{% if not short or e.status|string != "EXTRACTED" %}<span class="pill {{ ecss }}">{{ estatus }}</span>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
+{% endmacro %}
+
+{% if attention %}
+<h2>Campos que pidieron una decisión</h2>
+<p class="lede">
+  Los campos que no se leyeron y aceptaron sin más: los que la máquina no pudo
+  leer con confianza suficiente, y los que una persona ha corregido o
+  confirmado. El resto están en el anexo, al final.
+</p>
+<div class="card flush">
+{{ fields_table(attention, false) }}
+</div>
+{% endif %}
+
+<h2>Anexo · todos los campos leídos</h2>
+<p class="lede">
+  Cada valor se leyó de un sitio concreto de un documento concreto, y la
+  columna «Procedencia» dice cuál. En pantalla es un enlace que abre el
+  documento con ese sitio marcado.
+</p>
+<div class="note" style="margin-bottom:1rem">
+  La columna <strong>Estado</strong> sólo dice algo cuando el campo no se leyó
+  y aceptó sin más: en blanco significa «leído por la máquina».
+</div>
+<div class="note" style="margin-bottom:1rem">
+  <strong>Confianza</strong> es lo segura que estaba la lectura, de 0 a 100 %.
+  En un PDF con texto es alta, porque el valor se leyó de la capa de texto
+  junto a una etiqueta inequívoca; en un escaneo es la que devuelve el motor
+  de OCR sobre esas palabras, así que un papel borroso o torcido la baja. Por
+  debajo del <strong>75 %</strong> el campo no se da por bueno: pasa a
+  «necesita revisión» y bloquea la aprobación hasta que una persona lo
+  confirme o lo corrija.
+</div>
+
+{% for title, subtitle, blocks in sections %}
+{% set field_count = blocks|map(attribute="rows")|map("length")|sum %}
+<div class="group">
+  <div class="cap">
+    <h3>{{ title }}</h3>
+    <small>{{ field_count }} campo{{ "s" if field_count != 1 }}{% if blocks|length > 1 and blocks[0].label %} en {{ blocks|length }} {{ "documentos" if title == "Facturas y justificantes" else "apartados" }}{% endif %}{% if subtitle %} · {{ subtitle }}{% endif %}</small>
   </div>
+  {% for block in blocks %}
+  {% if block.label %}
+  <div class="blockhead">
+    <span class="blockhead-name">{{ block.label }}</span>
+    {% if block.detail %}<span class="blockhead-detail">{{ block.detail }}</span>{% endif %}
+    <span class="blockhead-count">{{ block.rows|length }} campo{{ "s" if block.rows|length != 1 }}</span>
+  </div>
+  {% endif %}
+{{ fields_table(block.rows, block.label|length > 0) }}
+  {% endfor %}
 </div>
 {% endfor %}
 

@@ -1502,7 +1502,13 @@ class TestTheFiledReportIsReadable:
         for path in set(paths):
             label = vocab.field_label(path)
             assert label != path, f"{path} no tiene etiqueta en español"
-            assert label in html, f"falta la etiqueta de {path}"
+            # Inside a block the heading already names whose row this is, so
+            # the row carries the short label: "Importe imputado" under
+            # "Nerea Talvi · 2025-02" rather than "Parte horario, fila 1 ·
+            # Importe imputado" ninety-three times. Either way the reader gets
+            # a Spanish name and never a bare field path.
+            short = vocab.field_label_short(path)
+            assert label in html or short in html, f"falta la etiqueta de {path}"
 
     def test_no_english_leaks_through_a_finding_detail(
         self,
