@@ -79,6 +79,15 @@
      column - while "Estado" wrapped "Leído por la máquina" onto two lines in
      143px. The shares below give the actions what they need and hand the rest
      to the columns that were wrapping. */
+  /* The shares below react to the width of this box, not the window. That
+     distinction is the whole fix: opening the copilot narrows the page by
+     25rem, but `main` is capped at 1360px, so on a wide screen the table
+     keeps exactly the same width with the drawer open and on a narrow one it
+     does not. Keying the shares on `body.copilot-on` re-proportioned the
+     columns on a 1900px screen where nothing had actually changed - 185px of
+     empty actions column - and a media query cannot tell the two cases apart
+     because neither of them changes the window. A container query can. */
+  details.group .body { container-type:inline-size; }
   table.fields { table-layout:fixed; width:100%; }
   col.c-field { width:14.5%; }
   col.c-value { width:19.5%; }
@@ -90,29 +99,41 @@
      and cannot break: 151px measured. Narrower wraps it, wider is waste. */
   col.c-state { width:11.5%; }
   col.c-act   { width:28.5%; }
-  /* The copilot drawer takes 25rem off the page without changing the window,
-     so a media query cannot see it: with the drawer open a group has 914px
-     instead of 1314. There is no arrangement of six columns and 366px of
-     unbreakable actions inside 914, so here the actions are deliberately
-     given less than they need - the field drops to a second line inside the
-     cell, which costs one row of height and keeps every column readable. */
-  body.copilot-on col.c-field { width:14%; }
-  body.copilot-on col.c-value { width:12.5%; }
-  body.copilot-on col.c-conf  { width:11%; }
-  body.copilot-on col.c-where { width:10.5%; }
-  body.copilot-on col.c-state { width:11%; }
-  body.copilot-on col.c-act   { width:41%; }
-
-  /* Below about this width 28.5% stops covering the 366px the actions need,
-     so they take a larger share and the prose columns wrap a line more. The
-     alternative - buttons dropping to a second line - makes every row taller. */
-  @media (max-width: 1340px) {
+  /* The actions measure 356px and cannot shrink, so each threshold is that
+     number divided by the share above it - not a round figure. 28.5% covers
+     356px down to a 1249px table, 34% down to 1047, 40% down to 890, 46% down
+     to 774. Picking 1020 for the second step left a gap: at a 1033px table
+     34% is 351px, the row overflowed its cell and the horizontal scrollbar
+     came back. */
+  @container (max-width: 1250px) {
     col.c-field { width:13.5%; }
-    col.c-value { width:15%; }
+    col.c-value { width:15.5%; }
     col.c-conf  { width:10%; }
     col.c-where { width:13.5%; }
+    col.c-state { width:13.5%; }
+    col.c-act   { width:34%; }
+  }
+  @container (max-width: 1045px) {
+    col.c-field { width:13%; }
+    col.c-value { width:13%; }
+    col.c-conf  { width:11%; }
+    col.c-where { width:11%; }
     col.c-state { width:12%; }
-    col.c-act   { width:36%; }
+    col.c-act   { width:40%; }
+  }
+  @container (max-width: 888px) {
+    col.c-field { width:12%; }
+    col.c-value { width:11%; }
+    col.c-conf  { width:10.5%; }
+    col.c-where { width:10%; }
+    col.c-state { width:10.5%; }
+    col.c-act   { width:46%; }
+  }
+  /* Narrower than any share can cover, so the row is allowed to wrap. A
+     taller row is the last thing to give up, and still better than a table
+     that scrolls sideways. */
+  @container (max-width: 772px) {
+    .cell-actions { flex-wrap:wrap; row-gap:.35rem; }
   }
   /* A JSON path has no spaces to break at and would otherwise run out of its
      column: `$.pages[*].items[employee_id=EMP-0142].hourly_rate_eur`. */
@@ -160,7 +181,9 @@
      `flex-wrap` on the row is the escape hatch for a very narrow window - it
      drops the field to a second line rather than forcing the table to
      scroll. */
-  .cell-actions input { flex:0 1 auto; width:7rem; min-width:6.5rem; }
+  /* A point smaller than the shell's inputs: at .88rem the placeholder was a
+     hair wider than the field describing it. */
+  .cell-actions input { flex:0 0 auto; width:7rem; min-width:6.5rem; font-size:.8125rem; }
 
   /* Where a group repeats - one block per invoice, per timesheet row, per
      person - the break is a row spanning the table rather than a separate
