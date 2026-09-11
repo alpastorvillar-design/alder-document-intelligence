@@ -81,10 +81,14 @@
      to the columns that were wrapping. */
   table.fields { table-layout:fixed; width:100%; }
   col.c-field { width:14.5%; }
-  col.c-value { width:18%; }
-  col.c-conf  { width:8.5%; }
-  col.c-where { width:18.5%; }
-  col.c-state { width:12%; }
+  col.c-value { width:19.5%; }
+  /* Wide enough for "CONFIANZA" and its help button on one line - at 8.5% the
+     button wrapped under the word. */
+  col.c-conf  { width:10%; }
+  col.c-where { width:16%; }
+  /* Exactly the width of "Leído por la máquina", which is the longest state
+     and cannot break: 151px measured. Narrower wraps it, wider is waste. */
+  col.c-state { width:11.5%; }
   col.c-act   { width:28.5%; }
   /* The copilot drawer takes 25rem off the page without changing the window,
      so a media query cannot see it: with the drawer open a group has 914px
@@ -92,23 +96,23 @@
      unbreakable actions inside 914, so here the actions are deliberately
      given less than they need - the field drops to a second line inside the
      cell, which costs one row of height and keeps every column readable. */
-  body.copilot-on col.c-field { width:16%; }
-  body.copilot-on col.c-value { width:15%; }
+  body.copilot-on col.c-field { width:14%; }
+  body.copilot-on col.c-value { width:12.5%; }
   body.copilot-on col.c-conf  { width:11%; }
-  body.copilot-on col.c-where { width:14.5%; }
-  body.copilot-on col.c-state { width:16.5%; }
-  body.copilot-on col.c-act   { width:27%; }
+  body.copilot-on col.c-where { width:10.5%; }
+  body.copilot-on col.c-state { width:11%; }
+  body.copilot-on col.c-act   { width:41%; }
 
   /* Below about this width 28.5% stops covering the 366px the actions need,
      so they take a larger share and the prose columns wrap a line more. The
      alternative - buttons dropping to a second line - makes every row taller. */
   @media (max-width: 1340px) {
     col.c-field { width:13.5%; }
-    col.c-value { width:16.5%; }
-    col.c-conf  { width:8.5%; }
-    col.c-where { width:17%; }
-    col.c-state { width:12.5%; }
-    col.c-act   { width:32%; }
+    col.c-value { width:15%; }
+    col.c-conf  { width:10%; }
+    col.c-where { width:13.5%; }
+    col.c-state { width:12%; }
+    col.c-act   { width:36%; }
   }
   /* A JSON path has no spaces to break at and would otherwise run out of its
      column: `$.pages[*].items[employee_id=EMP-0142].hourly_rate_eur`. */
@@ -143,7 +147,10 @@
   .keys-toggle { display:flex; align-items:center; gap:.4rem; white-space:nowrap;
                  color:var(--ink-soft); font-size:.85rem; padding-top:.3rem; }
 
-  .cell-actions { display:flex; gap:.3rem; align-items:center; flex-wrap:wrap; row-gap:.35rem; }
+  /* One row, always. Wrapping the field onto a second line saved width and
+     made every row taller, and the four controls read as a single action when
+     they sit together. The column is given what they measure instead. */
+  .cell-actions { display:flex; gap:.3rem; align-items:center; flex-wrap:nowrap; }
   /* "valor correcto" was rendering as "valor correct". The declaration said
      `max-width:9rem`, which was never the constraint: this is a flex item in
      a tight row, so it shrank below that. Refusing to shrink is the fix, and
@@ -170,9 +177,13 @@
   .subhead-count { color:var(--muted); font-weight:400; margin-left:.5rem; font-size:.78rem; }
   /* The button was wrapping to two lines inside a narrow cell. */
   .cell-actions .btn, .cell-actions button { white-space:nowrap; }
-  /* Body cells default to top alignment for long text; these two hold a
-     single short value and read wrong when they float above their header. */
-  td.mid { vertical-align:middle; }
+  /* Every cell starts its text on the same line. Four of the six were
+     `vertical-align: middle` and two were not, so "95 %" floated halfway down
+     a row whose first column had wrapped onto three lines and the eye had to
+     re-find the line it was reading. Centring one short value looks tidier in
+     isolation and worse in a row. */
+  table.fields td { vertical-align:top; }
+  td.mid { vertical-align:top; }
 </style>
 {% endblock %}
 
@@ -205,7 +216,7 @@
           </details>
           {% endif %}
         </th>
-        <th class="h-where">De dónde sale</th>
+        <th class="h-where">Procedencia</th>
         <th class="h-state">Estado</th>
         <th class="h-act">Acciones
           {% if with_help %}

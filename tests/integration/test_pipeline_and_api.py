@@ -544,7 +544,8 @@ class TestPipeline:
         run(db, store, settings, dossier)
         rendered = render.render_html(db, dossier.id)
         html = rendered.html.decode("utf-8")
-        assert "De dónde sale" in html
+        # The filed report names the column the same way the screen does.
+        assert "Procedencia" in html
         assert "página 1" in html or "celda" in html
         assert rendered.blocker_count > 0
 
