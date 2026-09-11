@@ -22,16 +22,12 @@
     padding:.6rem .8rem; margin-bottom:1.4rem; box-shadow:var(--shadow); }
   .toolbar input[type=text] { max-width:12rem; }
 
-  /* Read at the width the rest of the application reads at. `main` is 1120px
-     everywhere; this screen asks for `.wide` (1360px) because the field table
-     genuinely needs the columns, and a finding was inheriting that width
-     without needing it - a title, a couple of figures and two chips spread
-     across 1320px. Measured over the fourteen findings on INN-2025-042 the
-     narrower measure costs 44px of page height in total, because one more
-     facts row wraps; 1180px would cost nothing at all and barely reads as a
-     change. */
+  /* Full width, like the field table below it. Capping this at the
+     application's ordinary 1120px was tried and reverted: narrower reads as
+     an inset column and the step against the sections above and below it was
+     worse than the space it saved. */
   .finding { border:1px solid var(--line); border-radius:var(--radius); background:var(--card);
-    overflow:hidden; max-width:1120px; }
+    overflow:hidden; }
   .finding + .finding { margin-top:.6rem; }
   .finding > .head { display:flex; gap:.7rem; padding:.8rem .95rem; align-items:flex-start; }
   /* A flex item will not shrink below its own content unless told to, and the
@@ -57,12 +53,7 @@
      every pair to its content and wraps only when the row really runs out. */
   .finding .facts { display:flex; flex-wrap:wrap;
     gap:.35rem 2.2rem; margin:.7rem 0 0; padding:.6rem .7rem;
-    background:var(--card-sunk); border-radius:7px; font-size:.83rem;
-    /* And the box stops where its contents do. Full width it implied there
-       was more data further right, on a finding that has two numbers to
-       compare: 1205px of panel holding 330px of figures. Measured here it is
-       346px for two facts, 525px for three, 1048px for five. */
-    width:max-content; max-width:100%; }
+    background:var(--card-sunk); border-radius:7px; font-size:.83rem; }
   /* A floor so two short pairs do not touch, and a ceiling so one long value
      cannot push the rest off the row - a 64-character digest is 30rem wide. */
   .finding .facts > div { min-width:9rem; max-width:min(100%, 34rem); }
@@ -73,6 +64,8 @@
     overflow-wrap:anywhere; min-width:0; }
   .finding .links { display:flex; gap:.35rem; align-items:center; flex-wrap:wrap;
     margin-top:.6rem; font-size:.82rem; }
+  /* The second row is the continuation of the first, not a new block. */
+  .finding .links + .links { margin-top:.4rem; }
   .finding details { margin-top:.7rem; font-size:.85rem; }
   .finding summary { cursor:pointer; color:var(--accent); font-weight:520; }
   .finding details p { margin:.5rem 0 0; color:var(--ink-soft); }
@@ -87,6 +80,8 @@
   .group > summary small { color:var(--muted); }
   .group[open] > summary { border-bottom:1px solid var(--line-soft); }
   .group .body { padding:0 .3rem .3rem; }
+  /* A finding inside a group needs air under the summary it hangs from. */
+  .group .body > .finding:first-child { margin-top:.5rem; }
   .value { font-weight:560; font-variant-numeric:tabular-nums; }
   .was { color:var(--blocker); text-decoration:line-through; font-weight:400; }
   .conf { font-variant-numeric:tabular-nums; }
@@ -232,13 +227,14 @@
   .subhead-count { color:var(--muted); font-weight:400; margin-left:.5rem; font-size:.78rem; }
   /* The button was wrapping to two lines inside a narrow cell. */
   .cell-actions .btn, .cell-actions button { white-space:nowrap; }
-  /* Every cell starts its text on the same line. Four of the six were
-     `vertical-align: middle` and two were not, so "95 %" floated halfway down
-     a row whose first column had wrapped onto three lines and the eye had to
-     re-find the line it was reading. Centring one short value looks tidier in
-     isolation and worse in a row. */
-  table.fields td { vertical-align:top; }
-  td.mid { vertical-align:top; }
+  /* Centred in the row, including the state tag.
+     This was `top` for a reason worth keeping written down: with it, every
+     cell starts its text on the same line, which matters when the first
+     column has wrapped onto three lines. Centring was chosen anyway, having
+     seen both - a tag pinned to the top of a two-line row reads as though it
+     belongs to the first line of it rather than to the row. */
+  table.fields td { vertical-align:middle; }
+  td.mid { vertical-align:middle; }
 </style>
 {% endblock %}
 
@@ -396,9 +392,17 @@
     {% if group %}
       {% set label, hint = severity_label.get(level|string, (level|string, "")) %}
       {% set css = "b" if level|string == "BLOCKER" else ("w" if level|string == "WARNING" else "i") %}
-      <p class="eyebrow" style="margin:1.2rem 0 .5rem">
-        {{ label }} · {{ group|length }} · {{ hint|lower }}
-      </p>
+      {# The same section a field group is: openable, and closed when it is
+         not what you came for. Blockers start open because they are what
+         stops the dossier being approved; warnings and notes start closed, so
+         eleven blockers are not read past to reach them. #}
+      <details class="group" {% if level|string == "BLOCKER" %}open{% endif %}
+               style="margin-top:1.2rem">
+        <summary>
+          <h3>{{ label }}</h3>
+          <small>{{ group|length }} · {{ hint|lower }}</small>
+        </summary>
+        <div class="body">
       {% for f in group %}
         {% set r = rule(f.rule_id) %}
         {% set fstatus, fcss = finding_status.get(f.status|string, (f.status|string, "n")) %}
@@ -423,14 +427,21 @@
                   {% set _ = fields.append(extraction_by_id[eid|string]) %}
                 {% endif %}
               {% endfor %}
-              {% if docs or fields %}
+              {# Two rows, not one wrapping row. What the finding affects and
+                 where to go and look at it are different questions, and a
+                 single flex row broke between them wherever the width
+                 happened to run out - so a "Ver ..." button could end up
+                 beside the filenames while another sat on the line below. #}
+              {% if docs %}
               <div class="links">
-                {% if docs %}
-                  <span class="muted">Afecta a:</span>
-                  {% for did in docs %}
-                    <span class="pill n mono">{{ document_names.get(did|string, did) }}</span>
-                  {% endfor %}
-                {% endif %}
+                <span class="muted">Afecta a:</span>
+                {% for did in docs %}
+                  <span class="pill n mono">{{ document_names.get(did|string, did) }}</span>
+                {% endfor %}
+              </div>
+              {% endif %}
+              {% if fields %}
+              <div class="links">
                 {# `|lower` is not applied to the whole label: it would lowercase
                    the filename that disambiguates two links to the same field. #}
                 {% for e, label in evidence_links(fields[:4], document_names) %}
@@ -474,6 +485,8 @@
           {% endif %}
         </div>
       {% endfor %}
+        </div>
+      </details>
     {% endif %}
   {% endfor %}
 {% else %}

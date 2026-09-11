@@ -278,12 +278,43 @@ table.fields { table-layout: fixed; width: 100%; }
    26 characters in a tag that cannot wrap mid-word, and at 11% it was cut off
    at the right edge of the sheet. Confianza only ever holds "100 %" but its
    own heading is wider than that, which is why it is not narrower still. */
+/* One document, one block. Inside a group they ran into each other: eight
+   rows of one invoice, then a heading, then eight rows of the next, with
+   nothing between them but a line of bold text - so on paper the reader had
+   to check which invoice a row belonged to by scrolling back up. A rule and
+   the space around it say it instead.
+   `break-inside: avoid` is not asked for: a block of 31 timesheet rows cannot
+   avoid a page break. Keeping the heading with the rows it names can be, and
+   that is the part that matters. */
+/* The rule is what separates; the margin only lets it breathe. Measured over
+   the whole report, .9rem of it cost 274px of page and .45rem costs 151px for
+   the same separation - so half. With the column rebalance above saving 189px,
+   this round leaves the document 38px shorter than it found it. */
+.block + .block { border-top: 2px solid var(--line); margin-top: .45rem; padding-top: .1rem; }
+.blockhead { break-after: avoid; }
+
+/* Measured on the widest table in the report, in pixels of gap between the
+   end of one heading and the start of the next: 177 / 164 / 84 / 131. It used
+   to be 177 / 202 / 37 / 111 - "Confianza" is a long word in a narrow column,
+   so its heading ended flush against "Procedencia" and the two read as one
+   column. The 4 points come off "Valor", which had the widest gap after it,
+   rather than off "Procedencia", which was already wrapping.
+   The table also got shorter for it: 426px against 558px, because
+   "Escaneo · página 1 · justificante-05-FS-2025-1177.jpg" stopped breaking
+   onto a third line. Evening out the columns took pages off the report. */
 col.f-field { width: 23%; }
-col.f-value { width: 25%; }
-col.f-conf  { width: 10%; }
-col.f-where { width: 21%; }
-col.f-state { width: 21%; }
-table.fields td { vertical-align: top; overflow-wrap: anywhere; }
+col.f-value { width: 21%; }
+col.f-conf  { width: 15%; }
+col.f-where { width: 23%; }
+col.f-state { width: 18%; }
+/* A gutter before Procedencia. Both columns read from their left edge, so
+   "94 %" ended flush against "Escaneo · pág. 1" and the two columns looked
+   like one. The padding goes on the cell rather than the `col`, which cannot
+   carry it. */
+table.fields td.where, table.fields th:nth-child(4) { padding-left: 1.15rem; }
+/* Centred in the row, state tag included: pinned to the top of a two-line
+   row it read as belonging to the first line of it rather than to the row. */
+table.fields td { vertical-align: middle; overflow-wrap: anywhere; }
 /* The appendix is ninety-odd rows. A line of padding on each is a page. */
 .group table.fields td, .group table.fields th { padding: .3rem .5rem; }
 table.fields td.where { font-size: .82rem; }
@@ -710,6 +741,7 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
     <small>{{ field_count }} campo{{ "s" if field_count != 1 }}{% if blocks|length > 1 and blocks[0].label %} en {{ blocks|length }} {{ "documentos" if title == "Facturas y justificantes" else "apartados" }}{% endif %}{% if subtitle %} · {{ subtitle }}{% endif %}</small>
   </div>
   {% for block in blocks %}
+  <div class="block">
   {% if block.label %}
   <div class="blockhead">
     <span class="blockhead-name">{{ block.label }}</span>
@@ -718,6 +750,7 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
   </div>
   {% endif %}
 {{ fields_table(block.rows, block.label|length > 0) }}
+  </div>
   {% endfor %}
 </div>
 {% endfor %}

@@ -576,10 +576,19 @@ def subdivide[Row: HasFieldPath](
         for key, group in sorted(by_owner.items(), key=_owner_order):
             person = _first_value(group, "full_name")
             month = _first_value(group, "month")
+            # The file, as the invoice blocks name theirs. Without it these
+            # headings read "Sofía Merque · 2025-09" over rows whose
+            # provenance says only "Excel · celda A9" - a spreadsheet, and no
+            # way to tell which. The invoices never had that problem because
+            # their detail is the filename.
+            document = names.get(_document_key(group[0]), "")
+            detail = month or (key if not key.isdigit() else "")
+            if document:
+                detail = f"{detail} · {document}" if detail else document
             sections.append(
                 Subsection(
                     label=person or (f"Fila {int(key) + 1}" if key.isdigit() else key),
-                    detail=month or (key if not key.isdigit() else ""),
+                    detail=detail,
                     rows=sorted(group, key=lambda row: field_sort_key(row.field_path)),
                 )
             )
