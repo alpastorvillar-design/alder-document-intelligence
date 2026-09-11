@@ -80,7 +80,7 @@ def forget_codex_models() -> None:
     _codex_cache = None
 
 
-def codex_models(*, discover: Callable[[], list[CodexModel]] = list_models) -> list[ModelChoice]:
+def codex_models(*, discover: Callable[[], list[CodexModel]] | None = None) -> list[ModelChoice]:
     """The models codex says it can run, or the configured-default entry.
 
     Falling back rather than returning nothing is deliberate: a failed
@@ -88,6 +88,13 @@ def codex_models(*, discover: Callable[[], list[CodexModel]] = list_models) -> l
     still works perfectly well without us knowing its inventory.
     """
     global _codex_cache
+    # Resolved here rather than as a default argument. `discover=list_models`
+    # in the signature binds the function object once, at import, so replacing
+    # `catalogue.list_models` afterwards has no effect - which meant a test
+    # that thought it had substituted the discovery was spawning the real CLI
+    # and passing because this machine happened to have the model it named.
+    # It failed on a runner that does not.
+    discover = discover or list_models
     now = time.monotonic()
     if _codex_cache is not None and now - _codex_cache[0] < CODEX_CACHE_SECONDS:
         found = _codex_cache[1]

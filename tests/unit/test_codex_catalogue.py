@@ -6,9 +6,16 @@ way to tell what it was. The justification in the code was that the list was
 not enumerable from here. It is: the CLI ships an app-server whose
 `model/list` returns the same catalogue its interactive `/model` picker draws.
 
-No subprocess runs in these tests. What is tested is the mapping and the
-failure behaviour, because the failure behaviour is the part that matters -
-a discovery that breaks must not remove a working backend from the screen.
+No subprocess runs in these tests, and that is enforced rather than assumed:
+the fixture below replaces the discovery with one that raises, so a test that
+forgets to substitute it fails loudly here instead of quietly launching the
+CLI. An earlier version of this file did launch it, and passed - the machine
+had codex installed with the model the test named, while the CI runner did
+not. A green test that depends on what is installed is worse than no test.
+
+What is tested is the mapping and the failure behaviour, because the failure
+behaviour is the part that matters: a discovery that breaks must not remove a
+working backend from the screen.
 """
 
 from __future__ import annotations
@@ -20,7 +27,18 @@ from iep.retrieval.codex_appserver import CodexModel, _models
 
 
 @pytest.fixture(autouse=True)
-def _no_cached_answer() -> None:
+def _no_real_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No cached answer, and no way to reach the real CLI by accident."""
+    catalogue.forget_codex_models()
+
+    def refuse() -> list[CodexModel]:
+        raise AssertionError(
+            "a unit test must not spawn the codex CLI: pass `discover=` or patch "
+            "`catalogue.list_models` with a fake"
+        )
+
+    monkeypatch.setattr(catalogue, "list_models", refuse)
+    yield
     catalogue.forget_codex_models()
 
 
@@ -134,6 +152,21 @@ class TestWhatThePickerOffers:
         assert calls == 2
 
 
+class TestTheDiscoveryIsASeam:
+    def test_replacing_the_module_function_is_enough(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The regression that turned CI red.
+
+        `discover=list_models` as a default argument captured the function at
+        import, so substituting `catalogue.list_models` changed nothing and the
+        real CLI was asked. Reading it at call time is what makes the seam a
+        seam.
+        """
+        monkeypatch.setattr(
+            catalogue, "list_models", lambda: [CodexModel("gpt-x", "GPT-X", "", "low")]
+        )
+        assert [c.id for c in catalogue.codex_models()] == ["codex:gpt-x"]
+
+
 class TestTheIdsAreStillTheSecurityBoundary:
     def test_a_discovered_id_resolves_and_reaches_the_model_flag(
         self, monkeypatch: pytest.MonkeyPatch
@@ -156,7 +189,10 @@ class TestTheIdsAreStillTheSecurityBoundary:
         catalogue.forget_codex_models()
 
         chosen = catalogue.resolve(Settings(), "codex:gpt-5.6-luna")
+        # Not `is not None` alone: this assertion used to hold because the real
+        # CLI had been asked and happened to offer this id.
         assert chosen is not None
+        assert chosen.backend == "codex"
         argv = TOOLS["codex"].argv(model=chosen.model, instructions="irrelevante")
         assert "--model" in argv
         assert argv[argv.index("--model") + 1] == "gpt-5.6-luna"
