@@ -130,3 +130,26 @@ class TestAPopoverIsNotClippedByWhateverScrollsAboveIt:
         script = SHELL.read_text(encoding="utf-8")
         assert "function closePanels" in script
         assert "closePanels(details)" in script, "abrir uno no cierra los demás"
+
+    def test_the_panel_states_its_own_text_flow(self) -> None:
+        """The bug this catches took a measurement to find.
+
+        One `(i)` button sits inside a `<label>` carrying
+        `white-space: nowrap`, and the panel inherited it: its paragraphs
+        could not wrap and the box ran 963px past its own right edge. A
+        popover is placed anywhere in the page, so anything that decides how
+        its text flows has to be declared, not inherited.
+        """
+        block = re.search(r"\.info > \.panel \{(.*?)\}", stylesheet(SHELL), flags=re.DOTALL)
+        assert block is not None
+        assert "white-space: normal" in block.group(1)
+
+    def test_the_panel_has_no_scrollbars(self) -> None:
+        """`overflow-y: auto` alone computes `overflow-x` to `auto` too, so the
+        panel grew a horizontal bar - and dragging it scrolled the page, which
+        closed the panel. It is a short explanation in a fixed-width box: it
+        should be the whole box."""
+        block = re.search(r"\.info > \.panel \{(.*?)\}", stylesheet(SHELL), flags=re.DOTALL)
+        assert block is not None
+        assert "overflow: visible" in block.group(1)
+        assert "overflow-y: auto" not in block.group(1)

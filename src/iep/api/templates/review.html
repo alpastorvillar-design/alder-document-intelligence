@@ -60,30 +60,49 @@
   .conf { font-variant-numeric:tabular-nums; }
   .conf.low { color:var(--warning); font-weight:620; }
   th.nowrap { white-space:nowrap; }
-  /* One set of column widths for every section. Without this each table sizes
-     itself to its own content, so "Confianza" sat in a different place in
-     every block and the eye had to find the columns again each time. Measured
-     from the widest cell in each column across all of them, and the body
-     scrolls rather than squeezing anything: a column that shrinks to fit is
-     a column that truncates. */
-  table.fields { table-layout:fixed; min-width:83.875rem; }
-  col.c-field { width:13.75rem; }
-  col.c-value { width:12.5rem; }
-  col.c-conf  { width:5.625rem; }
-  col.c-where { width:15rem; }
-  /* The state pill cannot wrap, so this is the width of the longest one
-     ("Leído por la máquina", 141px measured) with a little air. Set to 130px
-     it clipped on 113 rows. */
-  col.c-state { width:9.5rem; }
-  col.c-act   { width:27.5rem; }
+  /* One set of column widths for every section, as shares of the container
+     rather than pixels. Fixed widths summing to 1342px produced a horizontal
+     scrollbar, because the space a group actually has is 1043px at a 1500px
+     window - narrower than it looks. Shares mean the table always fits the
+     space it is given, which is the only way to promise no horizontal scroll
+     at a window size nobody has measured yet.
+     The actions column takes the largest share because it is the only one
+     whose content cannot wrap: 95px for the link, 112 for the field, 66 and
+     76 for the buttons, plus the gaps. Everything else is prose and wraps. */
+  table.fields { table-layout:fixed; width:100%; }
+  col.c-field { width:15%; }
+  col.c-value { width:14%; }
+  col.c-conf  { width:9%; }
+  col.c-where { width:13%; }
+  col.c-state { width:11%; }
+  col.c-act   { width:38%; }
+  /* On a narrower window the actions cannot give up anything - the link, the
+     field and the two buttons are all unbreakable - so the prose columns
+     yield first. They wrap; buttons dropping to a second line would make
+     every row taller, which is worse than a three-line locator. */
+  @media (max-width: 1400px) {
+    col.c-field { width:13%; }
+    col.c-value { width:12%; }
+    col.c-conf  { width:9%; }
+    col.c-where { width:10%; }
+    col.c-state { width:11%; }
+    col.c-act   { width:45%; }
+  }
   /* A JSON path has no spaces to break at and would otherwise run out of its
      column: `$.pages[*].items[employee_id=EMP-0142].hourly_rate_eur`. */
   table.fields td { overflow-wrap:anywhere; }
+  /* The state pill is 141px of unbreakable text in a column that is now
+     narrower than that, so here - and only here - it is allowed to wrap. */
+  table.fields td .pill { white-space:normal; }
+  /* Room between "Confianza" and its help button and the next column name,
+     which were touching. */
+  table.fields th.h-conf { padding-right:1.1rem; }
 
-  tr.subcols > td {
-    padding-top:.3rem; padding-bottom:.3rem;
+  tr.subcols > th {
+    padding-top:.35rem; padding-bottom:.35rem;
     font-size:.68rem; text-transform:uppercase; letter-spacing:.07em;
-    color:var(--muted); border-bottom:1px solid var(--line-soft);
+    font-weight:600; text-align:left; color:var(--muted);
+    border-bottom:1px solid var(--line-soft); background:transparent;
   }
 
   /* The internal field name. Off by default - repeated under fifty labels it
@@ -91,28 +110,33 @@
      hover away, because the `title` on the cell carries it either way. */
   .fieldkey { font-size:.75rem; color:var(--muted); display:none; }
   body.show-keys .fieldkey { display:block; }
-  .fields-head { display:flex; gap:1rem; align-items:flex-start; justify-content:space-between;
-                 flex-wrap:wrap; margin-bottom:1rem; }
+  .fields-head { display:flex; gap:1.5rem; align-items:flex-start; justify-content:space-between;
+                 flex-wrap:wrap; margin:2.4rem 0 1.1rem; }
   .fields-head h2 { margin:0 0 .35rem; }
   .keys-toggle { display:flex; align-items:center; gap:.4rem; white-space:nowrap;
-                 color:var(--ink-soft); font-size:.85rem; }
+                 color:var(--ink-soft); font-size:.85rem; padding-top:.3rem; }
 
-  .cell-actions { display:flex; gap:.3rem; align-items:center; flex-wrap:nowrap; }
+  .cell-actions { display:flex; gap:.3rem; align-items:center; flex-wrap:wrap; row-gap:.35rem; }
   /* "valor correcto" was rendering as "valor correct". The declaration said
      `max-width:9rem`, which was never the constraint: this is a flex item in
      a tight row, so it shrank below that. Refusing to shrink is the fix, and
      the width is then room to type a corrected supplier name into. */
-  .cell-actions input { flex:0 0 auto; width:10rem; min-width:10rem; }
+  /* A little wider than its own placeholder ("valor correcto" measures 86px)
+     and no wider: every pixel here comes out of the columns that hold prose.
+     `flex-wrap` on the row is the escape hatch for a very narrow window - it
+     drops the field to a second line rather than forcing the table to
+     scroll. */
+  .cell-actions input { flex:0 1 auto; width:7rem; min-width:6.5rem; }
 
   /* Where a group repeats - one block per invoice, per timesheet row, per
      person - the break is a row spanning the table rather than a separate
      table, so the columns stay aligned across every block. */
   tr.subhead > th {
-    text-align:left; padding:.75rem .55rem .35rem;
+    text-align:left; padding:1.15rem .55rem .85rem;
     border-bottom:1px solid var(--line-soft); background:var(--card-sunk);
     font-size:.8rem; letter-spacing:0; text-transform:none;
   }
-  tr.subhead:first-child > th { padding-top:.45rem; }
+  tr.subhead:first-child > th { padding-top:.85rem; }
   .subhead-name { color:var(--ink); font-weight:650; font-size:.92rem; }
   .subhead-detail { color:var(--ink-soft); font-weight:400; margin-left:.5rem; }
   .subhead-detail::before { content:"· "; color:var(--muted); }
@@ -133,6 +157,49 @@
 {% block bodyattrs %} data-dossier="{{ dossier.id }}"{% endblock %}
 
 {% block content %}
+{% macro column_names(with_help) %}
+        <th class="h-field">Campo</th>
+        <th class="h-value">Valor</th>
+        <th class="h-conf">Confianza
+          {% if with_help %}
+          <details class="info">
+            <summary aria-label="Qué significa la confianza">i</summary>
+            <div class="panel">
+              <p>Lo segura que estaba la lectura, de 0 a 100 %.</p>
+              <p>En un <strong>PDF con texto</strong> es alta: el valor se leyó de la
+                 capa de texto junto a una etiqueta inequívoca. En un
+                 <strong>escaneo</strong> es la confianza que devuelve el motor de OCR
+                 sobre esas palabras concretas, así que un papel borroso, torcido o
+                 mal fotocopiado la baja.</p>
+              <p>Por debajo del <strong>75 %</strong> el campo no se da por bueno:
+                 pasa a «Necesita revisión» y <strong>bloquea la aprobación</strong>
+                 hasta que una persona lo confirme o lo corrija.</p>
+            </div>
+          </details>
+          {% endif %}
+        </th>
+        <th class="h-where">De dónde sale</th>
+        <th class="h-state">Estado</th>
+        <th class="h-act">Acciones
+          {% if with_help %}
+          <details class="info right">
+            <summary aria-label="Qué hace cada acción">i</summary>
+            <div class="panel">
+              <p><strong>Ver evidencia</strong> abre el documento con el sitio exacto
+                 marcado, y desde ahí puedes abrir el original.</p>
+              <p><strong>Corregir</strong> guarda tu valor <strong>junto</strong> al que
+                 leyó la máquina, nunca encima. Se conserva la lectura original, tu
+                 nombre, la fecha y el motivo, y una nueva ejecución del pipeline
+                 no la sobrescribe.</p>
+              <p><strong>Confirmar</strong> deja el valor como está y registra que tú
+                 lo has comprobado contra el documento.</p>
+              <p>Las dos piden motivo y las dos quedan en la auditoría.</p>
+            </div>
+          </details>
+          {% endif %}
+        </th>
+{% endmacro %}
+
 {% set status_label, status_hint = dossier_status.get(dossier.status|string, (dossier.status|string, "")) %}
 
 <p class="eyebrow">{{ dossier.reference }} · {{ status_label }}</p>
@@ -364,46 +431,17 @@
       <col class="c-field"><col class="c-value"><col class="c-conf">
       <col class="c-where"><col class="c-state"><col class="c-act">
     </colgroup>
+    {# With one block per document the column names belong under each
+       heading, next to the rows they name, not once at the top of the group
+       where they scroll out of sight. A group that does not repeat keeps them
+       in the thead, which is also what makes them sticky-able later. #}
+    {% if not sections[0].label %}
     <thead>
       <tr>
-        <th>Campo</th>
-        <th>Valor</th>
-        <th class="nowrap">Confianza
-          <details class="info">
-            <summary aria-label="Qué significa la confianza">i</summary>
-            <div class="panel">
-              <p>Lo segura que estaba la lectura, de 0 a 100 %.</p>
-              <p>En un <strong>PDF con texto</strong> es alta: el valor se leyó de la
-                 capa de texto junto a una etiqueta inequívoca. En un
-                 <strong>escaneo</strong> es la confianza que devuelve el motor de OCR
-                 sobre esas palabras concretas, así que un papel borroso, torcido o
-                 mal fotocopiado la baja.</p>
-              <p>Por debajo del <strong>75 %</strong> el campo no se da por bueno:
-                 pasa a «Necesita revisión» y <strong>bloquea la aprobación</strong>
-                 hasta que una persona lo confirme o lo corrija.</p>
-            </div>
-          </details>
-        </th>
-        <th>De dónde sale</th>
-        <th class="nowrap">Estado</th>
-        <th class="nowrap">Qué puedes hacer
-          <details class="info right">
-            <summary aria-label="Qué hace cada acción">i</summary>
-            <div class="panel">
-              <p><strong>Ver evidencia</strong> abre el documento con el sitio exacto
-                 marcado, y desde ahí puedes abrir el original.</p>
-              <p><strong>Corregir</strong> guarda tu valor <strong>junto</strong> al que
-                 leyó la máquina, nunca encima. Se conserva la lectura original, tu
-                 nombre, la fecha y el motivo, y una nueva ejecución del pipeline
-                 no la sobrescribe.</p>
-              <p><strong>Confirmar</strong> deja el valor como está y registra que tú
-                 lo has comprobado contra el documento.</p>
-              <p>Las dos piden motivo y las dos quedan en la auditoría.</p>
-            </div>
-          </details>
-        </th>
+{{ column_names(true) }}
       </tr>
     </thead>
+    {% endif %}
     <tbody>
     {% for section in sections %}
       {% if section.label %}
@@ -414,12 +452,11 @@
           <span class="subhead-count">{{ section.rows|length }} campo{{ "s" if section.rows|length != 1 }}</span>
         </th>
       </tr>
-      {# The column names again under each block. Seven blocks of seven rows
-         leaves the real header far off the top of the screen, and a column of
-         bare figures with no name over it is the thing a reviewer misreads. #}
+      {# The same names, under the heading, with the same help behind them.
+         The first block carries the explanations; repeating them in all seven
+         would put seven identical popovers in the page for no gain. #}
       <tr class="subcols">
-        <td>Campo</td><td>Valor</td><td>Confianza</td>
-        <td>De dónde sale</td><td>Estado</td><td>Qué puedes hacer</td>
+{{ column_names(loop.first) }}
       </tr>
       {% endif %}
     {% for e in section.rows %}

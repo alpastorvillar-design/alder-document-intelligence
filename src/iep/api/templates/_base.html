@@ -156,7 +156,18 @@ h3 { font-size: .92rem; margin: 0 0 .35rem; }
 .info > .panel {
   position: fixed; z-index: 60; top: 0; left: 0;
   width: min(30rem, calc(100vw - 2rem));
-  max-height: calc(100vh - 2rem); overflow-y: auto;
+  /* No scrollbars. `overflow-y: auto` alone computes `overflow-x` to `auto`
+     as well, so the panel grew a horizontal bar over any content that did not
+     break - and dragging that bar scrolled the page, which closed the panel.
+     It is a short explanation in a 30rem box: it should simply be the whole
+     box. `placePanel` already flips it above the button and clamps it into
+     the window, so it cannot fall off an edge. */
+  overflow: visible;
+  /* A panel inherits from wherever its button sits, and one of them lives in
+     a `<label>` with `white-space: nowrap` - so its paragraphs could not
+     wrap and the box ran 963px past its own edge. Anything that decides how
+     text flows has to be stated here rather than inherited. */
+  white-space: normal; text-indent: 0;
   background: var(--card); border: 1px solid var(--line);
   border-radius: 8px; box-shadow: var(--shadow);
   padding: .8rem .9rem; text-align: left;
@@ -164,6 +175,8 @@ h3 { font-size: .92rem; margin: 0 0 .35rem; }
   color: var(--ink-soft); text-transform: none; letter-spacing: 0;
 }
 .info > .panel p { margin: 0 0 .55rem; }
+/* A field key inside an explanation has no spaces to break at. */
+.info > .panel code { overflow-wrap: anywhere; }
 .info > .panel p:last-child { margin-bottom: 0; }
 .info > .panel strong { color: var(--ink); }
 /* The `.right` modifier used to hand-place panels near the right edge. The
