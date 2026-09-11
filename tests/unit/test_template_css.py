@@ -194,6 +194,58 @@ class TestTheFiledReportPrintsWithItsColours:
             assert label.strip(), FIELD_STATUS
 
 
+class TestThePickerSaysWhatItCannotOffer:
+    """Eight of the twelve models depend on where the process runs.
+
+    There used to be a port per mode, so the address said which one you had.
+    One URL now serves the stack in Docker and the API on the machine, and only
+    the second can launch the `claude` and `codex` binaries - so the list drops
+    from twelve entries to four with nothing on screen to account for it. That
+    was reported as models that had stopped appearing, which is what an
+    unexplained absence looks like.
+
+    The endpoint already reports `available_cli_tools` whatever the provider
+    is. What was missing was rendering it.
+    """
+
+    def test_the_note_has_somewhere_to_go(self) -> None:
+        markup = (TEMPLATE_DIR / "_copilot.html").read_text(encoding="utf-8")
+        assert 'id="copilot-note"' in markup
+        # Directly under the state line, which is directly under the picker it
+        # explains. Further down and it reads as a footnote to the chips.
+        assert markup.index('id="copilot-state"') < markup.index('id="copilot-note"')
+
+    def test_the_note_collapses_when_there_is_nothing_to_say(self) -> None:
+        """So the script only has to set the text, and an empty string is a
+        state rather than an empty bordered box."""
+        rules = stylesheet(SHELL)
+        assert re.search(r"\.copilot-note:empty \{[^}]*display: none", rules)
+
+    def test_the_note_is_an_explanation_and_not_a_warning(self) -> None:
+        """Nothing is broken when it shows: the local models answer fine."""
+        block = re.search(r"\n\.copilot-note \{(.*?)\}", stylesheet(SHELL), flags=re.DOTALL)
+        assert block is not None, "la nota ya no se declara"
+        assert "var(--muted)" in block.group(1), "en gris, no en ambar"
+        assert "var(--warning)" not in block.group(1)
+
+    def test_the_note_is_driven_by_what_this_process_can_reach(self) -> None:
+        script = SHELL.read_text(encoding="utf-8")
+        assert "status.available_cli_tools" in script
+        assert "copilot-note" in script
+        # And it keeps quiet when the state line above is already saying it, or
+        # the same fact arrives twice in different words.
+        assert 'status.provider === "cli"' in script
+
+    def test_the_note_names_both_backends_and_the_condition(self) -> None:
+        """A reviewer has to be able to act on it without reading the docs."""
+        script = SHELL.read_text(encoding="utf-8")
+        sentence = re.search(r"note\.textContent = .*?;", script, flags=re.DOTALL)
+        assert sentence is not None
+        text = sentence.group(0)
+        assert "claude y codex" in text
+        assert "contenedor" in text
+
+
 class TestEveryStateTheVocabularyCanEmitIsStyled:
     """The defect this catches was invisible on screen for the whole project.
 

@@ -325,6 +325,19 @@ body.copilot-on { padding-right: min(var(--copilot-w), 100vw); }
 .copilot-state.off { color: var(--warning); border-left-color: var(--warning); }
 .copilot-state.on { border-left-color: var(--ok); }
 
+/* What this process cannot offer, and why. The model list is the one part of
+   the panel whose contents depend on where the process runs, and the URL no
+   longer says which - so the absence needs a sentence rather than a shrug.
+   Dotted, and muted: it is an explanation, not a warning. Nothing is broken
+   when it shows. */
+.copilot-note {
+  margin: .4rem 1rem 0; padding-left: .6rem; font-size: .76rem;
+  color: var(--muted); border-left: 2px dotted var(--line);
+}
+/* Collapses on its own when there is nothing to say, so the JS only has to
+   set the text. */
+.copilot-note:empty { display: none; }
+
 .copilot-suggest { padding: .7rem 1rem .2rem; }
 .copilot-suggest .eyebrow { margin-bottom: .4rem; }
 .chip {
@@ -671,6 +684,21 @@ async function copilotLoad() {
     state.textContent = status.unavailable_reason;
     document.getElementById("copilot-go").disabled = true;
   }
+  /* Why the list is short, when it is. One command now serves both the stack
+     in Docker and the API on this machine, and only the second can launch the
+     assistant CLIs - so without this the eight missing models read as a
+     defect. Suppressed when the provider is already `cli`, because then the
+     line above is saying the same thing in stronger terms. */
+  const note = document.getElementById("copilot-note");
+  if (note) {
+    const cliReachable = (status.available_cli_tools || []).length > 0;
+    note.textContent = (cliReachable || status.provider === "cli")
+      ? ""
+      : "Sólo se listan los modelos de Ollama. Los de claude y codex son"
+        + " binarios de esta máquina: aparecen cuando la API se ejecuta aquí"
+        + " y no dentro del contenedor.";
+  }
+
   document.getElementById("copilot-meter").innerHTML = copilotMeterLine(status);
 }
 
