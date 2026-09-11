@@ -69,24 +69,46 @@
      The actions column takes the largest share because it is the only one
      whose content cannot wrap: 95px for the link, 112 for the field, 66 and
      76 for the buttons, plus the gaps. Everything else is prose and wraps. */
+  /* Shares of the container, so the table always fits the space it is given -
+     fixed pixel widths produced the horizontal scrollbar they were meant to
+     prevent. The shares are not guesses: measured at a 1371px window, where a
+     group has 1314px, the actions column needs 366 of them (95 for the link,
+     112 for the field, 66 and 76 for the buttons, plus gaps) and everything
+     else is prose that wraps.
+     An earlier pass gave the actions 45%, which is 587px - 221px of empty
+     column - while "Estado" wrapped "Leído por la máquina" onto two lines in
+     143px. The shares below give the actions what they need and hand the rest
+     to the columns that were wrapping. */
   table.fields { table-layout:fixed; width:100%; }
-  col.c-field { width:15%; }
-  col.c-value { width:14%; }
-  col.c-conf  { width:9%; }
-  col.c-where { width:13%; }
-  col.c-state { width:11%; }
-  col.c-act   { width:38%; }
-  /* On a narrower window the actions cannot give up anything - the link, the
-     field and the two buttons are all unbreakable - so the prose columns
-     yield first. They wrap; buttons dropping to a second line would make
-     every row taller, which is worse than a three-line locator. */
-  @media (max-width: 1400px) {
-    col.c-field { width:13%; }
-    col.c-value { width:12%; }
-    col.c-conf  { width:9%; }
-    col.c-where { width:10%; }
-    col.c-state { width:11%; }
-    col.c-act   { width:45%; }
+  col.c-field { width:14.5%; }
+  col.c-value { width:18%; }
+  col.c-conf  { width:8.5%; }
+  col.c-where { width:18.5%; }
+  col.c-state { width:12%; }
+  col.c-act   { width:28.5%; }
+  /* The copilot drawer takes 25rem off the page without changing the window,
+     so a media query cannot see it: with the drawer open a group has 914px
+     instead of 1314. There is no arrangement of six columns and 366px of
+     unbreakable actions inside 914, so here the actions are deliberately
+     given less than they need - the field drops to a second line inside the
+     cell, which costs one row of height and keeps every column readable. */
+  body.copilot-on col.c-field { width:16%; }
+  body.copilot-on col.c-value { width:15%; }
+  body.copilot-on col.c-conf  { width:11%; }
+  body.copilot-on col.c-where { width:14.5%; }
+  body.copilot-on col.c-state { width:16.5%; }
+  body.copilot-on col.c-act   { width:27%; }
+
+  /* Below about this width 28.5% stops covering the 366px the actions need,
+     so they take a larger share and the prose columns wrap a line more. The
+     alternative - buttons dropping to a second line - makes every row taller. */
+  @media (max-width: 1340px) {
+    col.c-field { width:13.5%; }
+    col.c-value { width:16.5%; }
+    col.c-conf  { width:8.5%; }
+    col.c-where { width:17%; }
+    col.c-state { width:12.5%; }
+    col.c-act   { width:32%; }
   }
   /* A JSON path has no spaces to break at and would otherwise run out of its
      column: `$.pages[*].items[employee_id=EMP-0142].hourly_rate_eur`. */
@@ -110,8 +132,13 @@
      hover away, because the `title` on the cell carries it either way. */
   .fieldkey { font-size:.75rem; color:var(--muted); display:none; }
   body.show-keys .fieldkey { display:block; }
+  /* The shell gives a section heading 2.2rem above it, which is right between
+     runs of prose and too much for this screen, where each heading sits
+     directly under a card. Scoped to the two this page owns rather than set on
+     `h2`, which the shell also uses. */
+  h2.section { margin-top:1.3rem; }
   .fields-head { display:flex; gap:1.5rem; align-items:flex-start; justify-content:space-between;
-                 flex-wrap:wrap; margin:2.4rem 0 1.1rem; }
+                 flex-wrap:wrap; margin:1.3rem 0 .9rem; }
   .fields-head h2 { margin:0 0 .35rem; }
   .keys-toggle { display:flex; align-items:center; gap:.4rem; white-space:nowrap;
                  color:var(--ink-soft); font-size:.85rem; padding-top:.3rem; }
@@ -295,7 +322,7 @@
 </p>
 {% endif %}
 
-<h2>Incidencias</h2>
+<h2 class="section">Incidencias</h2>
 {% if findings %}
   {% for level, group in by_severity %}
     {% if group %}
@@ -452,11 +479,12 @@
           <span class="subhead-count">{{ section.rows|length }} campo{{ "s" if section.rows|length != 1 }}</span>
         </th>
       </tr>
-      {# The same names, under the heading, with the same help behind them.
-         The first block carries the explanations; repeating them in all seven
-         would put seven identical popovers in the page for no gain. #}
+      {# The same names under every heading, each with its own help button.
+         Sharing one set between blocks meant the second invoice had column
+         names with nothing behind them, and a reviewer reading that block had
+         to scroll back to the first to ask what "Confianza" meant. #}
       <tr class="subcols">
-{{ column_names(loop.first) }}
+{{ column_names(true) }}
       </tr>
       {% endif %}
     {% for e in section.rows %}
