@@ -11,12 +11,27 @@ ENV PYTHONUNBUFFERED=1 \
 
 # tesseract-ocr-spa is required: the synthetic corpus is Spanish, and OCR
 # accuracy against the ground truth is measured with that language model.
+#
+# chromium renders the justification report to PDF. Asking a reviewer to use
+# the browser's own print dialogue put the artefact at the mercy of their
+# settings: one such PDF arrived as 26 bitmaps, 2 MB, no embedded fonts and no
+# selectable text - Chrome's "print as image", which makes an archived
+# document unsearchable and its letters ragged. Rendering it here produces the
+# same document every time, from the stylesheet that was reviewed.
+#
+# fonts-liberation resolves the font stack deterministically. Without a font
+# package the container falls back to whatever it happens to have, so the
+# filed artefact's typography would depend on the machine that built the
+# image. Liberation Sans is metric-compatible with Arial, which is what the
+# stack asks for after the platform faces.
 RUN apt-get update \
  && apt-get install --no-install-recommends -y \
       tesseract-ocr \
       tesseract-ocr-spa \
       libgl1 \
       curl \
+      chromium \
+      fonts-liberation \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

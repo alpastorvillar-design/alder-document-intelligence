@@ -328,6 +328,8 @@
   <button class="danger" onclick="decide('reject')">Rechazar</button>
   <button onclick="makeReport()">Generar informe</button>
   <a class="btn small" href="/dossiers/{{ dossier.id }}/reports/latest.html" target="_blank" rel="noopener">Último informe</a>
+  <a class="btn small" href="/dossiers/{{ dossier.id }}/reports/latest.pdf"
+     title="El mismo informe en PDF, generado en el servidor: texto seleccionable y buscable, y el mismo documento para todo el mundo">PDF</a>
   <a class="btn small" href="/dossiers/{{ dossier.id }}/export.csv?dialect=excel"
      title="Separado por punto y coma y con BOM, que es lo que necesita Excel para abrirlo en columnas. La versión RFC 4180 con comas está en /dossiers/{{ dossier.id }}/export.csv">CSV</a>
   <a class="btn small" href="/dossiers/{{ dossier.id }}/export.json" target="_blank" rel="noopener">JSON</a>

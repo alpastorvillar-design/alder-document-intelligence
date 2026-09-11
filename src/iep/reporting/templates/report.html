@@ -200,6 +200,11 @@ tbody tr:last-child td { border-bottom: none; }
      need to, and when it did it set the column width and pushed the
      last column off the printed page. */
   white-space: normal;
+  /* And it reads left to right. The cell is right-aligned so the euro
+     figures line up on their digits, which is right for the number and wrong
+     for the sentence under it: a second line starting at the right edge
+     reads as a ragged column of fragments. */
+  text-align: left;
 }
 .recon tr.descuadre .diff { color: var(--blocker); font-weight: 700; }
 .recon tr.cuadra .diff { color: var(--ok); }
@@ -261,15 +266,31 @@ table.fields { table-layout: fixed; width: 100%; }
    needs about 200px of a 960px table, not the 326 it had, and the value
    column - project titles, supplier names - needs the difference. Four lines
    per row became one for most of them. */
-col.f-field { width: 26%; }
-col.f-value { width: 32%; }
-col.f-conf  { width: 8%; }
-col.f-where { width: 23%; }
-col.f-state { width: 11%; }
+/* Sized against the longest thing each column must hold, not evenly. The
+   state is the constraint nobody sees coming: "Confirmado por una persona" is
+   26 characters in a tag that cannot wrap mid-word, and at 11% it was cut off
+   at the right edge of the sheet. Confianza only ever holds "100 %" but its
+   own heading is wider than that, which is why it is not narrower still. */
+col.f-field { width: 23%; }
+col.f-value { width: 25%; }
+col.f-conf  { width: 10%; }
+col.f-where { width: 21%; }
+col.f-state { width: 21%; }
 table.fields td { vertical-align: top; overflow-wrap: anywhere; }
 /* The appendix is ninety-odd rows. A line of padding on each is a page. */
 .group table.fields td, .group table.fields th { padding: .3rem .5rem; }
 table.fields td.where { font-size: .82rem; }
+/* The heading is wider than any value in the column, and with no gap it
+   ran into "Procedencia" - which printed as "CONFIANZAPROCEDENCIA". */
+table.fields th.num { padding-right: .9rem; }
+/* A state tag may wrap here. Measured against the printable width, "Leído por
+   la máquina" needs 129px and "Confirmado por una persona" 169: no share of a
+   696px sheet holds the longest of them on one line without starving the two
+   columns that carry sentences. `nowrap` does not shrink it - it overflows the
+   cell, which is how a printed report read "Leído por la". Two lines in a tag
+   is plainer than a truncated word. */
+table.fields .pill { white-space: normal; }
+table.fields td.num, table.fields th.num { text-align: right; }
 table.fields td.where .muted { display: block; font-size: .76rem; }
 
 /* Where a group repeats per document, per row or per person. */
@@ -370,13 +391,19 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
 
 {# Screen only: on paper these are three dead buttons. #}
 <div class="tools noprint">
-  <button class="primary" onclick="window.print()">Descargar PDF</button>
+  <a class="btn primary" href="./latest.pdf">Descargar PDF</a>
+  <button onclick="window.print()">Imprimir</button>
   <a class="btn" href="/ui/dossiers/{{ dossier.id }}">Volver a la revisión</a>
   <a class="btn small" href="/dossiers/{{ dossier.id }}/export.json" target="_blank" rel="noopener">Datos en JSON</a>
   <a class="btn small" href="/dossiers/{{ dossier.id }}/export.csv">Campos en CSV</a>
   <a class="btn small" href="/dossiers/{{ dossier.id }}/audit" target="_blank" rel="noopener">Auditoría</a>
   <span class="muted" style="font-size:.8rem">
-    «Descargar PDF» abre el diálogo de impresión: elige <em>Guardar como PDF</em>.
+    «Descargar PDF» pide el PDF al servidor, que lo genera aquí con el mismo
+    motor para el que está escrita esta hoja de estilos. «Imprimir» abre el
+    diálogo del navegador, que sirve para papel — pero si eliges ahí
+    <em>Guardar como PDF</em> el resultado depende de tus ajustes: con
+    «imprimir como imagen» el documento sale como mapa de bits, sin texto
+    seleccionable ni buscable.
   </span>
 </div>
 
@@ -626,11 +653,11 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
           <a href="/ui/evidence/{{ e.id }}">{% if short %}{{ locator_brief(e.locator) }}{% else %}{{ locator_summary(e.locator) }}{% endif %}</a>
           {% if not short and e.document_id %}<span class="muted">{{ document_names.get(e.document_id|string, "") }}</span>{% endif %}
         </td>
-        {# In the appendix the state is only printed when it is not the
-           default one. Ninety of ninety-three rows said "Leído por la
-           máquina", which is a column of identical text hiding the three
-           rows that say something else. The intro states what blank means. #}
-        <td>{% if not short or e.status|string != "EXTRACTED" %}<span class="pill {{ ecss }}">{{ estatus }}</span>{% endif %}</td>
+        {# Always stated. An earlier pass left this blank when the state was
+           the common one and explained the blank in the intro, which asks a
+           reader to remember a convention in order to read a table. A filed
+           artefact says what each row is rather than what it is not. #}
+        <td><span class="pill {{ ecss }}">{{ estatus }}</span></td>
       </tr>
     {% endfor %}
     </tbody>
@@ -655,10 +682,6 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
   columna «Procedencia» dice cuál. En pantalla es un enlace que abre el
   documento con ese sitio marcado.
 </p>
-<div class="note" style="margin-bottom:1rem">
-  La columna <strong>Estado</strong> sólo dice algo cuando el campo no se leyó
-  y aceptó sin más: en blanco significa «leído por la máquina».
-</div>
 <div class="note" style="margin-bottom:1rem">
   <strong>Confianza</strong> es lo segura que estaba la lectura, de 0 a 100 %.
   En un PDF con texto es alta, porque el valor se leyó de la capa de texto

@@ -129,9 +129,15 @@ para alguien que no estaba delante. Empieza por la comprobación sobre la que se
 sostiene la justificación: para cada concepto de gasto, lo que declara la
 memoria frente a lo que suman los documentos que la soportan, la diferencia y
 si cuadra. Una cifra que no se llegó a leer sigue faltando en lugar de
-convertirse en un cero. «Descargar PDF» es el propio diálogo de impresión del
-navegador: la hoja de estilos de impresión es lo que hace de eso un documento
-utilizable, con un recuadro rotulado en el encabezado para quien lo archive.
+convertirse en un cero. «Descargar PDF» se lo pide al servidor:
+`reports/latest.pdf` renderiza el HTML almacenado con Chromium, dentro de la
+imagen, así que el documento que se archiva es el mismo para todo el mundo.
+Sustituyó al diálogo del navegador después de que un PDF hecho por esa vía
+llegara como 26 mapas de bits, sin fuentes incrustadas y sin texto
+seleccionable —«imprimir como imagen», que deja un documento archivado sin
+poder buscarse—. El renderizado son 0,6 MB con diez fuentes incrustadas y
+11.484 operadores de texto. La hoja de estilos de impresión sigue mandando en
+la maquetación, y «Imprimir» sigue abriendo el diálogo para papel.
 
 ![El informe de justificación, con la tabla de reconciliación primero](docs/img/05-report.png)
 

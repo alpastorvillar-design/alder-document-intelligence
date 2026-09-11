@@ -132,6 +132,7 @@ al lado, con quién lo cambió, cuándo y por qué.
 | --- | --- |
 | `POST /dossiers/{id}/reports` | Genera el informe HTML |
 | `GET /dossiers/{id}/reports/latest.html` | El último informe, para leerlo |
+| `GET /dossiers/{id}/reports/latest.pdf` | El mismo informe en PDF, generado aquí |
 | `GET /dossiers/{id}/export.json` | Todo en JSON, para otro sistema |
 | `GET /dossiers/{id}/export.csv` | Todo en CSV, con protección contra fórmulas |
 | `GET /dossiers/{id}/audit` | El registro append-only: todo lo que ha pasado |

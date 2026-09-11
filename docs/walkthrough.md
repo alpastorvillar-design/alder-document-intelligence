@@ -132,6 +132,7 @@ value alongside, with who changed it, when and why.
 | --- | --- |
 | `POST /dossiers/{id}/reports` | Generates the HTML report |
 | `GET /dossiers/{id}/reports/latest.html` | The latest report, to read |
+| `GET /dossiers/{id}/reports/latest.pdf` | The same report as a PDF, rendered here |
 | `GET /dossiers/{id}/export.json` | Everything as JSON, for another system |
 | `GET /dossiers/{id}/export.csv` | Everything as CSV, with formula-injection guarding |
 | `GET /dossiers/{id}/audit` | The append-only trail: everything that happened |

@@ -33,6 +33,7 @@ from iep.domain.contracts import (
 )
 from iep.domain.enums import AuditAction
 from iep.dossiers import service as dossiers
+from iep.reporting import pdf as report_pdf
 from iep.reporting import render
 from iep.retrieval import budget as rag_budget
 from iep.retrieval import catalogue
@@ -107,6 +108,60 @@ def latest_report(
     `404` until one has been generated - see `POST .../reports`.
     """
     dossiers.get(session, dossier_id)
+    _, html = _stored_report(session, dossier_id, settings)
+    return Response(content=html, media_type="text/html; charset=utf-8")
+
+
+@router.get(
+    "/dossiers/{dossier_id}/reports/latest.pdf",
+    response_class=Response,
+    summary="The most recent report as a PDF, rendered here",
+)
+def latest_report_pdf(
+    dossier_id: uuid.UUID,
+    session: Session = Depends(db_session),
+    settings: Settings = Depends(settings_dep),
+) -> Response:
+    """The same report, rendered to PDF on this machine.
+
+    Not the browser's print dialogue. One PDF produced that way arrived as 26
+    bitmaps with no embedded fonts and no selectable text - "print as image",
+    which makes a filed document unsearchable and its letters ragged. This
+    renders the stored HTML with the engine its stylesheet was written for.
+
+    The hashed artefact is the HTML: the PDF is a rendering of it, and
+    `X-Report-Sha256` says which report this file came from. Chromium stamps a
+    creation date, so two renderings of one report are not byte-identical -
+    which is why the hash names the source and not the output.
+    """
+    dossiers.get(session, dossier_id)
+    row, html = _stored_report(session, dossier_id, settings)
+    try:
+        content = report_pdf.render(html)
+    except report_pdf.PdfUnavailableError as exc:
+        raise ServiceUnavailableError(str(exc)) from exc
+    except report_pdf.PdfRenderError as exc:
+        raise ServiceUnavailableError(f"No se pudo generar el PDF: {exc}") from exc
+    reference = _ascii_token(row.dossier_id, row.content_sha256)
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{reference}.pdf"',
+            "X-Report-Sha256": row.content_sha256,
+        },
+    )
+
+
+def _ascii_token(dossier_id: uuid.UUID, digest: str) -> str:
+    """A filename that survives a `Content-Disposition` header unescaped."""
+    return f"informe-{dossier_id}-{digest[:12]}"
+
+
+def _stored_report(
+    session: Session, dossier_id: uuid.UUID, settings: Settings
+) -> tuple[ReportRow, bytes]:
+    """The newest report row and its bytes, or a 404 naming which is missing."""
     row = session.execute(
         select(ReportRow)
         .where(ReportRow.dossier_id == dossier_id)
@@ -118,7 +173,7 @@ def latest_report(
     path = settings.report_root / row.storage_key
     if not path.exists():
         raise NotFoundError("The stored report file is missing.", {"report_id": str(row.id)})
-    return Response(content=path.read_bytes(), media_type="text/html; charset=utf-8")
+    return row, path.read_bytes()
 
 
 @router.get(

@@ -121,9 +121,14 @@ written for somebody who was not in the room. It leads with the check the
 justification rests on: for each concepto de gasto, what the memoria declares
 against what the supporting documents add up to, the difference, and whether it
 cuadra. A figure that was never read stays missing rather than becoming a zero.
-"Descargar PDF" is the browser's own print dialogue — the print stylesheet is
-what makes that a usable document, with a labelled frame in the header for
-whoever files it.
+"Descargar PDF" asks the server for it: `reports/latest.pdf` renders the
+stored HTML with Chromium, in the image, so the filed document is the same one
+for everybody. That replaced the browser's print dialogue after a PDF produced
+that way arrived as 26 bitmaps with no embedded fonts and no selectable text —
+"print as image", which makes an archived document unsearchable. The rendered
+one is 0.6 MB with ten embedded fonts and 11484 text operators. The print
+stylesheet still governs the layout, and "Imprimir" still opens the dialogue
+for paper.
 
 ![The justification report, with the reconciliation table first](docs/img/05-report.png)
 

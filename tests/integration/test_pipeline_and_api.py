@@ -1438,6 +1438,116 @@ class TestTheReviewScreenSpeaksOneLanguage:
         assert "Nombre del revisor" in body
 
 
+class TestTheReportComesBackAsAPdf:
+    """Rendered on the server, not in the reviewer's print dialogue.
+
+    No browser runs here: the renderer is substituted, because what needs
+    asserting is the endpoint's contract - which report the PDF came from, and
+    what it says when there is nothing to render or nothing to render with.
+    """
+
+    def _seeded(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        corpus_dir: Path,
+    ) -> Dossier:
+        dossier = seed(
+            db,
+            store,
+            settings,
+            corpus_dir,
+            DOSSIER_B.reference,
+            claimed_total=DOSSIER_B.claimed_total_eur,
+        )
+        run(db, store, settings, dossier)
+        return dossier
+
+    @pytest.mark.ocr
+    def test_it_names_the_report_it_was_rendered_from(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        wired_settings: Settings,
+        corpus_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        requires_ocr: None,
+    ) -> None:
+        """Chromium stamps a creation date, so two renderings of one report
+        differ in those bytes. The hashed artefact is the HTML, and the header
+        says which one this file is a rendering of."""
+        from iep.api.app import create_app
+        from iep.reporting import pdf as report_pdf
+
+        dossier = self._seeded(db, store, settings, corpus_dir)
+        rendered = render.render_html(db, dossier.id)
+        render.persist(db, dossier.id, rendered, report_root=wired_settings.report_root)
+        db.commit()
+
+        seen: dict[str, bytes] = {}
+
+        def fake_render(html: bytes, **kwargs: object) -> bytes:
+            seen["html"] = html
+            return b"%PDF-1.4 fake"
+
+        monkeypatch.setattr(report_pdf, "render", fake_render)
+        with TestClient(create_app()) as client:
+            response = client.get(f"/dossiers/{dossier.id}/reports/latest.pdf")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.headers["x-report-sha256"] == rendered.content_sha256
+        assert rendered.content_sha256[:12] in response.headers["content-disposition"]
+        # And it rendered the stored bytes, not a fresh render of live data:
+        # a report is a snapshot, and the PDF has to be a rendering of the
+        # snapshot somebody filed.
+        assert seen["html"] == rendered.html
+
+    @pytest.mark.ocr
+    def test_a_host_without_a_renderer_says_so(
+        self,
+        db: Session,
+        store: LocalObjectStore,
+        settings: Settings,
+        wired_settings: Settings,
+        corpus_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        requires_ocr: None,
+    ) -> None:
+        """One endpoint fewer, reported as a sentence. The HTML report and the
+        browser's own print are still there."""
+        from iep.api.app import create_app
+        from iep.reporting import pdf as report_pdf
+
+        dossier = self._seeded(db, store, settings, corpus_dir)
+        rendered = render.render_html(db, dossier.id)
+        render.persist(db, dossier.id, rendered, report_root=wired_settings.report_root)
+        db.commit()
+
+        monkeypatch.setattr(report_pdf, "renderer", lambda: None)
+        with TestClient(create_app(), raise_server_exceptions=False) as client:
+            response = client.get(f"/dossiers/{dossier.id}/reports/latest.pdf")
+
+        assert response.status_code == 503
+        assert "chromium" in response.json()["message"].lower()
+
+    def test_no_report_is_a_404_and_not_an_empty_pdf(
+        self, db: Session, wired_settings: Settings
+    ) -> None:
+        from iep.api.app import create_app
+        from tests.conftest import new_dossier
+
+        dossier = new_dossier(db, "INN-2025-781")
+        db.commit()
+
+        with TestClient(create_app(), raise_server_exceptions=False) as client:
+            response = client.get(f"/dossiers/{dossier.id}/reports/latest.pdf")
+
+        assert response.status_code == 404
+
+
 class TestTheFiledReportIsReadable:
     """The report is what leaves the building, so it is held to the screen's
     standard rather than a looser one: Spanish throughout, every figure with a
