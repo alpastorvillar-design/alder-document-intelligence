@@ -303,10 +303,16 @@ table.fields { table-layout: fixed; width: 100%; }
    "Escaneo · página 1 · justificante-05-FS-2025-1177.jpg" stopped breaking
    onto a third line. Evening out the columns took pages off the report. */
 col.f-field { width: 23%; }
-col.f-value { width: 21%; }
-col.f-conf  { width: 15%; }
-col.f-where { width: 23%; }
-col.f-state { width: 18%; }
+col.f-value { width: 20%; }
+col.f-conf  { width: 14%; }
+col.f-where { width: 21%; }
+/* Wide enough for "Leído por la máquina", which is the longest state there
+   is. The previous 18% was measured on screen, where the table is 1100px
+   wide; in the PDF it is 737px, and 18% of that is 133px against the 145px
+   the tag needs - so on paper it broke onto two lines, on 122 of the 136
+   rows, and every one of those rows grew with it. 22% is 162px: the tag on
+   one line with room to spare, and 905px less document. */
+col.f-state { width: 22%; }
 /* A gutter before Procedencia. Both columns read from their left edge, so
    "94 %" ended flush against "Escaneo · pág. 1" and the two columns looked
    like one. The padding goes on the cell rather than the `col`, which cannot

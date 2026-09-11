@@ -1508,7 +1508,18 @@ class TestTheReportComesBackAsAPdf:
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/pdf"
         assert response.headers["x-report-sha256"] == rendered.content_sha256
-        assert rendered.content_sha256[:12] in response.headers["content-disposition"]
+        # The name says what the document is and which dossier it belongs to,
+        # because that is how it gets filed. It used to be
+        # `informe-<uuid>-<digest>.pdf`, which is unambiguous and unreadable in
+        # a folder of them; the digest is in the header above.
+        disposition = response.headers["content-disposition"]
+        assert disposition.startswith("attachment; ")
+        assert f'filename="Informe de justificacion {dossier.reference}.pdf"' in disposition
+        # Two parameters, and the accented one percent-encoded: sending UTF-8
+        # bytes in plain `filename` is what saves the file as
+        # "Informe de justificaciÃ³n".
+        assert "filename*=UTF-8''Informe%20de%20justificaci%C3%B3n" in disposition
+        assert "justificación" not in disposition
         # And it rendered the stored bytes, not a fresh render of live data:
         # a report is a snapshot, and the PDF has to be a rendering of the
         # snapshot somebody filed.

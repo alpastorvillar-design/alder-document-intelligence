@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import unicodedata
+import urllib.parse
 import uuid
 from typing import Literal, cast
 
@@ -134,7 +136,7 @@ def latest_report_pdf(
     creation date, so two renderings of one report are not byte-identical -
     which is why the hash names the source and not the output.
     """
-    dossiers.get(session, dossier_id)
+    dossier = dossiers.get(session, dossier_id)
     row, html = _stored_report(session, dossier_id, settings)
     try:
         content = report_pdf.render(html, binary=settings.pdf_renderer or None)
@@ -142,20 +144,40 @@ def latest_report_pdf(
         raise ServiceUnavailableError(str(exc)) from exc
     except report_pdf.PdfRenderError as exc:
         raise ServiceUnavailableError(f"No se pudo generar el PDF: {exc}") from exc
-    reference = _ascii_token(row.dossier_id, row.content_sha256)
     return Response(
         content=content,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{reference}.pdf"',
+            "Content-Disposition": _disposition(
+                f"Informe de justificación {dossier.reference}.pdf"
+            ),
             "X-Report-Sha256": row.content_sha256,
         },
     )
 
 
-def _ascii_token(dossier_id: uuid.UUID, digest: str) -> str:
-    """A filename that survives a `Content-Disposition` header unescaped."""
-    return f"informe-{dossier_id}-{digest[:12]}"
+def _disposition(filename: str) -> str:
+    """`Content-Disposition` for a filename a person would recognise.
+
+    It used to be `informe-<uuid>-<digest>.pdf`: unambiguous, and unreadable
+    in a folder of them. The name now says what the document is and which
+    dossier it belongs to, which is how it will be filed. The digest it used
+    to carry is not lost - `X-Report-Sha256` names the report this rendering
+    came from, and the audit trail holds it - but two versions of one
+    dossier's report do now arrive under the same name, and the browser
+    resolves that by appending a number.
+
+    Two parameters, because the name has an accent in it. `filename` carries
+    an ASCII-folded fallback for anything that cannot read the other, and
+    `filename*` carries the real one, percent-encoded as RFC 5987 requires.
+    Sending only the UTF-8 bytes in `filename` is what produces
+    `Informe de justificaciÃ³n` in a download folder.
+    """
+    ascii_name = unicodedata.normalize("NFKD", filename).encode("ascii", "ignore").decode("ascii")
+    # The two apostrophes are part of the grammar, not quoting: the parameter
+    # is `charset'language'value` and the language is deliberately empty.
+    encoded = "UTF-8''" + urllib.parse.quote(filename, safe="")
+    return f'attachment; filename="{ascii_name}"; filename*={encoded}'
 
 
 def _stored_report(
