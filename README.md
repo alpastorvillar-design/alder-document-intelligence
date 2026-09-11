@@ -70,6 +70,14 @@ them first, since a dossier under review refuses new documents by design. Stop
 only this stack with `docker compose --profile n8n down`; add `--volumes` when
 its local data is no longer needed.
 
+Afterwards, [`scripts/dev.ps1`](scripts/dev.ps1) opens it: with no argument
+everything runs in Docker, and `-Mode host` runs the API and worker on the
+machine instead - which is what adds the `claude` and `codex` models, since
+those binaries cannot run in a Linux container. Both serve the same address,
+and only one at a time: two API processes sharing this database without sharing
+a filesystem break each other in ways that read as defects in the application.
+[`docs/rag.md`](docs/rag.md) has that story.
+
 The API, review screen, and local source simulator bind only to loopback:
 `http://127.0.0.1:8000/docs`, `http://127.0.0.1:8000/ui/dossiers`, and
 `http://127.0.0.1:8080`. The optional workflow UI is described in

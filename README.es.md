@@ -74,6 +74,15 @@ documentos nuevos por diseño. Para parar únicamente este stack:
 `docker compose --profile n8n down`; añade `--volumes` cuando sus datos locales
 ya no hagan falta.
 
+Después, [`scripts/dev.ps1`](scripts/dev.ps1) es lo que la abre: sin argumentos
+todo corre en Docker, y con `-Mode host` la API y el worker corren en la
+máquina, que es lo que añade los modelos de `claude` y de `codex`, porque esos
+binarios no pueden ejecutarse en un contenedor Linux. Los dos modos sirven la
+misma dirección, y sólo uno a la vez: dos procesos de API que comparten esta
+base de datos sin compartir sistema de ficheros se rompen el uno al otro de
+formas que parecen defectos de la aplicación. Está contado en
+[`docs/es/rag.md`](docs/es/rag.md).
+
 La API, la pantalla de revisión y el simulador local de fuentes escuchan sólo en
 loopback: `http://127.0.0.1:8000/docs`, `http://127.0.0.1:8000/ui/dossiers` y
 `http://127.0.0.1:8080`. La interfaz opcional de workflows se describe en

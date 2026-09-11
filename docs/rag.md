@@ -306,46 +306,60 @@ IEP_RAG_CLI_TIMEOUT_SECONDS=120
 ```
 
 The API runs in a container and the CLI is installed on the host, so **the API
-has to run on the host for this to work**. With the stack already up and
-seeded:
+has to run on the host for this to work**. One command does it, and it serves
+the address container mode serves:
 
 ```powershell
-$env:IEP_DATABASE_URL = "postgresql+psycopg://iep:iep@127.0.0.1:55432/iep"
-$env:IEP_STORAGE_ROOT = "var/objects"
-$env:IEP_REPORT_ROOT = "var/reports"
-$env:IEP_REGISTRY_API_BASE_URL = "http://127.0.0.1:8080"
-$env:IEP_RAG_PROVIDER = "cli"
-$env:IEP_RAG_CLI_TOOL = "claude"
-$env:IEP_EMBEDDING_PROVIDER = "ollama"
-$env:IEP_PDF_RENDERER = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-python -m uvicorn iep.api.app:create_app --factory --host 127.0.0.1 --port 8010
+.\scripts\dev.ps1 -Mode host
 ```
+
+That stops the container's API and worker, starts both here against the same
+PostgreSQL, and opens `http://127.0.0.1:8000/ui/dossiers`.
+
+There used to be two ports, and they quietly broke each other. Two API
+processes can share this database and not share a filesystem, so a document
+uploaded through one is registered in a row the other can read while its bytes
+sit where only the first can see them - and `POST /process` queues the work for
+a worker to execute, so the upload-and-process path failed across the pair, not
+only the report downloads. One process at a time on one port removes the whole
+class of it.
+
+What the script sets, and why each matters:
+
+```text
+IEP_DATABASE_URL          the same PostgreSQL, on the published port
+IEP_STORAGE_ROOT          var/objects, filled from the volume on the way in
+IEP_REPORT_ROOT           var/reports, likewise
+IEP_RAG_PROVIDER=cli      the point of this mode
+IEP_EMBEDDING_PROVIDER    ollama - the one that is easy to miss
+IEP_PDF_RENDERER          Chrome, which is not on the PATH here
+PATH                      Tesseract prepended, or scans are not read at all
+```
+
+`IEP_EMBEDDING_PROVIDER` matters because vector search only compares vectors
+made with the same configuration: a host process left on the default baseline
+finds nothing in a corpus indexed with a learned model. The screen says so
+rather than returning an empty answer.
 
 `IEP_PDF_RENDERER` is only needed off the image, which installs `chromium` on
 the PATH. On Windows Chrome is not on the PATH, so without it
 `reports/latest.pdf` answers 503 on the one machine where somebody is most
 likely to try it.
 
-Note the two processes do not share a filesystem. A report generated here is
-written to this `IEP_REPORT_ROOT` and the container cannot read it, so
-`latest.html` and `latest.pdf` answer 404 on the other port - with a message
-naming the directory it looked in. Generate and download a report from the
-same port.
-
-One variable per line, because Windows PowerShell has no `VAR=value command`
-prefix. On a POSIX shell the same variables can go on one line before the
-command. `IEP_EMBEDDING_PROVIDER` matters here and is easy to miss: vector
-search only compares vectors made with the same configuration, so a host
-process left on the default baseline finds nothing in a corpus indexed with a
-learned model. The screen says so rather than returning an empty answer.
-
-The object store lives in a Docker volume, so copy it out once if the evidence
-viewer should work in this mode too:
+The object store and the reports are copied out of the volume on the way in,
+for the same reason: the database is shared, so a document seeded in container
+mode is in a row this process can read, naming a file it cannot, and the
+evidence viewer would answer 404 on the URL that had just worked. `docker
+compose cp` merges into an existing directory rather than nesting inside it, so
+nothing already there is lost:
 
 ```bash
-docker compose cp api:/var/lib/iep/objects var/
-docker compose cp api:/var/lib/iep/reports var/
+docker compose cp api:/var/lib/iep/objects/. var/objects
+docker compose cp api:/var/lib/iep/reports/. var/reports
 ```
+
+`.\scripts\dev.ps1` with no argument goes back to container mode; `-Stop`
+stops everything and keeps the volumes.
 
 `GET /dossiers/{id}/questions` reports whether the configured CLI is on this
 process's `PATH`, and the panel repeats it, so a misconfiguration reads as a

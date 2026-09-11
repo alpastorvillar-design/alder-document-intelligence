@@ -314,47 +314,60 @@ IEP_RAG_CLI_TIMEOUT_SECONDS=120
 ```
 
 La API se ejecuta en un contenedor y el CLI está instalado en el host, así que
-**la API tiene que arrancarse en el host** para que esto funcione. Con el stack
-ya levantado y sembrado:
+**la API tiene que arrancarse en el host** para que esto funcione. Lo hace un
+solo comando, y sirve la misma dirección que el modo contenedor:
 
 ```powershell
-$env:IEP_DATABASE_URL = "postgresql+psycopg://iep:iep@127.0.0.1:55432/iep"
-$env:IEP_STORAGE_ROOT = "var/objects"
-$env:IEP_REPORT_ROOT = "var/reports"
-$env:IEP_REGISTRY_API_BASE_URL = "http://127.0.0.1:8080"
-$env:IEP_RAG_PROVIDER = "cli"
-$env:IEP_RAG_CLI_TOOL = "claude"
-$env:IEP_EMBEDDING_PROVIDER = "ollama"
-$env:IEP_PDF_RENDERER = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-python -m uvicorn iep.api.app:create_app --factory --host 127.0.0.1 --port 8010
+.\scripts\dev.ps1 -Mode host
 ```
+
+Eso para la API y el worker del contenedor, arranca los dos aquí contra el
+mismo PostgreSQL y abre `http://127.0.0.1:8000/ui/dossiers`.
+
+Antes había dos puertos, y se rompían el uno al otro en silencio. Dos procesos
+de API pueden compartir esta base de datos y no compartir sistema de ficheros,
+así que un documento subido por uno queda registrado en una fila que el otro
+puede leer mientras sus bytes están donde sólo el primero los ve —y
+`POST /process` encola el trabajo para que lo ejecute un worker, así que lo que
+fallaba entre los dos era subir y procesar, no sólo descargar el informe—. Un
+proceso a la vez en un solo puerto elimina la clase entera.
+
+Lo que pone el script, y por qué importa cada cosa:
+
+```text
+IEP_DATABASE_URL          el mismo PostgreSQL, por el puerto publicado
+IEP_STORAGE_ROOT          var/objects, que se llena del volumen al entrar
+IEP_REPORT_ROOT           var/reports, igual
+IEP_RAG_PROVIDER=cli      el sentido de este modo
+IEP_EMBEDDING_PROVIDER    ollama — el que es fácil olvidar
+IEP_PDF_RENDERER          Chrome, que aquí no está en el PATH
+PATH                      Tesseract delante, o los escaneos no se leen
+```
+
+`IEP_EMBEDDING_PROVIDER` importa porque la búsqueda vectorial sólo compara
+vectores hechos con la misma configuración: un proceso en host que se quede con
+la línea base por defecto no encontrará nada en un corpus indexado con un
+modelo aprendido. La pantalla lo dice, en vez de devolver una respuesta vacía.
 
 `IEP_PDF_RENDERER` sólo hace falta fuera de la imagen, que instala `chromium`
 en el PATH. En Windows Chrome no está en el PATH, así que sin esto
 `reports/latest.pdf` responde 503 justo en la máquina donde es más probable
 que alguien lo pruebe.
 
-Y ojo: los dos procesos no comparten sistema de ficheros. Un informe generado
-aquí se escribe en este `IEP_REPORT_ROOT` y el contenedor no puede leerlo, así
-que `latest.html` y `latest.pdf` responden 404 en el otro puerto —con un
-mensaje que dice en qué directorio buscó—. Genera y descarga el informe desde
-el mismo puerto.
-
-Una variable por línea, porque Windows PowerShell no admite el prefijo
-`VAR=valor comando`. En una shell POSIX las mismas variables caben en una sola
-línea antes del comando. `IEP_EMBEDDING_PROVIDER` importa aquí y es fácil
-olvidarlo: la búsqueda vectorial solo compara vectores hechos con la misma
-configuración, así que un proceso en host que se quede con la línea base por
-defecto no encontrará nada en un corpus indexado con un modelo aprendido. La
-pantalla lo dice, en vez de devolver una respuesta vacía.
-
-El almacén de objetos vive en un volumen de Docker, así que cópialo una vez si
-además quieres que funcione el visor de evidencias en este modo:
+El almacén de objetos y los informes se copian del volumen al entrar, por lo
+mismo: la base de datos es compartida, así que un documento sembrado en modo
+contenedor está en una fila que este proceso puede leer y que nombra un fichero
+que no puede leer, y el visor de evidencias respondería 404 en la URL que
+acababa de funcionar. `docker compose cp` fusiona con el directorio que ya
+existe en lugar de anidarse dentro, así que no se pierde nada de lo que hubiera:
 
 ```bash
-docker compose cp api:/var/lib/iep/objects var/
-docker compose cp api:/var/lib/iep/reports var/
+docker compose cp api:/var/lib/iep/objects/. var/objects
+docker compose cp api:/var/lib/iep/reports/. var/reports
 ```
+
+`.\scripts\dev.ps1` sin argumentos vuelve al modo contenedor; `-Stop` lo para
+todo y conserva los volúmenes.
 
 `GET /dossiers/{id}/questions` dice si el CLI configurado está en el `PATH` de
 este proceso, y el panel lo repite, para que una mala configuración se lea como
