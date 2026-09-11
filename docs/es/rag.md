@@ -325,8 +325,20 @@ $env:IEP_REGISTRY_API_BASE_URL = "http://127.0.0.1:8080"
 $env:IEP_RAG_PROVIDER = "cli"
 $env:IEP_RAG_CLI_TOOL = "claude"
 $env:IEP_EMBEDDING_PROVIDER = "ollama"
+$env:IEP_PDF_RENDERER = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 python -m uvicorn iep.api.app:create_app --factory --host 127.0.0.1 --port 8010
 ```
+
+`IEP_PDF_RENDERER` sólo hace falta fuera de la imagen, que instala `chromium`
+en el PATH. En Windows Chrome no está en el PATH, así que sin esto
+`reports/latest.pdf` responde 503 justo en la máquina donde es más probable
+que alguien lo pruebe.
+
+Y ojo: los dos procesos no comparten sistema de ficheros. Un informe generado
+aquí se escribe en este `IEP_REPORT_ROOT` y el contenedor no puede leerlo, así
+que `latest.html` y `latest.pdf` responden 404 en el otro puerto —con un
+mensaje que dice en qué directorio buscó—. Genera y descarga el informe desde
+el mismo puerto.
 
 Una variable por línea, porque Windows PowerShell no admite el prefijo
 `VAR=valor comando`. En una shell POSIX las mismas variables caben en una sola

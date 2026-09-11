@@ -1581,7 +1581,7 @@ class TestTheFiledReportIsReadable:
         requires_ocr: None,
     ) -> None:
         html, _ = self._html(db, store, settings, corpus_dir)
-        assert "Lo declarado frente a lo acreditado" in html
+        assert "Conciliación de importes" in html
         for concept, _, _, _ in vocab.RECONCILIATION:
             assert concept in html, concept
         # The comparison is the point: a table of declared figures alone would

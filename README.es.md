@@ -139,7 +139,7 @@ poder buscarse—. El renderizado son 0,6 MB con diez fuentes incrustadas y
 11.484 operadores de texto. La hoja de estilos de impresión sigue mandando en
 la maquetación, y «Imprimir» sigue abriendo el diálogo para papel.
 
-![El informe de justificación, con la tabla de reconciliación primero](docs/img/05-report.png)
+![El informe de justificación, con la conciliación de importes primero](docs/img/05-report.png)
 
 **Preguntar a las evidencias** — la pantalla de revisión y la de evidencia
 llevan el mismo copiloto de sólo lectura, en un cajón que se abre al lado del

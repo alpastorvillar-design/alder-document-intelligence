@@ -134,6 +134,14 @@ class Settings(BaseSettings):
     # prompt ~500, the answer up to `rag_max_output_tokens`. That is under 4600
     # with the question included, and the remainder is headroom.
     ollama_num_ctx: int = Field(default=8192, ge=2048, le=131_072)
+
+    # Where to find the browser that renders the report to PDF. Empty means
+    # "look on the PATH", which is what the image relies on - it installs
+    # `chromium`. A developer running the API on Windows has Chrome in
+    # `C:\Program Files\...` and not on the PATH, so without this the endpoint
+    # is unavailable on the one machine where somebody is most likely to try
+    # it.
+    pdf_renderer: str = ""
     rag_cli_model: str = ""
     rag_cli_timeout_seconds: float = Field(default=120.0, gt=0.0, le=600.0)
     # A ceiling this process enforces on itself, counted from the audit trail

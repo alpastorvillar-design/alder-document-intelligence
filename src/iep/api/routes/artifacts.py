@@ -137,7 +137,7 @@ def latest_report_pdf(
     dossiers.get(session, dossier_id)
     row, html = _stored_report(session, dossier_id, settings)
     try:
-        content = report_pdf.render(html)
+        content = report_pdf.render(html, binary=settings.pdf_renderer or None)
     except report_pdf.PdfUnavailableError as exc:
         raise ServiceUnavailableError(str(exc)) from exc
     except report_pdf.PdfRenderError as exc:
@@ -172,7 +172,22 @@ def _stored_report(
         raise NotFoundError("No report has been generated for this dossier yet.")
     path = settings.report_root / row.storage_key
     if not path.exists():
-        raise NotFoundError("The stored report file is missing.", {"report_id": str(row.id)})
+        # Naming the directory matters more than it looks. Two API processes
+        # can share this database and have different `IEP_REPORT_ROOT` values -
+        # a container with a volume, and a developer's process with a local
+        # folder - and then a row written by one names a file only that one can
+        # read. Without the path in the message the symptom is an unexplained
+        # 404 on a report that visibly exists.
+        raise NotFoundError(
+            "El informe está registrado pero su fichero no está donde este "
+            "proceso guarda los informes. Si lo generó otro proceso con otro "
+            "IEP_REPORT_ROOT, vuelve a generarlo aquí.",
+            {
+                "report_id": str(row.id),
+                "expected_file": row.storage_key,
+                "report_root": str(settings.report_root),
+            },
+        )
     return row, path.read_bytes()
 
 

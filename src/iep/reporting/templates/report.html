@@ -193,7 +193,14 @@ tbody tr:last-child td { border-bottom: none; }
 .recon td { vertical-align: middle; }
 .recon .concept { font-weight: 600; }
 .recon .concept small { display: block; font-weight: 400; color: var(--muted); font-size: .78rem; white-space: normal; }
-.recon .figure { font-variant-numeric: tabular-nums; font-weight: 560; text-align: right; white-space: nowrap; }
+/* Left, like the line under it. A money column is conventionally
+   right-aligned so the digits line up, and that convention was putting the
+   figure at one edge of the cell and the sentence naming its source at the
+   other. Every amount here has the same number of digits and the numerals are
+   tabular, so they still line up - and the cell now reads as one block
+   instead of two fragments. */
+.recon .figure { font-variant-numeric: tabular-nums; font-weight: 560; text-align: left; white-space: nowrap; }
+.recon td.num, .recon th.num { text-align: left; }
 .recon .from {
   display: block; font-weight: 400; font-size: .74rem; color: var(--muted);
   /* The figure stays on one line; the line naming its source does not
@@ -290,7 +297,10 @@ table.fields th.num { padding-right: .9rem; }
    cell, which is how a printed report read "Leído por la". Two lines in a tag
    is plainer than a truncated word. */
 table.fields .pill { white-space: normal; }
-table.fields td.num, table.fields th.num { text-align: right; }
+/* Not right-aligned. It is one short value in the middle of a row of
+   sentences, and pushing it to its right-hand edge separated it from the
+   field it describes. */
+table.fields td.num, table.fields th.num { text-align: left; }
 table.fields td.where .muted { display: block; font-size: .76rem; }
 
 /* Where a group repeats per document, per row or per person. */
@@ -446,7 +456,7 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
   <li><span>Correcciones humanas</span><strong>{{ corrections|length }}</strong></li>
 </ul>
 
-<h2>Lo declarado frente a lo acreditado</h2>
+<h2>Conciliación de importes</h2>
 <p class="lede">
   Para cada concepto de gasto: la cifra que declara la memoria y la cifra que
   suman los documentos que la soportan. La diferencia es la que tendría que
