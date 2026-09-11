@@ -274,10 +274,15 @@ table.fields { table-layout: fixed; width: 100%; }
    column - project titles, supplier names - needs the difference. Four lines
    per row became one for most of them. */
 /* Sized against the longest thing each column must hold, not evenly. The
-   state is the constraint nobody sees coming: "Confirmado por una persona" is
-   26 characters in a tag that cannot wrap mid-word, and at 11% it was cut off
-   at the right edge of the sheet. Confianza only ever holds "100 %" but its
-   own heading is wider than that, which is why it is not narrower still. */
+   state is the constraint nobody sees coming, and it was the shape of the
+   label as much as the width of the column: "Confirmado por una persona"
+   measured 169px in a tag that cannot wrap mid-word, which no share of this
+   sheet holds on one line without starving the two columns that carry
+   sentences. Shortening it to "Confirmado" removed the constraint rather than
+   accommodating it; the longest state is now "Leído por la máquina" at 145px,
+   and 22% of the printable width is 162. Confianza only ever holds "100 %"
+   but its own heading is wider than that, which is why it is not narrower
+   still. */
 /* One document, one block. Inside a group they ran into each other: eight
    rows of one invoice, then a heading, then eight rows of the next, with
    nothing between them but a line of bold text - so on paper the reader had
@@ -290,7 +295,11 @@ table.fields { table-layout: fixed; width: 100%; }
    the whole report, .9rem of it cost 274px of page and .45rem costs 151px for
    the same separation - so half. With the column rebalance above saving 189px,
    this round leaves the document 38px shorter than it found it. */
-.block + .block { border-top: 2px solid var(--line); margin-top: .45rem; padding-top: .1rem; }
+/* A block is a table with a beginning and an end, so it gets air at both.
+   The rule alone read as a divider between two halves of one long table
+   rather than as the edge of each. */
+.block { padding-bottom: .55rem; }
+.block + .block { border-top: 2px solid var(--line); margin-top: .55rem; padding-top: .15rem; }
 .blockhead { break-after: avoid; }
 
 /* Measured on the widest table in the report, in pixels of gap between the
@@ -327,12 +336,12 @@ table.fields td.where { font-size: .82rem; }
 /* The heading is wider than any value in the column, and with no gap it
    ran into "Procedencia" - which printed as "CONFIANZAPROCEDENCIA". */
 table.fields th.num { padding-right: .9rem; }
-/* A state tag may wrap here. Measured against the printable width, "Leído por
-   la máquina" needs 129px and "Confirmado por una persona" 169: no share of a
-   696px sheet holds the longest of them on one line without starving the two
-   columns that carry sentences. `nowrap` does not shrink it - it overflows the
-   cell, which is how a printed report read "Leído por la". Two lines in a tag
-   is plainer than a truncated word. */
+/* A state tag may still wrap, and that stays deliberate: `nowrap` does not
+   shrink a tag, it overflows the cell, which is how a printed report came to
+   read "Leído por la". Two lines is plainer than a truncated word. Nothing
+   wraps at the current widths - measured at A4, 136 tags and none of them on
+   two lines - so this is the floor under a future change, not something in
+   use. */
 table.fields .pill { white-space: normal; }
 /* Not right-aligned. It is one short value in the middle of a row of
    sentences, and pushing it to its right-hand edge separated it from the
@@ -342,7 +351,11 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
 
 /* Where a group repeats per document, per row or per person. */
 .blockhead {
-  padding: .55rem .6rem .35rem; border-top: 1px solid var(--line-soft);
+  padding: .55rem .6rem .4rem; border-top: 1px solid var(--line-soft);
+  /* And a firm rule under it. `--line-soft` under a shaded heading is
+     invisible on paper, so the column names floated between the document's
+     name and its rows without belonging to either. */
+  border-bottom: 1px solid var(--line);
   background: var(--card-sunk); font-size: .82rem;
 }
 .blockhead-name { color: var(--ink); font-weight: 650; }
@@ -391,6 +404,9 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
   /* The SHA-256 column wants more width than an A4 page has, and without a
      ceiling it pushed the two columns beside it off the sheet. */
   .docs { table-layout: fixed; }
+  /* Only at the break opportunities `<wbr>` marks, so the digest cannot be
+     split mid-block. */
+  .docs .digest { overflow-wrap: normal; word-break: normal; }
   .docs th:nth-child(1) { width: 17%; }
   .docs th:nth-child(2) { width: 11%; }
   .docs th:nth-child(3) { width: 13%; }
@@ -399,6 +415,10 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
   .docs th:nth-child(6) { width: 11%; }
   .docs th:nth-child(7) { width: 23%; }
   .docs td { vertical-align: top; }
+  /* The same size as every other table on the sheet. It was inheriting the
+     .86em that monospace carries elsewhere for optical reasons, which here
+     just made one table smaller than the rest. */
+  .docs .mono { font-size: 1em; }
   /* A group heading alone at the foot of a page is a heading with nothing
      under it. */
   .group > .cap { break-after: avoid; }
@@ -780,7 +800,12 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
         {% if d.source_detail %}<div class="muted" style="font-size:.76rem">{{ d.source_detail }}</div>{% endif %}</td>
       <td class="num mid">{{ d.page_count if d.page_count is not none else "—" }}</td>
       <td class="num mid">{{ "{:,}".format(d.size_bytes).replace(",", ".") }} B</td>
-      <td class="mono" style="font-size:.7rem; overflow-wrap:anywhere">{{ d.content_sha256 }}</td>
+      {# Sixteen characters at a time. `overflow-wrap: anywhere` breaks a
+         64-character digest wherever the column happens to end, which left a
+         single letter alone on the last line - twice on this page. `<wbr>` is
+         a break opportunity and not a character, so the hash still copies as
+         one string, and the column now fills in even blocks. #}
+      <td class="mono digest">{% for part in d.content_sha256|batch(16) %}{{ part|join }}{% if not loop.last %}<wbr>{% endif %}{% endfor %}</td>
     </tr>
   {% endfor %}
   </tbody>

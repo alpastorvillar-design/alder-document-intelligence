@@ -52,7 +52,7 @@ DOCUMENT_STATUS = {
 FIELD_STATUS = {
     "EXTRACTED": ("Leído por la máquina", "neutral"),
     "NEEDS_REVIEW": ("Necesita revisión", "warning"),
-    "CONFIRMED": ("Confirmado por una persona", "ok"),
+    "CONFIRMED": ("Confirmado", "ok"),
     "CORRECTED": ("Corregido por una persona", "ok"),
     "REJECTED": ("Descartado", "muted"),
 }
