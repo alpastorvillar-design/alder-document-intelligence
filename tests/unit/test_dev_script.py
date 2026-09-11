@@ -66,6 +66,28 @@ def test_the_port_is_freed_before_anything_binds_it() -> None:
     assert free < bind
 
 
+def test_stopping_a_process_that_already_exited_is_not_an_error() -> None:
+    """Every `Stop-Process` tolerates an id that has gone.
+
+    The worker runs as a launcher and its child, both carrying
+    `iep.worker.runner` on their command line, so stopping the first stops the
+    second - and the loop then asks a dead id to die. As a cmdlet error under
+    `$ErrorActionPreference = "Stop"` that is terminating, and the script
+    aborted before starting anything, having stopped the containers first.
+
+    The state being asked for is "not running", which a process that already
+    exited satisfies.
+    """
+    offenders = [
+        line.strip()
+        for line in dev().splitlines()
+        if "Stop-Process" in line
+        and "ErrorAction" not in line
+        and not line.lstrip().startswith("#")
+    ]
+    assert not offenders, "Stop-Process without -ErrorAction:\n  " + "\n  ".join(offenders)
+
+
 def test_host_mode_stops_the_container_api_and_worker() -> None:
     """Both of them. The worker is the one that is easy to forget.
 
@@ -129,6 +151,29 @@ def test_the_worker_inherits_the_configuration_it_cannot_disagree_about() -> Non
     assert not duplicated, f"assigned in more than one place: {sorted(duplicated)}"
 
 
+def test_only_the_worker_is_matched_by_its_command_line() -> None:
+    """A shell is never identified by what its command line mentions.
+
+    The worker runs in a window opened with `-NoExit`, so stopping the worker
+    has to close the window too or one empty prompt accumulates per run. The
+    obvious way to find it - a `powershell.exe` whose command line mentions
+    `iep.worker.runner` - matches any shell that mentions the worker, including
+    the one running the script. That was not hypothetical: a diagnostic shell
+    here matched on exactly that string, and the regression closes windows that
+    belong to somebody else.
+
+    So the window is only ever reached as the parent of a matched `python.exe`.
+    """
+    text = dev()
+    assert "Name='python.exe'" in text
+    assert "Name='powershell.exe'" not in text, "shells must not be matched by a CIM filter"
+    assert "ProcessId=$($_.ParentProcessId)" in text
+    # And the parent is confirmed before anything is sent to it, in case the id
+    # was recycled after the real parent exited.
+    assert '$parent.Name -eq "powershell.exe"' in text
+    assert '$parent.CommandLine -like "*iep.worker.runner*"' in text
+
+
 def test_host_mode_brings_the_seeded_corpus_with_it() -> None:
     """Copied, not assumed: the database is shared and the filesystem is not.
 
@@ -143,6 +188,34 @@ def test_host_mode_brings_the_seeded_corpus_with_it() -> None:
     # directory. Without it a second run nests var/objects/objects and the
     # evidence quietly stops being found.
     assert "cp api:/var/lib/iep/objects var" not in text
+
+
+@pytest.mark.parametrize("script", [DEV, DEMO])
+def test_no_native_command_has_its_stderr_redirected(script: Path) -> None:
+    """In PowerShell 5.1 that is a terminating error, not a quieter command.
+
+    Redirecting a native executable's stderr inside PowerShell wraps each line
+    it writes in a NativeCommandError record, and with
+    `$ErrorActionPreference = "Stop"` that record is terminating. `docker
+    compose cp` writes its ordinary progress to stderr, so `cp ... 2>&1` made
+    the script exit - reporting success, with the API never started and every
+    container stopped. It printed its way out of its own script.
+
+    Redirections belong on cmdlets, where they behave; a native command's
+    stderr is left alone and its exit code is what gets checked.
+    """
+    if not script.exists():
+        pytest.skip(f"{script.name} is not present")
+    lines = script.read_text(encoding="utf-8").splitlines()
+    offenders = [
+        f"{script.name}:{number}: {line.strip()}"
+        for number, line in enumerate(lines, start=1)
+        if not line.lstrip().startswith("#")
+        and re.search(
+            r"^\s*(?:&\s*)?(?:docker|python|pip|curl|git|npm|[\w.\\/-]+\.exe)\b.*2>", line
+        )
+    ]
+    assert not offenders, "native stderr redirected:\n  " + "\n  ".join(offenders)
 
 
 @pytest.mark.parametrize("script", [DEV, DEMO])

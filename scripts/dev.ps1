@@ -47,14 +47,39 @@ function Stop-HostProcesses {
         $process = Get-Process -Id $connection.OwningProcess -ErrorAction SilentlyContinue
         if ($process -and $process.ProcessName -eq "python") {
             Write-Host "  deteniendo la API del host (pid $($process.Id))"
-            Stop-Process -Id $process.Id -Force
+            # Already gone is the state being asked for. Without this an exit
+            # between the query and the call is a terminating error.
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         }
     }
+    # The worker, and the window that was opened to show it.
+    #
+    # Only `python.exe` is matched by command line. The window is then found as
+    # that process's parent, because matching shells by their command line
+    # catches any shell that mentions the worker - including the one running
+    # this script, which is how that was noticed.
     Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
         Where-Object { $_.CommandLine -like "*iep.worker.runner*" } |
         ForEach-Object {
             Write-Host "  deteniendo el worker del host (pid $($_.ProcessId))"
-            Stop-Process -Id $_.ProcessId -Force
+            $parent = Get-CimInstance Win32_Process `
+                -Filter "ProcessId=$($_.ParentProcessId)" -ErrorAction SilentlyContinue
+            # The worker runs as a launcher and its child, both carrying
+            # `iep.worker.runner`, so stopping one stops the other and this
+            # loop then reaches an id that no longer exists. Asking for a dead
+            # process to die is not a failure - and unhandled it was a
+            # terminating one, which aborted the script before it started
+            # anything.
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            # `-NoExit` is deliberate - a worker that dies leaves its error on
+            # screen - but a worker stopped on purpose leaves an empty prompt,
+            # and one accumulates per run. Both conditions are required in case
+            # the id was recycled after the real parent exited.
+            $isWorkerWindow = $parent -and $parent.Name -eq "powershell.exe" `
+                -and $parent.CommandLine -like "*iep.worker.runner*"
+            if ($isWorkerWindow) {
+                Stop-Process -Id $parent.ProcessId -Force -ErrorAction SilentlyContinue
+            }
         }
 }
 
@@ -110,11 +135,19 @@ New-Item -ItemType Directory -Force -Path "var\objects", "var\reports" | Out-Nul
 # merges into an existing directory instead of nesting inside it, and the
 # trailing `/.` says so explicitly; nothing already here is deleted. About
 # 12 MB for the seeded corpus.
-$present = docker compose ps -a --format "{{.Service}}" 2>$null
+$present = docker compose ps -a --format "{{.Service}}"
 if ($present -contains "api") {
     Write-Host "Trayendo objetos e informes del volumen (la base de datos es la misma)."
-    docker compose cp api:/var/lib/iep/objects/. var\objects 2>&1 | Out-Null
-    docker compose cp api:/var/lib/iep/reports/. var\reports 2>&1 | Out-Null
+    # No `2>&1`, and this is not an oversight. Redirecting a native
+    # command's stderr in PowerShell 5.1 wraps every line in a
+    # NativeCommandError, and `$ErrorActionPreference = "Stop"` makes
+    # that terminating - so with it this script died here, reporting
+    # success and leaving nothing running. `docker compose cp` writes
+    # its progress to stderr, so it printed its way out of its own
+    # script. Unredirected it just shows, and the exit code still tells
+    # the truth.
+    docker compose cp api:/var/lib/iep/objects/. var\objects | Out-Null
+    docker compose cp api:/var/lib/iep/reports/. var\reports | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "No se pudo copiar: las evidencias sembradas en el contenedor daran 404 aqui"
     }

@@ -144,10 +144,13 @@ imagen, así que el documento que se archiva es el mismo para todo el mundo.
 Sustituyó al diálogo del navegador después de que un PDF hecho por esa vía
 llegara como 26 mapas de bits, sin fuentes incrustadas y sin texto
 seleccionable —«imprimir como imagen», que deja un documento archivado sin
-poder buscarse—. El renderizado lleva diez fuentes incrustadas, entre diez y
+poder buscarse—. El renderizado lleva fuentes incrustadas, entre diez y
 veintidós mil operadores de texto según el expediente, y ni un solo mapa de
-bits. La hoja de estilos de impresión sigue mandando en la maquetación, y
-«Imprimir» sigue abriendo el diálogo para papel.
+bits. Cuántas fuentes y cuántas páginas salgan depende del renderizador —el
+chromium de la imagen y un Chrome de escritorio paginan el mismo HTML
+almacenado de forma algo distinta—, y por eso la copia que se archiva es la que
+hace la imagen. La hoja de estilos de impresión sigue mandando en la
+maquetación, y «Imprimir» sigue abriendo el diálogo para papel.
 
 ![El informe de justificación, con la conciliación de importes primero](docs/img/05-report.png)
 

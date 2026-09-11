@@ -134,9 +134,12 @@ stored HTML with Chromium, in the image, so the filed document is the same one
 for everybody. That replaced the browser's print dialogue after a PDF produced
 that way arrived as 26 bitmaps with no embedded fonts and no selectable text —
 "print as image", which makes an archived document unsearchable. The rendered
-one carries ten embedded fonts, between ten and twenty-two thousand text
-operators depending on the dossier, and not one bitmap. The print stylesheet
-still governs the layout, and "Imprimir" still opens the dialogue for paper.
+one carries embedded fonts, between ten and twenty-two thousand text operators
+depending on the dossier, and not one bitmap. How many fonts and pages depends
+on the renderer — the image's chromium and a desktop Chrome paginate the same
+stored HTML a little differently — which is why the filed copy is the one the
+image makes. The print stylesheet still governs the layout, and "Imprimir"
+still opens the dialogue for paper.
 
 ![The justification report, with the reconciliation table first](docs/img/05-report.png)
 
