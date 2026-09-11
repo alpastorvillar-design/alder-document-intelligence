@@ -33,6 +33,7 @@ from iep.api.errors import NotFoundError
 from iep.db.models import Document, Dossier, Extraction, Finding, ProcessingJob
 from iep.domain.enums import DocumentStatus, FieldStatus, FindingStatus, MediaKind, Severity
 from iep.dossiers import service as dossiers
+from iep.ingestion.service import NOT_STORED
 from iep.storage.base import ObjectNotFoundError, ObjectStore
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
@@ -401,11 +402,25 @@ def original_document(
 
 
 def _document_bytes(store: ObjectStore, document: Document | None) -> bytes | None:
+    """The stored bytes, or `None` when there are none to serve.
+
+    `None` is an expected answer, not a failure: a refused submission is
+    recorded and never stored. Callers turn it into a 404 with a sentence, or
+    into an evidence view with no page to draw on.
+    """
     if document is None or not document.storage_key:
         return None
+    if document.storage_key == NOT_STORED:
+        # The sentinel a refused upload is recorded with. It is deliberately
+        # not a key, so asking the store for it raises `ValueError` rather than
+        # "not found" - and that is how three routes came to answer 500 where
+        # this file promises 404.
+        return None
     try:
+        # `ValueError` included: any key the store cannot parse means there are
+        # no bytes to serve, which is this function's answer, not a crash.
         return store.get(document.storage_key)
-    except (ObjectNotFoundError, OSError):
+    except (ObjectNotFoundError, OSError, ValueError):
         return None
 
 

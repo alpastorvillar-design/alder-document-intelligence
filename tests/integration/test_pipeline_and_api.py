@@ -39,7 +39,7 @@ from iep.domain.enums import (
     SourceKind,
 )
 from iep.dossiers import service as dossiers
-from iep.ingestion.service import IngestionRejectedError, ingest_upload
+from iep.ingestion.service import NOT_STORED, IngestionRejectedError, ingest_upload
 from iep.pipeline.processor import finalise_state, process_dossier
 from iep.reporting import render
 from iep.retrieval import search as retrieval
@@ -1327,7 +1327,14 @@ class TestTheOriginalDocumentIsWhatOpens:
         assert response.headers["content-type"] == "image/jpeg"
         assert response.content == source.read_bytes()
 
-    def test_a_refused_document_has_no_bytes_to_open(self, client: TestClient, db: Session) -> None:
+    # Both spellings of "there are no bytes". `ingest_upload` writes the
+    # sentinel; the empty string is what this test used to assume, and the
+    # difference is the whole reason the sentinel reached a 500 - the state the
+    # application actually produces was the one never exercised here.
+    @pytest.mark.parametrize("storage_key", ["", NOT_STORED])
+    def test_a_refused_document_has_no_bytes_to_open(
+        self, client: TestClient, db: Session, storage_key: str
+    ) -> None:
         """Nothing unparsable is stored, so this is a 404 and not an empty file."""
         from tests.conftest import new_dossier
 
@@ -1343,7 +1350,7 @@ class TestTheOriginalDocumentIsWhatOpens:
             source_kind=SourceKind.UPLOAD,
             size_bytes=10,
             content_sha256="f" * 64,
-            storage_key="",
+            storage_key=storage_key,
             page_count=None,
             rejection_reason="la firma del fichero no corresponde a ningún formato aceptado",
         )
@@ -1353,6 +1360,8 @@ class TestTheOriginalDocumentIsWhatOpens:
         response = client.get(f"/ui/documents/{row.id}/original")
         assert response.status_code == 404
         assert "Traceback" not in response.text
+        # The sentence a reviewer reads, rather than a correlation id to quote.
+        assert "se rechazo en la entrada" in response.text
 
 
 class TestTheReviewScreenSpeaksOneLanguage:
