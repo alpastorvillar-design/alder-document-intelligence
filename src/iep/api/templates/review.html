@@ -22,18 +22,50 @@
     padding:.6rem .8rem; margin-bottom:1.4rem; box-shadow:var(--shadow); }
   .toolbar input[type=text] { max-width:12rem; }
 
-  .finding { border:1px solid var(--line); border-radius:var(--radius); background:var(--card); overflow:hidden; }
+  /* Read at the width the rest of the application reads at. `main` is 1120px
+     everywhere; this screen asks for `.wide` (1360px) because the field table
+     genuinely needs the columns, and a finding was inheriting that width
+     without needing it - a title, a couple of figures and two chips spread
+     across 1320px. Measured over the fourteen findings on INN-2025-042 the
+     narrower measure costs 44px of page height in total, because one more
+     facts row wraps; 1180px would cost nothing at all and barely reads as a
+     change. */
+  .finding { border:1px solid var(--line); border-radius:var(--radius); background:var(--card);
+    overflow:hidden; max-width:1120px; }
   .finding + .finding { margin-top:.6rem; }
   .finding > .head { display:flex; gap:.7rem; padding:.8rem .95rem; align-items:flex-start; }
+  /* A flex item will not shrink below its own content unless told to, and the
+     facts box asks for `max-content`. Without this the box kept its widest
+     size on a narrow window and `overflow:hidden` above simply cut it off -
+     the figures were gone rather than wrapped. Measured at 375px: 1048px and
+     clipped, against 220px and stacked. */
+  .finding > .head > .grow { min-width:0; }
   .finding .stripe { flex:0 0 3px; align-self:stretch; border-radius:2px; }
   .finding.b .stripe { background:var(--blocker); }
   .finding.w .stripe { background:var(--warning); }
   .finding.i .stripe { background:var(--muted); }
   .finding h3 { font-size:.95rem; margin:0 0 .25rem; }
   .finding .msg { font-size:.89rem; color:var(--ink-soft); margin:0; }
-  .finding .facts { display:grid; grid-template-columns:repeat(auto-fit, minmax(9rem,1fr));
-    gap:.35rem .9rem; margin:.7rem 0 0; padding:.6rem .7rem;
-    background:var(--card-sunk); border-radius:7px; font-size:.83rem; }
+  /* Each pair as wide as what it holds, packed left.
+     `grid-template-columns: repeat(auto-fit, minmax(9rem,1fr))` decided a
+     column's width from the number of columns instead of their contents: two
+     facts took 584px each, so the amount declared and the amount claimed sat
+     half a screen apart and stopped reading as the comparison they are. Five
+     facts got 225px each, too narrow for the page URL among them, which then
+     wrapped onto two lines with 900px of the row empty beside it.
+     Each label and value already comes wrapped in its own div, so flex sizes
+     every pair to its content and wraps only when the row really runs out. */
+  .finding .facts { display:flex; flex-wrap:wrap;
+    gap:.35rem 2.2rem; margin:.7rem 0 0; padding:.6rem .7rem;
+    background:var(--card-sunk); border-radius:7px; font-size:.83rem;
+    /* And the box stops where its contents do. Full width it implied there
+       was more data further right, on a finding that has two numbers to
+       compare: 1205px of panel holding 330px of figures. Measured here it is
+       346px for two facts, 525px for three, 1048px for five. */
+    width:max-content; max-width:100%; }
+  /* A floor so two short pairs do not touch, and a ceiling so one long value
+     cannot push the rest off the row - a 64-character digest is 30rem wide. */
+  .finding .facts > div { min-width:9rem; max-width:min(100%, 34rem); }
   .finding .facts dt { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; }
   .finding .facts dd { margin:0; font-variant-numeric:tabular-nums; font-weight:520;
     /* A SHA-256 does not fit in a 9rem column: without this it ran out of

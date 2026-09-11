@@ -21,6 +21,7 @@ import pytest
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "src" / "iep" / "api" / "templates"
 SHELL = TEMPLATE_DIR / "_base.html"
+REVIEW = TEMPLATE_DIR / "review.html"
 
 # A selector that is nothing but a class, possibly with further classes or
 # pseudo-classes attached: `.card`, `.pill.n`, `.btn:hover`. Anything with a
@@ -192,6 +193,66 @@ class TestTheFiledReportPrintsWithItsColours:
 
         for label, _ in FIELD_STATUS.values():
             assert label.strip(), FIELD_STATUS
+
+
+class TestAFindingsFactsAreSizedByWhatIsInThem:
+    """Two amounts being compared have to be readable side by side.
+
+    `grid-template-columns: repeat(auto-fit, minmax(9rem,1fr))` decided a
+    column's width from the number of columns rather than their contents. Two
+    facts took 584px each of a 1205px row, so the amount declared and the
+    amount claimed ended up half a screen apart and stopped reading as the
+    comparison they are; five facts got 225px each, too narrow for the page URL
+    among them, which wrapped onto two lines with 900px of the row empty.
+
+    Measured after: 346px for two facts, 525px for three, 1048px for five, and
+    the URL on one line.
+    """
+
+    def test_a_column_is_not_sized_by_how_many_there_are(self) -> None:
+        block = re.search(r"\.finding \.facts \{(.*?)\}", stylesheet(REVIEW), flags=re.DOTALL)
+        assert block is not None, "la regla de los datos ya no existe"
+        rule = block.group(1)
+        assert "display:flex" in rule.replace(" ", "")
+        assert "1fr" not in rule, "un reparto en partes iguales separa el par que se compara"
+
+    def test_the_box_stops_where_its_contents_do(self) -> None:
+        """Full width it implied there was more data further right."""
+        block = re.search(r"\.finding \.facts \{(.*?)\}", stylesheet(REVIEW), flags=re.DOTALL)
+        assert block is not None
+        rule = block.group(1).replace(" ", "")
+        assert "width:max-content" in rule
+        assert "max-width:100%" in rule, "sin techo se sale del bloque"
+
+    def test_a_finding_does_not_inherit_the_width_of_the_table(self) -> None:
+        """`.wide` exists for the field table, which needs the columns.
+
+        A finding is a title, a couple of figures and two chips, and it was
+        being laid out across 1320px because it happened to sit on the screen
+        that asks for the wider container. The number is a judgement call and
+        may be tuned; that it is narrower than `.wide` is the point.
+        """
+        finding = re.search(r"\.finding \{(.*?)\}", stylesheet(REVIEW), flags=re.DOTALL)
+        assert finding is not None
+        capped = re.search(r"max-width:\s*(\d+)px", finding.group(1))
+        assert capped is not None, "una incidencia se lee a lo ancho de la tabla"
+        wide = re.search(r"\.wide \{[^}]*max-width:\s*(\d+)px", stylesheet(SHELL))
+        assert wide is not None
+        assert int(capped.group(1)) < int(wide.group(1))
+
+    def test_the_block_can_shrink_instead_of_being_cut_off(self) -> None:
+        """The defect this catches only appears on a narrow window.
+
+        A flex item does not shrink below its own content unless told to, and
+        the box asks for `max-content` - so on a 375px screen it kept its
+        widest size and `.finding { overflow: hidden }` cut it off. The figures
+        were gone rather than wrapped: 1048px clipped, against 220px stacked.
+        """
+        rules = stylesheet(REVIEW)
+        assert re.search(r"\.finding > \.head > \.grow \{[^}]*min-width:\s*0", rules)
+        # The clipping half of the pair, so the two stay associated if either
+        # is ever revisited.
+        assert re.search(r"\.finding \{[^}]*overflow:\s*hidden", rules)
 
 
 class TestThePickerSaysWhatItCannotOffer:
