@@ -61,7 +61,25 @@
   .conf.low { color:var(--warning); font-weight:620; }
   th.nowrap { white-space:nowrap; }
   .cell-actions { display:flex; gap:.3rem; align-items:center; flex-wrap:nowrap; }
-  .cell-actions input { max-width:9rem; }
+  /* "valor correcto" was rendering as "valor correct". The declaration said
+     `max-width:9rem`, which was never the constraint: this is a flex item in
+     a tight row, so it shrank below that. Refusing to shrink is the fix, and
+     the width is then room to type a corrected supplier name into. */
+  .cell-actions input { flex:0 0 auto; width:10rem; min-width:10rem; }
+
+  /* Where a group repeats - one block per invoice, per timesheet row, per
+     person - the break is a row spanning the table rather than a separate
+     table, so the columns stay aligned across every block. */
+  tr.subhead > th {
+    text-align:left; padding:.75rem .55rem .35rem;
+    border-bottom:1px solid var(--line-soft); background:var(--card-sunk);
+    font-size:.8rem; letter-spacing:0; text-transform:none;
+  }
+  tr.subhead:first-child > th { padding-top:.45rem; }
+  .subhead-name { color:var(--ink); font-weight:650; font-size:.92rem; }
+  .subhead-detail { color:var(--ink-soft); font-weight:400; margin-left:.5rem; }
+  .subhead-detail::before { content:"· "; color:var(--muted); }
+  .subhead-count { color:var(--muted); font-weight:400; margin-left:.5rem; font-size:.78rem; }
   /* The button was wrapping to two lines inside a narrow cell. */
   .cell-actions .btn, .cell-actions button { white-space:nowrap; }
   /* Body cells default to top alignment for long text; these two hold a
@@ -274,11 +292,12 @@
   Pulsa <strong>Ver evidencia</strong> y verás el documento con el sitio marcado.
 </p>
 
-{% for title, subtitle, rows in grouped %}
+{% for title, subtitle, sections in grouped %}
+{% set field_count = sections|map(attribute="rows")|map("length")|sum %}
 <details class="group" {% if loop.first %}open{% endif %}>
   <summary>
     <h3>{{ title }}</h3>
-    <small>{{ rows|length }} campo{{ "s" if rows|length != 1 }}{% if subtitle %} · {{ subtitle }}{% endif %}</small>
+    <small>{{ field_count }} campo{{ "s" if field_count != 1 }}{% if sections|length > 1 and sections[0].label %} en {{ sections|length }} {{ "documentos" if title == "Facturas y justificantes" else "apartados" }}{% endif %}{% if subtitle %} · {{ subtitle }}{% endif %}</small>
   </summary>
   <div class="body scroll">
   <table>
@@ -323,10 +342,20 @@
       </tr>
     </thead>
     <tbody>
-    {% for e in rows %}
+    {% for section in sections %}
+      {% if section.label %}
+      <tr class="subhead">
+        <th colspan="6">
+          <span class="subhead-name">{{ section.label }}</span>
+          {% if section.detail %}<span class="subhead-detail">{{ section.detail }}</span>{% endif %}
+          <span class="subhead-count">{{ section.rows|length }} campo{{ "s" if section.rows|length != 1 }}</span>
+        </th>
+      </tr>
+      {% endif %}
+    {% for e in section.rows %}
       {% set estatus, ecss = field_status.get(e.status|string, (e.status|string, "n")) %}
       <tr>
-        <td>{{ field_label(e.field_path) }}
+        <td>{% if section.label %}{{ field_label_short(e.field_path) }}{% else %}{{ field_label(e.field_path) }}{% endif %}
           <div class="muted mono" style="font-size:.75rem">{{ e.field_path }}</div>
         </td>
         <td>
@@ -353,6 +382,7 @@
           </div>
         </td>
       </tr>
+    {% endfor %}
     {% endfor %}
     </tbody>
   </table>

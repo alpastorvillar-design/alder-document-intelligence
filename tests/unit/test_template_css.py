@@ -93,3 +93,40 @@ class TestNoPageRedefinesAShellClass:
             "review.html",
             "evidence.html",
         }
+
+
+class TestAPopoverIsNotClippedByWhateverScrollsAboveIt:
+    """The `(i)` panels were cut off in three places at once.
+
+    They sat in a table that scrolls horizontally, in a drawer with its own
+    overflow, and near the right edge of the window. `position: absolute`
+    loses all three: a child is clipped by the nearest scrolling ancestor
+    whatever its z-index, and a left-anchored panel runs off the viewport.
+    Only taking it out of the flow fixes it, with the placement computed from
+    the button's own rect - which is why this is asserted statically rather
+    than left to a class somebody might "tidy up".
+    """
+
+    def test_the_panel_escapes_its_container(self) -> None:
+        rules = stylesheet(SHELL)
+        block = re.search(r"\.info > \.panel \{(.*?)\}", rules, flags=re.DOTALL)
+        assert block is not None, "el panel del (i) ya no se declara"
+        assert "position: fixed" in block.group(1), (
+            "un panel `absolute` lo recorta la tabla con scroll y el cajón del copiloto"
+        )
+
+    def test_the_panel_sits_above_the_drawer(self) -> None:
+        rules = stylesheet(SHELL)
+        panel = re.search(r"\.info > \.panel \{(.*?)\}", rules, flags=re.DOTALL)
+        drawer = re.search(r"\.copilot \{(.*?)\}", rules, flags=re.DOTALL)
+        assert panel and drawer
+        panel_z = int(re.search(r"z-index: (\d+)", panel.group(1)).group(1))
+        drawer_z = int(re.search(r"z-index: (\d+)", drawer.group(1)).group(1))
+        assert panel_z > drawer_z, "el panel quedaría por debajo del cajón"
+
+    def test_only_one_panel_can_be_open(self) -> None:
+        """Several open at once overlapped each other, which is what a reviewer
+        reported first."""
+        script = SHELL.read_text(encoding="utf-8")
+        assert "function closePanels" in script
+        assert "closePanels(details)" in script, "abrir uno no cierra los demás"

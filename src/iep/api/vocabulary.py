@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Protocol
@@ -363,6 +364,97 @@ def unit_of(field_path: str) -> str:
 _ROW_RE = re.compile(r"^timesheet\.rows\[(\d+)\]\.(\w+)$")
 _REGISTRY_RE = re.compile(r"^registry\.personnel\[([\w-]+)\]\.(\w+)$")
 
+# The order a person reads a group in, which is not the order a database
+# returns rows in and not alphabetical either. Alphabetical put "Fin del
+# periodo" above "Inicio del periodo" and buried the project title in the
+# middle of the memoria, which is a small thing that makes a screen feel
+# unconsidered.
+#
+# The rule in each block: identity first, then time, then money - and every
+# total after the figures it adds up, so a reviewer can see the sum land.
+_FIELD_ORDER: tuple[str, ...] = (
+    "report.title",
+    "report.project_code",
+    "report.call_code",
+    "report.period",
+    "report.period_start",
+    "report.period_end",
+    "report.declared_personnel_cost_eur",
+    "report.declared_external_cost_eur",
+    "report.declared_total_eur",
+    # One invoice, in the order the fields sit on the paper.
+    "invoice.number",
+    "invoice.issue_date",
+    "invoice.supplier_name",
+    "invoice.supplier_tax_id",
+    "invoice.project_code",
+    "invoice.base_eur",
+    "invoice.vat_eur",
+    "invoice.total_eur",
+    "invoices.count",
+    "invoices.total_eur",
+    "timesheet.row_count",
+    "timesheet.total_amount_eur",
+    "call.code",
+    "call.status",
+    "call.eligible_from",
+    "call.eligible_to",
+    "call.max_funding_eur",
+)
+_FIELD_RANK = {path: index for index, path in enumerate(_FIELD_ORDER)}
+
+# Within one timesheet row or one person's registry record: who, then when,
+# then how much work, then the rate, then the amount the two produce.
+_ROW_FIELD_ORDER = (
+    "employee_id",
+    "full_name",
+    "role",
+    "contract_start",
+    "contract_end",
+    "month",
+    "hours",
+    "hourly_rate_eur",
+    "amount_eur",
+)
+_ROW_RANK = {key: index for index, key in enumerate(_ROW_FIELD_ORDER)}
+
+# An unranked field sorts after everything named, by path, rather than
+# vanishing or landing somewhere arbitrary: a new field added to the pipeline
+# has to show up on the screen even before somebody decides where it belongs.
+_UNRANKED = len(_FIELD_ORDER) + 100
+
+
+def field_sort_key(field_path: str) -> tuple[int, str, int, str]:
+    """Where a field sits inside its group.
+
+    Uniform tuple shape across the three kinds of path so they can be compared
+    even though, in practice, a group only ever holds one kind.
+    """
+    row = _ROW_RE.match(field_path)
+    if row:
+        return (int(row.group(1)), "", _ROW_RANK.get(row.group(2), _UNRANKED), field_path)
+    registry = _REGISTRY_RE.match(field_path)
+    if registry:
+        return (0, registry.group(1), _ROW_RANK.get(registry.group(2), _UNRANKED), field_path)
+    return (_FIELD_RANK.get(field_path, _UNRANKED), "", 0, field_path)
+
+
+def field_label_short(field_path: str) -> str:
+    """The field name without the row it belongs to.
+
+    "Parte horario, fila 1 · Importe imputado" is the right label in a flat
+    list and the wrong one under a heading that already says whose row this
+    is: the prefix repeats nine times per person and pushes the actual field
+    name off the readable part of the column.
+    """
+    row = _ROW_RE.match(field_path)
+    if row:
+        return _ROW_LABELS.get(row.group(2), row.group(2))
+    registry = _REGISTRY_RE.match(field_path)
+    if registry:
+        return _ROW_LABELS.get(registry.group(2), registry.group(2))
+    return field_label(field_path)
+
 
 def field_label(field_path: str) -> str:
     """A field path said the way a reviewer would say it."""
@@ -401,6 +493,121 @@ class HasFieldPath(Protocol):
     field_path: str
 
 
+# Groups that hold the same fields once per document, per row or per person.
+# Left flat they read as a list with every label repeated and no way to tell
+# which "Base imponible" belongs to which invoice - which is precisely the
+# question a reviewer is there to answer.
+INVOICES = "Facturas y justificantes"
+TIMESHEET = "Parte horario"
+REGISTRY = "Registro de personal"
+
+
+@dataclass(frozen=True)
+class Subsection[Row: HasFieldPath]:
+    """One document, one timesheet row or one person, and its fields.
+
+    `label` is empty for a group that needs no subdivision, which is how the
+    template decides whether to draw a heading at all.
+    """
+
+    label: str
+    detail: str
+    rows: list[Row]
+
+
+def _first_value(rows: list[Any], suffix: str) -> str:
+    """The displayable value of the row whose path ends in `suffix`.
+
+    Used for headings, so a missing value is a missing heading rather than an
+    error: an invoice whose number could not be read still has to appear, and
+    saying so is the point of the screen.
+    """
+    for row in rows:
+        if not row.field_path.endswith(suffix):
+            continue
+        for attribute in ("value_text", "value_number", "value_date"):
+            value = getattr(row, attribute, None)
+            if value not in (None, ""):
+                return str(value)
+    return ""
+
+
+def _document_key(row: Any) -> str:
+    return str(getattr(row, "document_id", "") or "")
+
+
+def subdivide[Row: HasFieldPath](
+    title: str, rows: list[Row], document_names: dict[str, str] | None = None
+) -> list[Subsection[Row]]:
+    """`rows` split the way the group repeats, or one unnamed subsection.
+
+    The heading has to name the thing a reviewer would name: an invoice by its
+    number, a timesheet row by whose hours they are and for which month, a
+    registry record by the person. The document filename rides along as the
+    detail, because two invoices from the same supplier in the same month are
+    told apart by the file they came from.
+    """
+    names = document_names or {}
+
+    if title == INVOICES:
+        by_document: dict[str, list[Row]] = {}
+        for row in rows:
+            by_document.setdefault(_document_key(row), []).append(row)
+        sections = [
+            Subsection(
+                label=(
+                    f"Factura {_first_value(group, 'invoice.number')}"
+                    if _first_value(group, "invoice.number")
+                    else "Factura sin número legible"
+                ),
+                detail=names.get(key, ""),
+                rows=sorted(group, key=lambda row: field_sort_key(row.field_path)),
+            )
+            for key, group in by_document.items()
+        ]
+        return sorted(sections, key=lambda section: (section.label, section.detail))
+
+    if title in (TIMESHEET, REGISTRY):
+        by_owner: dict[str, list[Row]] = {}
+        for row in rows:
+            match = _ROW_RE.match(row.field_path) or _REGISTRY_RE.match(row.field_path)
+            by_owner.setdefault(match.group(1) if match else "", []).append(row)
+        sections = []
+        for key, group in sorted(by_owner.items(), key=_owner_order):
+            person = _first_value(group, "full_name")
+            month = _first_value(group, "month")
+            sections.append(
+                Subsection(
+                    label=person or (f"Fila {int(key) + 1}" if key.isdigit() else key),
+                    detail=month or (key if not key.isdigit() else ""),
+                    rows=sorted(group, key=lambda row: field_sort_key(row.field_path)),
+                )
+            )
+        return sections
+
+    return [
+        Subsection(
+            label="", detail="", rows=sorted(rows, key=lambda row: field_sort_key(row.field_path))
+        )
+    ]
+
+
+def _owner_order(item: tuple[str, list[Any]]) -> tuple[int, str]:
+    """Numeric row indices in numeric order; person ids alphabetically."""
+    key = item[0]
+    return (int(key), "") if key.isdigit() else (10**6, key)
+
+
+def group_sections[Row: HasFieldPath](
+    rows: Iterable[Row], document_names: dict[str, str] | None = None
+) -> list[tuple[str, str, list[Subsection[Row]]]]:
+    """Groups, each split into the subsections it repeats over."""
+    return [
+        (title, subtitle, subdivide(title, group, document_names))
+        for title, subtitle, group in group_extractions(rows)
+    ]
+
+
 def group_extractions[Row: HasFieldPath](
     rows: Iterable[Row],
 ) -> list[tuple[str, str, list[Row]]]:
@@ -408,7 +615,10 @@ def group_extractions[Row: HasFieldPath](
 
     The review screen and the report both need this, and they need it to come
     out the same: a field that sits under "Parte horario" on screen has to sit
-    under "Parte horario" in the artefact somebody files.
+    under "Parte horario" in the artefact somebody files. The screen nests the
+    subsections and the report keeps them flat, so the ordering is done here,
+    once, by flattening exactly what the screen nests - otherwise the two
+    drift the moment one of them changes.
     """
     buckets: dict[str, list[Row]] = {}
     for row in rows:
@@ -416,10 +626,14 @@ def group_extractions[Row: HasFieldPath](
     ordered: list[tuple[str, str, list[Row]]] = []
     for _, title, subtitle in GROUPS:
         if title in buckets:
-            ordered.append((title, subtitle, buckets.pop(title)))
+            ordered.append((title, subtitle, _flatten(title, buckets.pop(title))))
     for title, remaining in buckets.items():
-        ordered.append((title, "", remaining))
+        ordered.append((title, "", _flatten(title, remaining)))
     return ordered
+
+
+def _flatten[Row: HasFieldPath](title: str, rows: list[Row]) -> list[Row]:
+    return [row for section in subdivide(title, rows) for row in section.rows]
 
 
 class HasIdAndPath(Protocol):
@@ -707,7 +921,7 @@ def locator_summary(locator: dict[str, Any]) -> str:
     if kind == "API_FIELD":
         return f"API de personal · {locator.get('json_path')}"
     if kind == "HTML_SELECTOR":
-        return f"Página de convocatoria · campo «{_selector_field(locator)}»"
+        return f"Página publicada · apartado «{_call_page_label(locator)}»"
     if kind == "DERIVED":
         count = len(locator.get("inputs") or ())
         return f"Calculado por el sistema desde {count} valores"
@@ -728,3 +942,22 @@ def _selector_field(locator: dict[str, Any]) -> str:
     selector = str(locator.get("selector") or "")
     match = re.search(r'data-field="([^"]+)"', selector)
     return match.group(1) if match else selector
+
+
+# What each machine key is called on the published page itself. The locator
+# stores `[data-field="eligible-from"]`, which is precise and unreadable: a
+# reviewer verifying the value looks for a heading, not an attribute. These
+# are the `<dt>` labels the page prints, so the sentence on screen names
+# something findable by eye.
+_CALL_PAGE_LABELS = {
+    "call-code": "Código",
+    "eligible-from": "Inicio del periodo elegible",
+    "eligible-to": "Fin del periodo elegible",
+    "max-funding": "Importe máximo financiable",
+    "status": "Estado",
+}
+
+
+def _call_page_label(locator: dict[str, Any]) -> str:
+    field = _selector_field(locator)
+    return _CALL_PAGE_LABELS.get(field, field)

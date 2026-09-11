@@ -146,9 +146,17 @@ h3 { font-size: .92rem; margin: 0 0 .35rem; }
 .info > summary:hover, .info[open] > summary {
   border-color: var(--accent); color: var(--accent-ink); background: var(--accent);
 }
+/* `fixed`, not `absolute`. These buttons sit in a table that scrolls
+   horizontally and in a drawer with its own overflow, and an absolutely
+   positioned child is clipped by the nearest scrolling ancestor however high
+   its z-index is: the panel was cut off at the right edge of the table and at
+   the edge of the copilot drawer. Taking it out of the flow entirely is the
+   only fix that holds in both, and the placement is then computed from the
+   button's own rect and clamped to the viewport - see `placePanel`. */
 .info > .panel {
-  position: absolute; z-index: 30; top: calc(100% + .45rem); left: -.5rem;
-  width: min(30rem, calc(100vw - 3rem));
+  position: fixed; z-index: 60; top: 0; left: 0;
+  width: min(30rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem); overflow-y: auto;
   background: var(--card); border: 1px solid var(--line);
   border-radius: 8px; box-shadow: var(--shadow);
   padding: .8rem .9rem; text-align: left;
@@ -158,8 +166,10 @@ h3 { font-size: .92rem; margin: 0 0 .35rem; }
 .info > .panel p { margin: 0 0 .55rem; }
 .info > .panel p:last-child { margin-bottom: 0; }
 .info > .panel strong { color: var(--ink); }
-/* Near the right edge a left-anchored panel would leave the viewport. */
-.info.right > .panel { left: auto; right: -.5rem; }
+/* The `.right` modifier used to hand-place panels near the right edge. The
+   clamp in `placePanel` does that for every panel, in both directions, and
+   for the vertical edges too, so the class is kept only so existing markup
+   does not have to change. */
 .eyebrow {
   font-size: .68rem; text-transform: uppercase; letter-spacing: .09em;
   color: var(--muted); font-weight: 620; margin: 0 0 .3rem;
@@ -414,6 +424,66 @@ body.copilot-on { padding-right: min(var(--copilot-w), 100vw); }
 <div id="flash" role="status" aria-live="polite"></div>
 
 <script>
+/* One panel at a time, placed where it fits.
+
+   Two behaviours a reviewer asked for and both are the same bug: several
+   panels could be open at once, overlapping each other, and each one was
+   clipped by the table or drawer it lived in. Opening one now closes the
+   rest, and the panel is positioned against the button's rect rather than
+   against its clipped parent. */
+function placePanel(details) {
+  const summary = details.querySelector("summary");
+  const panel = details.querySelector(".panel");
+  if (!summary || !panel) return;
+  const r = summary.getBoundingClientRect();
+  const margin = 8;
+  panel.style.right = "auto";
+  panel.style.left = "0px";
+  panel.style.top = "0px";
+  const w = panel.offsetWidth;
+  const h = panel.offsetHeight;
+  /* Left-aligned with the button, pulled back inside the viewport when that
+     would overflow, and never pushed off the left edge by the correction. */
+  let left = Math.min(r.left - margin, window.innerWidth - margin - w);
+  left = Math.max(margin, left);
+  /* Below the button, or above it when there is no room below. */
+  let top = r.bottom + 6;
+  if (top + h > window.innerHeight - margin) {
+    top = r.top - h - 6 < margin ? Math.max(margin, window.innerHeight - margin - h) : r.top - h - 6;
+  }
+  panel.style.left = left + "px";
+  panel.style.top = top + "px";
+}
+
+function closePanels(except) {
+  document.querySelectorAll("details.info[open]").forEach((item) => {
+    if (item !== except) item.open = false;
+  });
+}
+
+function wirePanels() {
+  document.querySelectorAll("details.info").forEach((details) => {
+    details.addEventListener("toggle", () => {
+      if (!details.open) return;
+      closePanels(details);
+      placePanel(details);
+    });
+  });
+  /* A fixed panel would otherwise stay behind while the page or the table
+     scrolled out from under it. Capture phase, so scrolling inside the table
+     counts and not only the window. */
+  window.addEventListener("scroll", () => closePanels(null), true);
+  window.addEventListener("resize", () => closePanels(null));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closePanels(null);
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("details.info")) closePanels(null);
+  });
+}
+
+document.addEventListener("DOMContentLoaded", wirePanels);
+
 function flash(message) {
   const el = document.getElementById("flash");
   el.textContent = message;

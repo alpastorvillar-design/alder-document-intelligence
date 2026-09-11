@@ -57,6 +57,7 @@ _env.globals.update(
     locator_kind=vocab.LOCATOR_KIND,
     rule=vocab.rule,
     field_label=vocab.field_label,
+    field_label_short=vocab.field_label_short,
     locator_summary=vocab.locator_summary,
     detail_rows=vocab.detail_rows,
     evidence_links=vocab.evidence_links,
@@ -223,7 +224,12 @@ def review_view(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -
         ],
         extractions=extractions,
         needs_review=needs_review,
-        grouped=vocab.group_extractions(extractions),
+        # Nested rather than flat: the invoice, timesheet and registry groups
+        # hold the same fields once per document, row or person, and read as a
+        # puzzle without a heading saying which is which.
+        grouped=vocab.group_sections(
+            extractions, {str(row.id): row.original_filename for row in documents}
+        ),
         # A finding names the extractions and documents it points at. Resolving
         # them here is what lets the card offer a way straight to the evidence
         # instead of describing it.
