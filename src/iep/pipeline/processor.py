@@ -62,7 +62,7 @@ from iep.extraction import fields as field_readers
 from iep.extraction import ocr, pdf_text
 from iep.extraction.base import ExtractionError, FieldCandidate, TextChunk
 from iep.extraction.excel import EXTRACTOR_VERSION as EXCEL_EXTRACTOR_VERSION
-from iep.extraction.excel import Sheet, read_workbook
+from iep.extraction.excel import Sheet, chunk_sheets, read_workbook
 from iep.observability import metrics
 from iep.retrieval.embeddings import build_embedding_provider, embed_in_batches
 from iep.semantic.protocol import (
@@ -416,6 +416,12 @@ def _read_workbook(settings: Settings, data: bytes, outcome: DocumentOutcome) ->
     outcome.text = "\n".join(
         " ".join(cell.text for cell in row if cell.text) for sheet in sheets for row in sheet.rows
     )
+    # Read but never indexed: this line was missing, so every timesheet value
+    # had an extraction with a cell locator and nothing a question could
+    # retrieve. Asked about the Excel, the copilot answered from the memoria's
+    # prose and cited the memoria - correctly, because the spreadsheet was not
+    # in the index at all.
+    outcome.chunks = list(chunk_sheets(sheets))
     outcome.sheets = sheets
     outcome.used_ocr = False
 

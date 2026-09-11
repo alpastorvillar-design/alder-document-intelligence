@@ -27,7 +27,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
 from iep.domain.contracts import ExcelCellLocator
-from iep.extraction.base import ExtractionError
+from iep.extraction.base import ExtractionError, TextChunk
 
 EXTRACTOR_VERSION = "excel-openpyxl/1.0.0"
 
@@ -186,3 +186,80 @@ def header_columns(sheet: Sheet, header_row: int) -> dict[str, Cell]:
     return {
         cell.text.strip().lower(): cell for cell in sheet.rows[header_row - 1] if cell.text.strip()
     }
+
+
+def _looks_like_headers(row: tuple[Cell, ...]) -> bool:
+    """Whether a row is a header row rather than data or a title.
+
+    Deliberately generic: three or more filled cells, none of them a number.
+    A title line ("Expediente | INN-2025-043") has two, and a data row has a
+    number in it. Nothing here knows what a timesheet is, because the chunker
+    runs before the document has been classified.
+    """
+    filled = [cell for cell in row if cell.text.strip()]
+    if len(filled) < 3:
+        return False
+    return all(cell.as_decimal() is None for cell in filled)
+
+
+def chunk_sheets(sheets: list[Sheet], *, max_chars: int = 900) -> tuple[TextChunk, ...]:
+    """One retrievable segment per sheet row.
+
+    Workbooks were read and never indexed: `outcome.text` was built and
+    `outcome.chunks` was left empty, so every value in a timesheet had an
+    extraction with a cell locator and nothing a question could retrieve. The
+    copilot answered about the Excel out of the memoria's prose, cited the
+    memoria, and was right to - the spreadsheet was not in the index at all.
+
+    A row is the unit, not a cell and not a sheet. A cell on its own is "120"
+    with no idea what it counts; a whole sheet is one segment that matches
+    every query and locates nothing. A row is also what a person reads.
+
+    Each value is named by its column header, so the segment carries meaning a
+    bare row of figures does not: "Nombre: Nerea Talvi · Horas: 120" is
+    retrievable by a question about hours, and "Nerea Talvi 120 40 4800" is
+    not. Where a sheet puts a label in a value column - a TOTAL row under the
+    rate column - the pairing repeats that faithfully rather than guessing.
+
+    The locator is the row's first filled cell. A row spans cells and the
+    locator model addresses one, so this points at where the row starts,
+    which is what a reviewer needs to find it.
+    """
+    chunks: list[TextChunk] = []
+    ordinal = 0
+    for sheet in sheets:
+        header_index = next(
+            (index for index, row in enumerate(sheet.rows) if _looks_like_headers(row)),
+            None,
+        )
+        headers = (
+            {
+                cell.column: cell.text.strip()
+                for cell in sheet.rows[header_index]
+                if cell.text.strip()
+            }
+            if header_index is not None
+            else {}
+        )
+        for index, row in enumerate(sheet.rows):
+            filled = [cell for cell in row if cell.text.strip()]
+            if not filled:
+                continue
+            if header_index is not None and index > header_index:
+                body = " · ".join(
+                    f"{headers[cell.column]}: {cell.text.strip()}"
+                    if cell.column in headers
+                    else cell.text.strip()
+                    for cell in filled
+                )
+            elif len(filled) == 2:
+                # A title line reads as a pair: "Expediente: INN-2025-043".
+                body = f"{filled[0].text.strip()}: {filled[1].text.strip()}"
+            else:
+                body = " · ".join(cell.text.strip() for cell in filled)
+            text = f"Hoja «{sheet.name}», fila {filled[0].row}: {body}"
+            chunks.append(
+                TextChunk(ordinal=ordinal, text=text[:max_chars], locator=filled[0].locator())
+            )
+            ordinal += 1
+    return tuple(chunks)
