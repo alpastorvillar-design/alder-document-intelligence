@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import cast
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import select
@@ -145,7 +145,19 @@ def export_json(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -
     response_class=Response,
     summary="Everything, as CSV, for a spreadsheet",
 )
-def export_csv(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> Response:
+def export_csv(
+    dossier_id: uuid.UUID,
+    dialect: Literal["rfc4180", "excel"] = Query(
+        default="rfc4180",
+        description=(
+            "`rfc4180` is commas and UTF-8 with no byte order mark, which is what "
+            "pandas, R, DuckDB and `csv.reader` expect. `excel` is semicolons, CRLF "
+            "and a BOM, which is what a double-click needs on an install whose list "
+            "separator is a semicolon - otherwise every row arrives in column A."
+        ),
+    ),
+    session: Session = Depends(db_session),
+) -> Response:
     """One row per extraction, with the locator rendered as readable text.
 
     Cells that begin with `=`, `+`, `-` or `@` are neutralised before they
@@ -153,10 +165,11 @@ def export_csv(dossier_id: uuid.UUID, session: Session = Depends(db_session)) ->
     a formula when somebody opens the file in Excel.
     """
     dossiers.get(session, dossier_id)
+    suffix = "-excel" if dialect == "excel" else ""
     return Response(
-        content=render.export_csv(session, dossier_id),
+        content=render.export_csv(session, dossier_id, dialect=dialect),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{dossier_id}.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="{dossier_id}{suffix}.csv"'},
     )
 
 

@@ -553,6 +553,21 @@ class TestPipeline:
             first_cell = line.split(",")[0]
             assert not first_cell.startswith(("=", "+", "@")), first_cell
 
+        # The same content in the shape a double-click into Excel needs. Both
+        # are produced from one writer, so the neutralisation above cannot
+        # apply to only one of them.
+        import csv as csv_module
+        import io as io_module
+
+        excel_bytes = render.export_csv(db, dossier.id, dialect="excel")
+        assert excel_bytes.startswith(b"\xef\xbb\xbf")
+        standard_rows = list(csv_module.reader(io_module.StringIO(csv_bytes), delimiter=","))
+        excel_rows = list(
+            csv_module.reader(io_module.StringIO(excel_bytes.decode("utf-8-sig")), delimiter=";")
+        )
+        assert excel_rows == standard_rows
+        assert len(excel_rows[0]) == 10
+
         payload = render.export_json(db, dossier.id)
         assert b'"contract_version": "1.0.0"' in payload
 

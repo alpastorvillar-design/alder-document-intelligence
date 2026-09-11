@@ -60,6 +60,43 @@
   .conf { font-variant-numeric:tabular-nums; }
   .conf.low { color:var(--warning); font-weight:620; }
   th.nowrap { white-space:nowrap; }
+  /* One set of column widths for every section. Without this each table sizes
+     itself to its own content, so "Confianza" sat in a different place in
+     every block and the eye had to find the columns again each time. Measured
+     from the widest cell in each column across all of them, and the body
+     scrolls rather than squeezing anything: a column that shrinks to fit is
+     a column that truncates. */
+  table.fields { table-layout:fixed; min-width:83.875rem; }
+  col.c-field { width:13.75rem; }
+  col.c-value { width:12.5rem; }
+  col.c-conf  { width:5.625rem; }
+  col.c-where { width:15rem; }
+  /* The state pill cannot wrap, so this is the width of the longest one
+     ("Leído por la máquina", 141px measured) with a little air. Set to 130px
+     it clipped on 113 rows. */
+  col.c-state { width:9.5rem; }
+  col.c-act   { width:27.5rem; }
+  /* A JSON path has no spaces to break at and would otherwise run out of its
+     column: `$.pages[*].items[employee_id=EMP-0142].hourly_rate_eur`. */
+  table.fields td { overflow-wrap:anywhere; }
+
+  tr.subcols > td {
+    padding-top:.3rem; padding-bottom:.3rem;
+    font-size:.68rem; text-transform:uppercase; letter-spacing:.07em;
+    color:var(--muted); border-bottom:1px solid var(--line-soft);
+  }
+
+  /* The internal field name. Off by default - repeated under fifty labels it
+     filled the column and left the field's own name no room - and still one
+     hover away, because the `title` on the cell carries it either way. */
+  .fieldkey { font-size:.75rem; color:var(--muted); display:none; }
+  body.show-keys .fieldkey { display:block; }
+  .fields-head { display:flex; gap:1rem; align-items:flex-start; justify-content:space-between;
+                 flex-wrap:wrap; margin-bottom:1rem; }
+  .fields-head h2 { margin:0 0 .35rem; }
+  .keys-toggle { display:flex; align-items:center; gap:.4rem; white-space:nowrap;
+                 color:var(--ink-soft); font-size:.85rem; }
+
   .cell-actions { display:flex; gap:.3rem; align-items:center; flex-wrap:nowrap; }
   /* "valor correcto" was rendering as "valor correct". The declaration said
      `max-width:9rem`, which was never the constraint: this is a flex item in
@@ -163,7 +200,8 @@
   <button class="danger" onclick="decide('reject')">Rechazar</button>
   <button onclick="makeReport()">Generar informe</button>
   <a class="btn small" href="/dossiers/{{ dossier.id }}/reports/latest.html" target="_blank" rel="noopener">Último informe</a>
-  <a class="btn small" href="/dossiers/{{ dossier.id }}/export.csv">CSV</a>
+  <a class="btn small" href="/dossiers/{{ dossier.id }}/export.csv?dialect=excel"
+     title="Separado por punto y coma y con BOM, que es lo que necesita Excel para abrirlo en columnas. La versión RFC 4180 con comas está en /dossiers/{{ dossier.id }}/export.csv">CSV</a>
   <a class="btn small" href="/dossiers/{{ dossier.id }}/export.json" target="_blank" rel="noopener">JSON</a>
   <a class="btn small" href="/dossiers/{{ dossier.id }}/audit" target="_blank" rel="noopener">Auditoría</a>
 </div>
@@ -286,11 +324,32 @@
 
 {% include "_copilot.html" %}
 
-<h2>Campos extraídos y su evidencia</h2>
-<p class="lede" style="margin-bottom:1rem">
-  Cada valor de aquí abajo se leyó de un sitio concreto de un documento concreto.
-  Pulsa <strong>Ver evidencia</strong> y verás el documento con el sitio marcado.
-</p>
+<div class="fields-head">
+  <div>
+    <h2>Campos extraídos y su evidencia</h2>
+    <p class="lede" style="margin:0">
+      Cada valor de aquí abajo se leyó de un sitio concreto de un documento concreto.
+      Pulsa <strong>Ver evidencia</strong> y verás el documento con el sitio marcado.
+    </p>
+  </div>
+  <label class="keys-toggle">
+    <input type="checkbox" id="show-keys" onchange="toggleKeys(this.checked)">
+    Mostrar claves técnicas
+    <details class="info right">
+      <summary aria-label="Qué son las claves técnicas">i</summary>
+      <div class="panel">
+        <p>El nombre interno del campo, por ejemplo
+           <code class="mono">timesheet.rows[0].hours</code>.</p>
+        <p>Es la misma clave que usan la API, el CSV, las reglas y el informe, así que
+           sirve para buscar un valor concreto en cualquiera de ellos. Viene apagada
+           porque repetirla bajo cada etiqueta llenaba la columna y dejaba el nombre
+           del campo sin sitio.</p>
+        <p>Con esto apagado sigue estando a un paso: el cursor sobre el nombre del
+           campo la muestra.</p>
+      </div>
+    </details>
+  </label>
+</div>
 
 {% for title, subtitle, sections in grouped %}
 {% set field_count = sections|map(attribute="rows")|map("length")|sum %}
@@ -300,7 +359,11 @@
     <small>{{ field_count }} campo{{ "s" if field_count != 1 }}{% if sections|length > 1 and sections[0].label %} en {{ sections|length }} {{ "documentos" if title == "Facturas y justificantes" else "apartados" }}{% endif %}{% if subtitle %} · {{ subtitle }}{% endif %}</small>
   </summary>
   <div class="body scroll">
-  <table>
+  <table class="fields">
+    <colgroup>
+      <col class="c-field"><col class="c-value"><col class="c-conf">
+      <col class="c-where"><col class="c-state"><col class="c-act">
+    </colgroup>
     <thead>
       <tr>
         <th>Campo</th>
@@ -351,12 +414,19 @@
           <span class="subhead-count">{{ section.rows|length }} campo{{ "s" if section.rows|length != 1 }}</span>
         </th>
       </tr>
+      {# The column names again under each block. Seven blocks of seven rows
+         leaves the real header far off the top of the screen, and a column of
+         bare figures with no name over it is the thing a reviewer misreads. #}
+      <tr class="subcols">
+        <td>Campo</td><td>Valor</td><td>Confianza</td>
+        <td>De dónde sale</td><td>Estado</td><td>Qué puedes hacer</td>
+      </tr>
       {% endif %}
     {% for e in section.rows %}
       {% set estatus, ecss = field_status.get(e.status|string, (e.status|string, "n")) %}
       <tr>
-        <td>{% if section.label %}{{ field_label_short(e.field_path) }}{% else %}{{ field_label(e.field_path) }}{% endif %}
-          <div class="muted mono" style="font-size:.75rem">{{ e.field_path }}</div>
+        <td title="{{ e.field_path }}">{% if section.label %}{{ field_label_short(e.field_path) }}{% else %}{{ field_label(e.field_path) }}{% endif %}
+          <div class="fieldkey mono">{{ e.field_path }}</div>
         </td>
         <td>
           {% if e.original_value_text %}<span class="was">{{ e.original_value_text }}</span><br>{% endif %}
@@ -394,6 +464,23 @@
 {% block scripts %}
 <script>
 const dossierId = document.body.dataset.dossier;
+
+/* Whether the internal field names are on. Remembered per browser: somebody
+   who needs them needs them on every dossier, and somebody who does not
+   should never have to turn them off twice. */
+function toggleKeys(on) {
+  document.body.classList.toggle("show-keys", on);
+  try { localStorage.setItem("show-keys", on ? "1" : "0"); } catch (e) { /* private window */ }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  let remembered = null;
+  try { remembered = localStorage.getItem("show-keys"); } catch (e) { /* ignore */ }
+  if (remembered === "1") {
+    document.getElementById("show-keys").checked = true;
+    document.body.classList.add("show-keys");
+  }
+});
 
 /* Every decision is signed. Returning null rather than a default means the
    caller has to stop, so nothing lands in the audit trail unattributed. */

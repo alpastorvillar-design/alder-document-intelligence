@@ -323,10 +323,34 @@ def export_json(session: Session, dossier_id: uuid.UUID) -> bytes:
     return json.dumps(payload, indent=2, ensure_ascii=False, default=str).encode("utf-8")
 
 
-def export_csv(session: Session, dossier_id: uuid.UUID) -> bytes:
+# What a double-click into Excel needs, and what every other reader needs,
+# are not the same file. Excel splits on the locale's list separator, which on
+# a Spanish install is a semicolon, so an RFC 4180 file - commas, no byte
+# order mark - arrives with every row in column A. Pandas, R, DuckDB and
+# `csv.reader` want exactly that RFC 4180 file.
+#
+# So both are produced, the standard one by default and the Excel one on
+# request. The alternative hack, an `sep=;` first line, is understood by Excel
+# and by nothing else: it turns the file into something a standard parser
+# reads as a one-column row of garbage.
+CSV_DIALECTS = ("rfc4180", "excel")
+
+# Excel only detects UTF-8 in a double-clicked file if it starts with a BOM.
+# Without it, "Sintético" arrives as "SintÃ©tico".
+_BOM = "\ufeff"
+
+
+def export_csv(session: Session, dossier_id: uuid.UUID, *, dialect: str = "rfc4180") -> bytes:
+    """One row per extraction. `dialect="excel"` for semicolons and a BOM."""
     context = collect(session, dossier_id)
     buffer = io.StringIO(newline="")
-    writer = csv.writer(buffer, lineterminator="\n")
+    if dialect == "excel":
+        buffer.write(_BOM)
+    writer = csv.writer(
+        buffer,
+        lineterminator="\r\n" if dialect == "excel" else "\n",
+        delimiter=";" if dialect == "excel" else ",",
+    )
     writer.writerow(
         [
             "field_path",

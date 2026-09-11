@@ -45,6 +45,23 @@ _env = Environment(
 )
 _env.filters["money"] = vocab.money
 _env.filters["fecha"] = vocab.spanish_date
+
+
+def original_opens_inline(media_kind: object) -> bool:
+    """Whether a browser will show this kind or hand it over as a file.
+
+    Read from the same table the response header uses, so the button cannot
+    promise "abrir" while the header says `attachment`. A workbook is the only
+    kind no browser renders, and a label that ignored that left a reviewer
+    wondering whether a download was a bug.
+    """
+    try:
+        _, disposition = ORIGINAL_MEDIA[MediaKind(str(media_kind))]
+    except (KeyError, ValueError):
+        return False
+    return disposition == "inline"
+
+
 _env.globals.update(
     dossier_status=vocab.DOSSIER_STATUS,
     document_status=vocab.DOCUMENT_STATUS,
@@ -55,6 +72,7 @@ _env.globals.update(
     document_kind=vocab.DOCUMENT_KIND,
     media_kind=vocab.MEDIA_KIND,
     locator_kind=vocab.LOCATOR_KIND,
+    original_opens_inline=original_opens_inline,
     rule=vocab.rule,
     field_label=vocab.field_label,
     field_label_short=vocab.field_label_short,
