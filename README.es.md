@@ -144,9 +144,10 @@ imagen, así que el documento que se archiva es el mismo para todo el mundo.
 Sustituyó al diálogo del navegador después de que un PDF hecho por esa vía
 llegara como 26 mapas de bits, sin fuentes incrustadas y sin texto
 seleccionable —«imprimir como imagen», que deja un documento archivado sin
-poder buscarse—. El renderizado son 0,6 MB con diez fuentes incrustadas y
-11.484 operadores de texto. La hoja de estilos de impresión sigue mandando en
-la maquetación, y «Imprimir» sigue abriendo el diálogo para papel.
+poder buscarse—. El renderizado lleva diez fuentes incrustadas, entre diez y
+veintidós mil operadores de texto según el expediente, y ni un solo mapa de
+bits. La hoja de estilos de impresión sigue mandando en la maquetación, y
+«Imprimir» sigue abriendo el diálogo para papel.
 
 ![El informe de justificación, con la conciliación de importes primero](docs/img/05-report.png)
 

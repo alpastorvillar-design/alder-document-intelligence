@@ -134,9 +134,9 @@ stored HTML with Chromium, in the image, so the filed document is the same one
 for everybody. That replaced the browser's print dialogue after a PDF produced
 that way arrived as 26 bitmaps with no embedded fonts and no selectable text —
 "print as image", which makes an archived document unsearchable. The rendered
-one is 0.6 MB with ten embedded fonts and 11484 text operators. The print
-stylesheet still governs the layout, and "Imprimir" still opens the dialogue
-for paper.
+one carries ten embedded fonts, between ten and twenty-two thousand text
+operators depending on the dossier, and not one bitmap. The print stylesheet
+still governs the layout, and "Imprimir" still opens the dialogue for paper.
 
 ![The justification report, with the reconciliation table first](docs/img/05-report.png)
 
