@@ -309,9 +309,23 @@ The API runs in a container and the CLI is installed on the host, so **the API
 has to run on the host for this to work**. With the stack already up and
 seeded:
 
-```bash
-IEP_DATABASE_URL=postgresql+psycopg://iep:iep@127.0.0.1:55432/iep IEP_STORAGE_ROOT=var/objects IEP_REPORT_ROOT=var/reports IEP_REGISTRY_API_BASE_URL=http://127.0.0.1:8080 IEP_RAG_PROVIDER=cli IEP_RAG_CLI_TOOL=claude python -m uvicorn iep.api.app:create_app --factory --host 127.0.0.1 --port 8010
+```powershell
+$env:IEP_DATABASE_URL = "postgresql+psycopg://iep:iep@127.0.0.1:55432/iep"
+$env:IEP_STORAGE_ROOT = "var/objects"
+$env:IEP_REPORT_ROOT = "var/reports"
+$env:IEP_REGISTRY_API_BASE_URL = "http://127.0.0.1:8080"
+$env:IEP_RAG_PROVIDER = "cli"
+$env:IEP_RAG_CLI_TOOL = "claude"
+$env:IEP_EMBEDDING_PROVIDER = "ollama"
+python -m uvicorn iep.api.app:create_app --factory --host 127.0.0.1 --port 8010
 ```
+
+One variable per line, because Windows PowerShell has no `VAR=value command`
+prefix. On a POSIX shell the same variables can go on one line before the
+command. `IEP_EMBEDDING_PROVIDER` matters here and is easy to miss: vector
+search only compares vectors made with the same configuration, so a host
+process left on the default baseline finds nothing in a corpus indexed with a
+learned model. The screen says so rather than returning an empty answer.
 
 The object store lives in a Docker volume, so copy it out once if the evidence
 viewer should work in this mode too:
@@ -324,6 +338,46 @@ docker compose cp api:/var/lib/iep/reports var/
 `GET /dossiers/{id}/questions` reports whether the configured CLI is on this
 process's `PATH`, and the panel repeats it, so a misconfiguration reads as a
 sentence rather than as a failure to interpret.
+
+### Which models the picker offers
+
+Three sources, and they are not symmetrical, which is the interesting part.
+
+**Ollama** is asked over HTTP (`/api/tags`) and answers with what was pulled,
+so the list is whatever is on the machine. Embedding-only models are filtered
+out: offering one would make the picker look richer and the first question
+fail.
+
+**Codex** is asked too. The CLI ships an app-server that speaks JSON-RPC over
+stdio, and `model/list` returns the same catalogue its interactive `/model`
+picker draws - ids, display names, the vendor's own descriptions, the default
+reasoning effort. Measured cold on this machine, 1.8 s. The answer is cached
+for ten minutes because the status endpoint is polled by the screen and each
+ask costs a process. Models flagged `hidden` are dropped, because that flag
+exists to keep them out of a picker. Two things are deliberately not read:
+`~/.codex/` - the configuration would give one model and the session rollouts
+are a record of somebody's work - and `account/read`, which answers with the
+signed-in email address that no screen here needs.
+
+**Claude** has no equivalent, so its three entries are a hard-coded editorial
+choice: fast and cheap, capable, most capable. A reviewer choosing between
+eleven names is not choosing.
+
+When a discovery fails the backend stays on the screen with a single entry
+meaning "whatever the CLI is configured for", which sends no `--model` at all.
+Losing a working backend because an experimental protocol moved would be a
+worse outcome than not knowing its inventory.
+
+Whatever the source, a model id arriving from a client is resolved against
+this catalogue before it is used, because on the CLI backends it reaches
+`argv`. An id nobody offered is refused, not defaulted.
+
+Remaining subscription quota is **not** available: for codex it arrives as an
+`account/rateLimitsUpdated` notification after a turn runs, which is why the
+interactive `/status` shows what the last call happened to learn rather than a
+live figure, and `claude auth status --json` reports the plan without a quota
+field. The meter therefore reports what this application spent, which is the
+only number it can stand behind.
 
 ### What a subprocess costs, and what is done about it
 

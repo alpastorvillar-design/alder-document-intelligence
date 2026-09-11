@@ -13,17 +13,23 @@ Three backends, one flat namespace:
 - `ollama:<model>` - a local Ollama server, discovered at runtime
 
 The first two are development-only, for the reasons in `rag_cli.py`. The third
-is genuinely local: nothing leaves the machine, and Ollama can be constrained
-with a JSON schema, which neither CLI can.
+is genuinely local: nothing leaves the machine, and it costs nothing, which is
+why it is listed first and preselected.
+
+Both CLI lists used to be hard-coded. Codex's no longer is - it is discovered
+from the CLI itself, see `codex_appserver.py`.
 """
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import httpx
 
 from iep.config import Settings
+from iep.retrieval.codex_appserver import CodexModel, list_models
 
 # Backends whose availability is a question about this host, not about a
 # network. Kept separate from the model list because "the CLI is installed" and
@@ -55,9 +61,83 @@ CLAUDE_MODELS = (
     ("claude-opus-5", "Opus 5", "El más capaz, el más lento"),
 )
 
-# Codex takes `--model`; leaving it empty uses whatever the CLI is configured
-# for, which is the honest default when the list is not enumerable from here.
-CODEX_MODELS = (("", "El configurado en Codex", "Lo que use `codex exec` por defecto"),)
+# What to offer for codex when its own catalogue cannot be read: one entry
+# meaning "whatever the CLI is configured for", which is what shipped before
+# the app-server made the real list reachable. An empty model id sends no
+# `--model` at all, so this can never name a model that does not exist.
+CODEX_FALLBACK = (("", "El configurado en Codex", "Lo que use `codex exec` por defecto"),)
+
+# Asking codex costs a process and about two seconds, and the status endpoint
+# is polled by the screen, so the answer is remembered. Short enough that a
+# `codex update` shows up within the same sitting.
+CODEX_CACHE_SECONDS = 600.0
+_codex_cache: tuple[float, tuple[CodexModel, ...]] | None = None
+
+
+def forget_codex_models() -> None:
+    """Drop the cached list. For tests, and for a deliberate refresh."""
+    global _codex_cache
+    _codex_cache = None
+
+
+def codex_models(*, discover: Callable[[], list[CodexModel]] = list_models) -> list[ModelChoice]:
+    """The models codex says it can run, or the configured-default entry.
+
+    Falling back rather than returning nothing is deliberate: a failed
+    discovery must not remove the backend from the screen, because the CLI
+    still works perfectly well without us knowing its inventory.
+    """
+    global _codex_cache
+    now = time.monotonic()
+    if _codex_cache is not None and now - _codex_cache[0] < CODEX_CACHE_SECONDS:
+        found = _codex_cache[1]
+    else:
+        try:
+            found = tuple(discover())
+        except Exception:
+            found = ()
+        _codex_cache = (now, found)
+
+    if not found:
+        return [
+            ModelChoice(
+                id="codex",
+                backend="codex",
+                model="",
+                label=f"{label} · codex",
+                local=False,
+                note=note,
+            )
+            for _, label, note in CODEX_FALLBACK
+        ]
+    return [
+        ModelChoice(
+            id=f"codex:{model.id}",
+            backend="codex",
+            model=model.id,
+            label=f"{model.display_name} · codex",
+            local=False,
+            # The vendor's own description, verbatim. Writing our own would be
+            # inventing a claim about somebody else's model.
+            note=_codex_note(model),
+        )
+        for model in found
+    ]
+
+
+def _codex_note(model: CodexModel) -> str:
+    parts = [part for part in (model.description.strip(), _effort(model.default_effort)) if part]
+    return " · ".join(parts)
+
+
+def _effort(effort: str) -> str:
+    """Reasoning effort in the terms the screen uses elsewhere: time and care."""
+    return {
+        "low": "esfuerzo bajo",
+        "medium": "esfuerzo medio",
+        "high": "esfuerzo alto",
+        "xhigh": "esfuerzo muy alto",
+    }.get(effort, "")
 
 
 def ollama_models(settings: Settings) -> list[ModelChoice]:
@@ -122,21 +202,29 @@ def _size_note(size_bytes: int) -> str:
 
 
 def cli_models(available: dict[str, bool]) -> list[ModelChoice]:
+    """The CLI-backed choices: a fixed short list for claude, a discovered one
+    for codex.
+
+    The asymmetry is not an oversight. `claude` takes any model name the
+    account can reach and publishes no inventory over the CLI, so the three
+    offered here are a deliberate editorial choice - fast, capable, most
+    capable. Codex does publish one, so it is asked.
+    """
     choices: list[ModelChoice] = []
-    for backend, models in (("claude", CLAUDE_MODELS), ("codex", CODEX_MODELS)):
-        if not available.get(backend):
-            continue
-        for model, label, note in models:
-            choices.append(
-                ModelChoice(
-                    id=f"{backend}:{model}" if model else backend,
-                    backend=backend,
-                    model=model,
-                    label=f"{label} · {backend}",
-                    local=False,
-                    note=note,
-                )
+    if available.get("claude"):
+        choices += [
+            ModelChoice(
+                id=f"claude:{model}",
+                backend="claude",
+                model=model,
+                label=f"{label} · claude",
+                local=False,
+                note=note,
             )
+            for model, label, note in CLAUDE_MODELS
+        ]
+    if available.get("codex"):
+        choices += codex_models()
     return choices
 
 

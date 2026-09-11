@@ -317,9 +317,24 @@ La API se ejecuta en un contenedor y el CLI está instalado en el host, así que
 **la API tiene que arrancarse en el host** para que esto funcione. Con el stack
 ya levantado y sembrado:
 
-```bash
-IEP_DATABASE_URL=postgresql+psycopg://iep:iep@127.0.0.1:55432/iep IEP_STORAGE_ROOT=var/objects IEP_REPORT_ROOT=var/reports IEP_REGISTRY_API_BASE_URL=http://127.0.0.1:8080 IEP_RAG_PROVIDER=cli IEP_RAG_CLI_TOOL=claude python -m uvicorn iep.api.app:create_app --factory --host 127.0.0.1 --port 8010
+```powershell
+$env:IEP_DATABASE_URL = "postgresql+psycopg://iep:iep@127.0.0.1:55432/iep"
+$env:IEP_STORAGE_ROOT = "var/objects"
+$env:IEP_REPORT_ROOT = "var/reports"
+$env:IEP_REGISTRY_API_BASE_URL = "http://127.0.0.1:8080"
+$env:IEP_RAG_PROVIDER = "cli"
+$env:IEP_RAG_CLI_TOOL = "claude"
+$env:IEP_EMBEDDING_PROVIDER = "ollama"
+python -m uvicorn iep.api.app:create_app --factory --host 127.0.0.1 --port 8010
 ```
+
+Una variable por línea, porque Windows PowerShell no admite el prefijo
+`VAR=valor comando`. En una shell POSIX las mismas variables caben en una sola
+línea antes del comando. `IEP_EMBEDDING_PROVIDER` importa aquí y es fácil
+olvidarlo: la búsqueda vectorial solo compara vectores hechos con la misma
+configuración, así que un proceso en host que se quede con la línea base por
+defecto no encontrará nada en un corpus indexado con un modelo aprendido. La
+pantalla lo dice, en vez de devolver una respuesta vacía.
 
 El almacén de objetos vive en un volumen de Docker, así que cópialo una vez si
 además quieres que funcione el visor de evidencias en este modo:
@@ -332,6 +347,48 @@ docker compose cp api:/var/lib/iep/reports var/
 `GET /dossiers/{id}/questions` dice si el CLI configurado está en el `PATH` de
 este proceso, y el panel lo repite, para que una mala configuración se lea como
 una frase en lugar de como un fallo que hay que interpretar.
+
+### Qué modelos ofrece el selector
+
+Tres fuentes, y no son simétricas — que es lo interesante.
+
+A **Ollama** se le pregunta por HTTP (`/api/tags`) y contesta con lo que haya
+descargado, así que la lista es la de esta máquina. Los modelos que solo hacen
+embeddings se filtran: ofrecer uno haría el selector más rico y la primera
+pregunta fallaría.
+
+A **Codex** también se le pregunta. El CLI trae un app-server que habla
+JSON-RPC por stdio, y `model/list` devuelve el mismo catálogo que pinta su
+selector interactivo `/model`: ids, nombres, las descripciones del propio
+proveedor y el esfuerzo de razonamiento por defecto. Medido en frío en esta
+máquina, 1,8 s. La respuesta se guarda diez minutos porque la pantalla
+consulta el estado con frecuencia y cada pregunta cuesta un proceso. Los
+modelos marcados `hidden` se descartan, porque esa marca existe precisamente
+para mantenerlos fuera de un selector. Hay dos cosas que a propósito no se
+leen: `~/.codex/` —la configuración daría un solo modelo y los históricos de
+sesión son el registro del trabajo de alguien— y `account/read`, que responde
+con la dirección de correo con la que se inició sesión y que ninguna pantalla
+de aquí necesita.
+
+**Claude** no tiene equivalente, así que sus tres entradas son una elección
+editorial escrita a mano: rápido y barato, capaz, el más capaz. Quien elige
+entre once nombres no está eligiendo.
+
+Cuando un descubrimiento falla, el backend sigue en la pantalla con una única
+entrada que significa «lo que tenga configurado el CLI», y que no envía
+`--model` en absoluto. Perder un backend que funciona porque un protocolo
+experimental se ha movido sería peor que no conocer su inventario.
+
+Venga de donde venga, un id de modelo que llega de un cliente se resuelve
+contra este catálogo antes de usarse, porque en los backends de CLI acaba en
+`argv`. Un id que nadie ofreció se rechaza, no se sustituye por otro.
+
+El cupo restante de la suscripción **no** está disponible: en codex llega como
+notificación `account/rateLimitsUpdated` después de ejecutar un turno —por eso
+el `/status` interactivo muestra lo que aprendió la última llamada y no una
+cifra en vivo— y `claude auth status --json` informa del plan sin campo de
+cupo. Por eso el medidor informa de lo que ha gastado esta aplicación, que es
+el único número del que puede responder.
 
 ### Lo que cuesta un subproceso, y qué se hace al respecto
 

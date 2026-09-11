@@ -512,11 +512,14 @@ async function copilotLoad() {
       for (const model of status.models) {
         const option = document.createElement("option");
         option.value = model.id;
-        /* The size is on the label, not only in a tooltip: a select's title
-           is invisible in most browsers, and this is the number that decides
-           whether an answer arrives in seconds or in minutes. */
-        option.textContent = (model.local ? "🖥 " : "☁ ") + model.label
-          + (model.note ? " · " + model.note : "");
+        /* A local model's note is its size in GB, and that belongs on the
+           label: a select's title is invisible in most browsers, and it is
+           the number that decides whether an answer arrives in seconds or in
+           minutes. A hosted model's note is the vendor's prose description,
+           which would run past the width of the drawer, so it stays in the
+           tooltip. */
+        option.textContent = (model.local ? "🖥 " + model.label + (model.note ? " · " + model.note : "")
+                                          : "☁ " + model.label);
         option.title = model.note || "";
         models.append(option);
       }
