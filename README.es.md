@@ -172,7 +172,9 @@ confiar en él, porque en los backends de CLI acabaría en `argv`. El medidor
 informa de los tokens gastados hoy y separa las llamadas medidas de las
 locales, que no cuestan nada y no consumen presupuesto.
 
-![El buzón de preguntas, con el modelo y el presupuesto de llamadas](docs/img/06-ask.png)
+![El copiloto: el modelo que respondió, la respuesta y la cita contra la que se comprueba](docs/img/06-ask.png)
+
+Las seis imágenes de arriba las genera [`scripts/shots.py`](scripts/shots.py) contra el stack en marcha, todas al mismo ancho, así que se pueden regenerar después de cualquier cambio en la interfaz en lugar de volver a hacerlas a mano.
 
 La generación viene apagada. `IEP_RAG_PROVIDER=ollama` responde con un modelo
 de esta máquina, sin clave y sin que nada salga de ella; `IEP_RAG_PROVIDER=cli`

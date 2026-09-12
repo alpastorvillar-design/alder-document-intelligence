@@ -269,7 +269,7 @@ off it says which switch is missing. That is deliberate: a hidden feature
 teaches nothing, and "off, and here is the switch" is what somebody seeing the
 boundary for the first time actually needs.
 
-![The answer box on the evidence screen](img/06-ask.png)
+![The copilot drawer, with its answer and the citation behind it](img/06-ask.png)
 
 What the panel shows, once an answer comes back:
 

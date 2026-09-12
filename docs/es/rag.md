@@ -278,7 +278,7 @@ apagada dice qué interruptor falta. Es a propósito: una funcionalidad oculta n
 enseña nada, y «está apagada, y este es el interruptor» es justo lo que
 necesita quien ve esta frontera por primera vez.
 
-![El buzón de preguntas en la pantalla de evidencia](../img/06-ask.png)
+![El cajón del copiloto, con su respuesta y la cita que la sostiene](../img/06-ask.png)
 
 Lo que muestra el panel cuando llega una respuesta:
 

@@ -161,7 +161,9 @@ would otherwise reach `argv`. The meter reports tokens spent today, separating
 metered calls from local ones, which cost nothing and are not counted against
 any budget.
 
-![The answer box, with the model and the call budget it runs under](docs/img/06-ask.png)
+![The copilot: the model that answered, the answer, and the citation it was checked against](docs/img/06-ask.png)
+
+The six images above are produced by [`scripts/shots.py`](scripts/shots.py) against the running stack, at one width, so they can be regenerated after any change to the interface rather than re-taken by hand.
 
 Generation is off by default. `IEP_RAG_PROVIDER=ollama` answers from a model on
 this machine, with no key and nothing leaving it; `IEP_RAG_PROVIDER=cli` answers
