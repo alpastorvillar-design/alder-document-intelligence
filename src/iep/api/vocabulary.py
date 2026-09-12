@@ -53,7 +53,7 @@ FIELD_STATUS = {
     "EXTRACTED": ("Leído por la máquina", "neutral"),
     "NEEDS_REVIEW": ("Necesita revisión", "warning"),
     "CONFIRMED": ("Confirmado", "ok"),
-    "CORRECTED": ("Corregido por una persona", "ok"),
+    "CORRECTED": ("Corregido", "ok"),
     "REJECTED": ("Descartado", "muted"),
 }
 

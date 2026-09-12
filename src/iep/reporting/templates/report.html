@@ -295,11 +295,18 @@ table.fields { table-layout: fixed; width: 100%; }
    the whole report, .9rem of it cost 274px of page and .45rem costs 151px for
    the same separation - so half. With the column rebalance above saving 189px,
    this round leaves the document 38px shorter than it found it. */
-/* A block is a table with a beginning and an end, so it gets air at both.
-   The rule alone read as a divider between two halves of one long table
-   rather than as the edge of each. */
-.block { padding-bottom: .55rem; }
-.block + .block { border-top: 2px solid var(--line); margin-top: .55rem; padding-top: .15rem; }
+/* A box per document, with a gap to the next. A rule between two of them
+   read as a divider inside one long table rather than as the edge of each,
+   which is the thing to say: this invoice, these are its fields, and here it
+   ends.
+   Only blocks that carry a heading are boxed. A section with a single
+   unnamed block - the memoria, the call page - would otherwise get a second
+   border immediately inside the group's own. */
+.block.boxed {
+  margin: .55rem; border: 1px solid var(--line); border-radius: 6px;
+  overflow: hidden;
+}
+.block.boxed + .block.boxed { margin-top: .85rem; }
 .blockhead { break-after: avoid; }
 
 /* Measured on the widest table in the report, in pixels of gap between the
@@ -351,10 +358,11 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
 
 /* Where a group repeats per document, per row or per person. */
 .blockhead {
-  padding: .55rem .6rem .4rem; border-top: 1px solid var(--line-soft);
-  /* And a firm rule under it. `--line-soft` under a shaded heading is
-     invisible on paper, so the column names floated between the document's
-     name and its rows without belonging to either. */
+  padding: .55rem .6rem .4rem;
+  /* A firm rule under it. `--line-soft` under a shaded heading is invisible
+     on paper, so the column names floated between the document's name above
+     them and the rows below without belonging to either. The top edge comes
+     from the box. */
   border-bottom: 1px solid var(--line);
   background: var(--card-sunk); font-size: .82rem;
 }
@@ -415,9 +423,12 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
   .docs th:nth-child(6) { width: 11%; }
   .docs th:nth-child(7) { width: 23%; }
   .docs td { vertical-align: top; }
-  /* The same size as every other table on the sheet. It was inheriting the
-     .86em that monospace carries elsewhere for optical reasons, which here
-     just made one table smaller than the rest. */
+  /* The same size as every other table on the sheet, declared rather than
+     arrived at. It used to inherit `table { font-size: .88rem }` of a 10.5pt
+     body, which is 9.24pt against the 9pt of the field tables, and its
+     monospace cells carried the further .86em that monospace takes elsewhere
+     for optical reasons - so one section of the report was set in two sizes,
+     neither of them the document's. */
   .docs .mono { font-size: 1em; }
   /* A group heading alone at the foot of a page is a heading with nothing
      under it. */
@@ -425,7 +436,7 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
   .blockhead { break-after: avoid; break-inside: avoid; }
   /* The appendix prints a point smaller than the body. It is a reference
      listing, read with a finger on a line, not prose. */
-  .group table.fields { font-size: 9pt; }
+  .group table.fields, table.docs { font-size: 9pt; }
   .group table.fields td, .group table.fields th { padding: .22rem .4rem; }
   .masthead, .card, .verdict, .finding, .group, .note { box-shadow: none; }
   /* A finding split across a page break loses the half that explains it. */
@@ -767,7 +778,7 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
     <small>{{ field_count }} campo{{ "s" if field_count != 1 }}{% if blocks|length > 1 and blocks[0].label %} en {{ blocks|length }} {{ "documentos" if title == "Facturas y justificantes" else "apartados" }}{% endif %}{% if subtitle %} · {{ subtitle }}{% endif %}</small>
   </div>
   {% for block in blocks %}
-  <div class="block">
+  <div class="block{% if block.label %} boxed{% endif %}">
   {% if block.label %}
   <div class="blockhead">
     <span class="blockhead-name">{{ block.label }}</span>
