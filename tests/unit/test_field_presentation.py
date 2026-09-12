@@ -319,3 +319,45 @@ class TestTheBriefLocator:
     def test_an_unknown_kind_falls_back_to_the_full_summary(self) -> None:
         locator = {"kind": "SOMETHING_NEW"}
         assert vocab.locator_brief(locator) == vocab.locator_summary(locator)
+
+
+class TestALongPathBreaksWhereAReaderExpects:
+    """A captured URL is one unbreakable token in a fixed-width column.
+
+    With nothing allowed to break it, it ran out of the Origen column of the
+    documents table and printed on top of the digest beside it. With
+    `overflow-wrap: anywhere` it broke mid-word instead -
+    "http://devsources:80 / 80/public/convocator / ia.html". The filter marks
+    the places a reader would break a path, and the stylesheet prefers them.
+    """
+
+    def test_it_breaks_after_each_separator(self) -> None:
+        marked = str(vocab.breakable("http://devsources:8080/public/convocatoria.html"))
+        assert marked == (
+            "http:<wbr>/<wbr>/<wbr>devsources:<wbr>8080/<wbr>public/<wbr>convocatoria.html"
+        )
+        # A break opportunity is not a character: dropping the tags gives the
+        # original back, which is what makes the text still copy as one URL.
+        assert marked.replace("<wbr>", "") == "http://devsources:8080/public/convocatoria.html"
+
+    def test_it_leaves_text_without_separators_alone(self) -> None:
+        assert str(vocab.breakable("registry-personnel.json")) == "registry-personnel.json"
+        assert str(vocab.breakable("")) == ""
+
+    def test_it_escapes_the_value_it_marks_up(self) -> None:
+        """The filter returns markup, so the value must not be able to add any.
+
+        `source_detail` is a captured URL or endpoint - data from outside this
+        process - and the template renders the filter's output unescaped
+        because it is `Markup`. `Markup.join` escapes each piece it joins, so
+        the only markup in the result is the literal `<wbr>`.
+        """
+        marked = str(vocab.breakable("<script>alert(1)</script>"))
+        assert "<script>" not in marked
+        assert "&lt;script&gt;" in marked
+        marked = str(vocab.breakable("a & b"))
+        assert "&amp;" in marked
+        # And an entity is never split: the separators it inserts after cannot
+        # appear inside one.
+        assert "&<wbr>" not in marked
+        assert "&am" not in marked.replace("&amp;", "")

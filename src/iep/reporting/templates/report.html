@@ -356,6 +356,23 @@ table.fields .pill { white-space: normal; }
 table.fields td.num, table.fields th.num { text-align: left; }
 table.fields td.where .muted { display: block; font-size: .76rem; }
 
+/* The documents table holds two things that a fixed layout cannot place on
+   its own.
+   A captured URL is one unbreakable token - `http://devsources:8080/public/
+   convocatoria.html` - and with nothing allowed to break it, it ran straight
+   out of the Origen column and printed on top of the digest beside it. The
+   digest keeps its own rule: it breaks only at the `<wbr>` marks, in blocks
+   of sixteen.
+   And a size is a number and its unit, which belong on one line. "347.397 B"
+   broke before the B, so the unit appeared under the figure as though it were
+   a second value. */
+table.docs td { overflow-wrap: break-word; }
+/* Prefers the `<wbr>` marks the `breakable` filter inserts and breaks a word
+   only when a segment still does not fit; `anywhere` ignores them. */
+table.docs .breakable { overflow-wrap: break-word; word-break: normal; }
+table.docs td.digest { overflow-wrap: normal; word-break: normal; }
+table.docs td.num { white-space: nowrap; }
+
 /* Where a group repeats per document, per row or per person. */
 .blockhead {
   padding: .55rem .6rem .4rem;
@@ -808,7 +825,7 @@ table.fields td.where .muted { display: block; font-size: .76rem; }
       <td>{{ media_kind.get(d.media_kind|string, d.media_kind|string) }}</td>
       <td>{{ document_kind.get(d.document_kind|string, d.document_kind|string) }}</td>
       <td>{{ source_kind.get(d.source_kind|string, d.source_kind|string) }}
-        {% if d.source_detail %}<div class="muted" style="font-size:.76rem">{{ d.source_detail }}</div>{% endif %}</td>
+        {% if d.source_detail %}<div class="muted breakable" style="font-size:.76rem">{{ d.source_detail|breakable }}</div>{% endif %}</td>
       <td class="num mid">{{ d.page_count if d.page_count is not none else "—" }}</td>
       <td class="num mid">{{ "{:,}".format(d.size_bytes).replace(",", ".") }} B</td>
       {# Sixteen characters at a time. `overflow-wrap: anywhere` breaks a

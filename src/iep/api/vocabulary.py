@@ -26,6 +26,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
+from markupsafe import Markup
+
 # --------------------------------------------------------------------------
 # States
 # --------------------------------------------------------------------------
@@ -914,6 +916,34 @@ _ALWAYS_USEFUL = (
 
 
 _TAIL = re.compile(r"[.\]]([\w-]+)$")
+
+
+# Zero-width: splits *after* each separator, so the separator stays at the end
+# of the piece it belongs to and the break falls after it, the way a reader
+# reads a path.
+_AFTER_SEPARATOR = re.compile(r"(?<=[/:?])")
+
+
+def breakable(value: str) -> Markup:
+    """The same text, with break opportunities after its separators.
+
+    A captured URL is one unbreakable token. In a fixed-width column that
+    leaves two options, and both were seen: with nothing allowed to break it,
+    it ran out of the Origen column and printed on top of the digest beside
+    it, and with `overflow-wrap: anywhere` it broke mid-word -
+    "http://devsources:80 / 80/public/convocator / ia.html".
+
+    `<wbr>` is a break opportunity and not a character, so the text still
+    copies as one string and the line breaks after the scheme and at each path
+    separator.
+
+    Built with `Markup.join`, which escapes every piece it joins: the only
+    markup here is the literal `<wbr>`, and nothing derived from the value is
+    ever marked safe. Inserting the tags into an escaped string by hand would
+    work too and would need a reader to check that the escaping came first.
+    """
+    pieces = _AFTER_SEPARATOR.split(value)
+    return Markup("<wbr>").join(pieces)
 
 
 def locator_brief(locator: dict[str, Any]) -> str:

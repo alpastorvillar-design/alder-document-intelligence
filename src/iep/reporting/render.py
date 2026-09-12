@@ -94,6 +94,7 @@ def format_number(value: Decimal | None) -> str:
 _env.filters["number"] = format_number
 _env.filters["money"] = vocab.money
 _env.filters["fecha"] = vocab.spanish_date
+_env.filters["breakable"] = vocab.breakable
 # The same vocabulary the review screen uses. A rule explained one way on
 # screen and another way in the filed artefact is two rules as far as anybody
 # reading them is concerned.
