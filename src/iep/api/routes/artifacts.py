@@ -57,18 +57,19 @@ router = APIRouter(tags=["artifacts"], dependencies=[Depends(require_api_key)])
     "/dossiers/{dossier_id}/reports",
     response_model=DossierReport,
     status_code=201,
-    summary="Render the report for a human",
+    summary="Generar el informe para una persona",
 )
 def generate_report(
     dossier_id: uuid.UUID,
     session: Session = Depends(db_session),
     settings: Settings = Depends(settings_dep),
 ) -> DossierReport:
-    """Renders a self-contained HTML report and records its content hash.
+    """Genera un informe HTML autocontenido y registra la huella de su contenido.
 
-    The report is a snapshot: it stores the dossier state and the counts it
-    was generated from, so an old report still says what was true when it
-    was produced. Read it back at `reports/latest.html`.
+    El informe es una instantánea: guarda el estado del expediente y las
+    cifras con las que se generó, de modo que un informe antiguo sigue
+    diciendo lo que era cierto cuando se emitió. Se lee luego en
+    `reports/latest.html`.
     """
     dossiers.get(session, dossier_id)
     rendered = render.render_html(session, dossier_id)
@@ -80,12 +81,14 @@ def generate_report(
 @router.get(
     "/dossiers/{dossier_id}/reports",
     response_model=list[DossierReport],
-    summary="Reports generated so far",
+    summary="Informes generados hasta ahora",
 )
 def list_reports(
     dossier_id: uuid.UUID, session: Session = Depends(db_session)
 ) -> list[DossierReport]:
-    """Newest first, each with its content hash and the state it was rendered under."""
+    """Del más reciente al más antiguo, cada uno con su huella y el estado
+    con el que se generó.
+    """
     dossiers.get(session, dossier_id)
     stmt = (
         select(ReportRow)
@@ -98,16 +101,16 @@ def list_reports(
 @router.get(
     "/dossiers/{dossier_id}/reports/latest.html",
     response_class=Response,
-    summary="The most recent rendered report",
+    summary="El informe más reciente",
 )
 def latest_report(
     dossier_id: uuid.UUID,
     session: Session = Depends(db_session),
     settings: Settings = Depends(settings_dep),
 ) -> Response:
-    """The report itself, as HTML. Open it in a browser.
+    """El informe en sí, en HTML. Ábrelo en un navegador.
 
-    `404` until one has been generated - see `POST .../reports`.
+    Responde `404` hasta que se haya generado alguno — ver `POST .../reports`.
     """
     dossiers.get(session, dossier_id)
     _, html = _stored_report(session, dossier_id, settings)
@@ -117,24 +120,26 @@ def latest_report(
 @router.get(
     "/dossiers/{dossier_id}/reports/latest.pdf",
     response_class=Response,
-    summary="The most recent report as a PDF, rendered here",
+    summary="El informe más reciente en PDF, generado aquí",
 )
 def latest_report_pdf(
     dossier_id: uuid.UUID,
     session: Session = Depends(db_session),
     settings: Settings = Depends(settings_dep),
 ) -> Response:
-    """The same report, rendered to PDF on this machine.
+    """El mismo informe, renderizado a PDF en esta máquina.
 
-    Not the browser's print dialogue. One PDF produced that way arrived as 26
-    bitmaps with no embedded fonts and no selectable text - "print as image",
-    which makes a filed document unsearchable and its letters ragged. This
-    renders the stored HTML with the engine its stylesheet was written for.
+    No es el diálogo de imprimir del navegador. Un PDF hecho por esa vía llegó
+    como 26 mapas de bits, sin fuentes incrustadas y sin texto seleccionable
+    —«imprimir como imagen»—, que deja un documento archivado sin poder
+    buscarse y con las letras sucias. Esto renderiza el HTML almacenado con el
+    motor para el que está escrita su hoja de estilos.
 
-    The hashed artefact is the HTML: the PDF is a rendering of it, and
-    `X-Report-Sha256` says which report this file came from. Chromium stamps a
-    creation date, so two renderings of one report are not byte-identical -
-    which is why the hash names the source and not the output.
+    Lo que lleva huella es el HTML: el PDF es una representación suya, y
+    `X-Report-Sha256` dice de qué informe salió este fichero. Chromium estampa
+    una fecha de creación, así que dos renderizados del mismo informe no son
+    idénticos byte a byte — y por eso la huella nombra el origen y no la
+    salida.
     """
     dossier = dossiers.get(session, dossier_id)
     row, html = _stored_report(session, dossier_id, settings)
@@ -216,13 +221,14 @@ def _stored_report(
 @router.get(
     "/dossiers/{dossier_id}/export.json",
     response_class=Response,
-    summary="Everything, as JSON, for another system",
+    summary="Todo, en JSON, para otro sistema",
 )
 def export_json(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> Response:
-    """The dossier, its documents, every extraction with its locator, and every finding.
+    """El expediente, sus documentos, cada extracción con su locator y cada
+    incidencia.
 
-    This is the machine-readable equivalent of the report: a downstream
-    system gets the evidence, not just the totals.
+    Es el equivalente legible por máquina del informe: un sistema de aguas
+    abajo se lleva la evidencia, no sólo los totales.
     """
     dossiers.get(session, dossier_id)
     return Response(
@@ -235,7 +241,7 @@ def export_json(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -
 @router.get(
     "/dossiers/{dossier_id}/export.csv",
     response_class=Response,
-    summary="Everything, as CSV, for a spreadsheet",
+    summary="Todo, en CSV, para una hoja de cálculo",
 )
 def export_csv(
     dossier_id: uuid.UUID,
@@ -250,11 +256,11 @@ def export_csv(
     ),
     session: Session = Depends(db_session),
 ) -> Response:
-    """One row per extraction, with the locator rendered as readable text.
+    """Una fila por extracción, con el locator escrito de forma legible.
 
-    Cells that begin with `=`, `+`, `-` or `@` are neutralised before they
-    are written: a value read out of an untrusted document must not become
-    a formula when somebody opens the file in Excel.
+    Las celdas que empiezan por `=`, `+`, `-` o `@` se neutralizan antes de
+    escribirse: un valor leído de un documento en el que no se confía no puede
+    convertirse en una fórmula cuando alguien abra el fichero en Excel.
     """
     dossiers.get(session, dossier_id)
     suffix = "-excel" if dialect == "excel" else ""
@@ -268,18 +274,18 @@ def export_csv(
 @router.get(
     "/dossiers/{dossier_id}/audit",
     response_model=list[AuditEvent],
-    summary="Everything that ever happened to this dossier",
+    summary="Todo lo que le ha pasado a este expediente",
 )
 def dossier_audit(
     dossier_id: uuid.UUID,
     session: Session = Depends(db_session),
     limit: int = Query(default=500, ge=1, le=2000),
 ) -> list[AuditEvent]:
-    """Append-only: ingestion, rejections, jobs, transitions, human decisions.
+    """Sólo añade: altas, rechazos, trabajos, transiciones, decisiones humanas.
 
-    Each event is written inside the transaction of the change it describes,
-    so a rollback cannot leave a record claiming something happened. Each
-    carries the `correlation_id` of the request that caused it.
+    Cada evento se escribe dentro de la transacción del cambio que describe,
+    así que un rollback no puede dejar un registro afirmando que algo pasó.
+    Cada uno lleva el `correlation_id` de la petición que lo causó.
     """
     dossiers.get(session, dossier_id)
     return [
@@ -289,7 +295,7 @@ def dossier_audit(
 
 @router.get(
     "/dossiers/{dossier_id}/evidence",
-    summary="Find a phrase inside this dossier's documents",
+    summary="Buscar una frase en los documentos de este expediente",
 )
 def find_evidence(
     dossier_id: uuid.UUID,
@@ -299,12 +305,12 @@ def find_evidence(
     settings: Settings = Depends(settings_dep),
     mode: retrieval.SearchMode = Query(default="lexical"),
 ) -> dict[str, object]:
-    """Search only this dossier, returning the original evidence locators.
+    """Busca sólo en este expediente y devuelve los locators originales.
 
-    `lexical` uses Spanish PostgreSQL full-text search. `vector` uses exact
-    pgvector cosine distance. `hybrid` combines both rankings with RRF. This
-    endpoint is retrieval, not generation; the separate questions endpoint is
-    the optional RAG boundary.
+    `lexical` usa la búsqueda de texto completo de PostgreSQL en español.
+    `vector` usa distancia coseno exacta de pgvector. `hybrid` fusiona las dos
+    posiciones con RRF. Este endpoint es recuperación, no generación; el de
+    preguntas, aparte, es el punto de integración opcional con un modelo.
     """
     dossiers.get(session, dossier_id)
     provider = None
@@ -377,7 +383,7 @@ def find_evidence(
 @router.post(
     "/dossiers/{dossier_id}/questions",
     response_model=RagAnswer,
-    summary="Draft a cited answer from this dossier's evidence",
+    summary="Redactar una respuesta citando la evidencia del expediente",
 )
 def answer_evidence_question(
     dossier_id: uuid.UUID,
@@ -385,11 +391,13 @@ def answer_evidence_question(
     session: Session = Depends(db_session),
     settings: Settings = Depends(settings_dep),
 ) -> RagAnswer:
-    """Optional RAG boundary; disabled by default and never changes dossier state.
+    """Integración opcional con un modelo; apagada por defecto, y nunca cambia
+    el estado del expediente.
 
-    Only the top-k chunks leave the process. The generator receives no tools,
-    every returned citation is checked against those chunks, and document text
-    is treated as untrusted data. A model answer is a draft, never a decision.
+    Del proceso sólo salen los k fragmentos mejor posicionados. El generador
+    no recibe herramientas, cada cita que devuelve se comprueba contra esos
+    fragmentos, y el texto de los documentos se trata como dato en el que no
+    se confía. La respuesta de un modelo es un borrador, nunca una decisión.
     """
     dossiers.get(session, dossier_id)
     # Checked before any work: refusing after the model has already answered
@@ -581,18 +589,19 @@ def answer_evidence_question(
 @router.get(
     "/dossiers/{dossier_id}/questions",
     response_model=RagStatus,
-    summary="Whether a grounded answer can be produced, and on what terms",
+    summary="Si se puede producir una respuesta con evidencia, y en qué condiciones",
 )
 def rag_status(
     dossier_id: uuid.UUID,
     session: Session = Depends(db_session),
     settings: Settings = Depends(settings_dep),
 ) -> RagStatus:
-    """The state of the optional generation boundary, for a screen to render.
+    """El estado de la integración opcional con un modelo, para pintarlo en una
+    pantalla.
 
-    Deliberately answerable while generation is disabled: "off, and here is
-    the switch" is the more useful answer, and it is the one a reviewer needs
-    when the box in front of them is greyed out.
+    Se puede consultar a propósito incluso con la generación apagada:
+    «apagada, y este es el interruptor» es la respuesta más útil, y es la que
+    necesita quien tiene delante un cuadro en gris.
     """
     dossiers.get(session, dossier_id)
     allowance = rag_budget.current(session, settings)

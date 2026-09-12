@@ -31,7 +31,7 @@ router = APIRouter(tags=["review"], dependencies=[Depends(require_api_key)])
 @router.get(
     "/dossiers/{dossier_id}/extractions",
     response_model=list[Extraction],
-    summary="Every field that was read, and where from",
+    summary="Cada campo leído, y de dónde",
 )
 def list_extractions(
     dossier_id: uuid.UUID,
@@ -39,17 +39,18 @@ def list_extractions(
     field_status: FieldStatus | None = None,
     field_path: str | None = Query(default=None, max_length=200),
 ) -> list[Extraction]:
-    """The evidence layer: one row per value, each with a `locator`.
+    """La capa de evidencia: una fila por valor, cada una con su `locator`.
 
-    A locator is a tagged union, so it says exactly what kind of place the
-    value came from: a page and character span, an OCR word box with the
-    engine's confidence, a sheet and cell, a JSON path in an API response, a
-    CSS selector on a captured page, or the extraction ids a total was
-    derived from.
+    Un locator es una unión etiquetada, así que dice exactamente qué clase de
+    sitio es: una página y un rango de caracteres, una caja de palabras de OCR
+    con la confianza del motor, una hoja y una celda, una ruta JSON en la
+    respuesta de una API, un selector CSS sobre una página capturada, o los
+    identificadores de las extracciones de las que se derivó un total.
 
-    `field_path` matches by prefix - `invoice.` gives every invoice field.
-    `status` is where a value sits in review, and `original_value_text` holds
-    what the machine read when a person disagreed with it.
+    `field_path` casa por prefijo — `invoice.` da todos los campos de factura.
+    `status` es dónde está un valor dentro de la revisión, y
+    `original_value_text` guarda lo que leyó la máquina cuando una persona no
+    estuvo de acuerdo.
     """
     dossiers.get(session, dossier_id)
     stmt = (
@@ -67,7 +68,7 @@ def list_extractions(
 @router.get(
     "/dossiers/{dossier_id}/findings",
     response_model=list[ValidationFinding],
-    summary="What the rules concluded",
+    summary="A qué han llegado las reglas",
 )
 def list_findings(
     dossier_id: uuid.UUID,
@@ -75,12 +76,12 @@ def list_findings(
     finding_status: FindingStatus | None = None,
     severity: Severity | None = None,
 ) -> list[ValidationFinding]:
-    """Deterministic, versioned rules comparing every source against the others.
+    """Reglas deterministas y versionadas que cruzan cada fuente con las demás.
 
-    `severity` is `BLOCKER`, `WARNING` or `INFO`; a `BLOCKER` that is still
-    open or accepted prevents approval. Each finding names the rule, its
-    version, the extractions and documents it points at, and a structured
-    `detail` with the numbers it compared.
+    `severity` es `BLOCKER`, `WARNING` o `INFO`; un `BLOCKER` abierto o
+    aceptado impide aprobar. Cada incidencia nombra la regla, su versión, las
+    extracciones y documentos a los que apunta, y un `detail` estructurado con
+    las cifras que comparó.
     """
     dossiers.get(session, dossier_id)
     stmt = (
@@ -98,15 +99,16 @@ def list_findings(
 @router.get(
     "/dossiers/{dossier_id}/decisions",
     response_model=list[ReviewDecision],
-    summary="What each person decided, and why",
+    summary="Qué decidió cada persona, y por qué",
 )
 def list_decisions(
     dossier_id: uuid.UUID, session: Session = Depends(db_session)
 ) -> list[ReviewDecision]:
-    """Append-only, oldest first: correct, confirm, accept, dismiss, approve, reject.
+    """Sólo añade, de la más antigua a la más nueva: corregir, confirmar,
+    aceptar, descartar, aprobar, rechazar.
 
-    Nothing here is ever updated or deleted, so the sequence is a record
-    rather than a story.
+    Aquí nada se actualiza ni se borra, así que la secuencia es un registro y
+    no un relato.
     """
     dossiers.get(session, dossier_id)
     stmt = (
@@ -120,20 +122,20 @@ def list_decisions(
 @router.post(
     "/extractions/{extraction_id}/correct",
     response_model=Extraction,
-    summary="This was misread; the value is X",
+    summary="Esto se leyó mal; el valor es X",
 )
 def correct_extraction(
     extraction_id: uuid.UUID,
     payload: ReviewCorrection,
     session: Session = Depends(db_session),
 ) -> Extraction:
-    """Records a human value beside the machine's, never over it.
+    """Registra el valor humano al lado del de la máquina, nunca encima.
 
-    `original_value_text` keeps what was read, and the actor, timestamp and
-    reason are stored with the change. Pass `expected_revision` and a stale
-    edit fails with `409` instead of silently overwriting somebody else's
-    decision; the corrected value is then fenced from being overwritten by a
-    re-run.
+    `original_value_text` conserva lo que se leyó, y con el cambio se guardan
+    quién, cuándo y por qué. Pasa `expected_revision` y una edición sobre datos
+    viejos falla con `409` en lugar de sobreescribir en silencio la decisión de
+    otra persona; el valor corregido queda además protegido de que lo pise una
+    nueva ejecución.
     """
     row = review.correct_field(
         session,
@@ -149,18 +151,18 @@ def correct_extraction(
 @router.post(
     "/extractions/{extraction_id}/confirm",
     response_model=Extraction,
-    summary="I checked this against the document",
+    summary="He comprobado esto contra el documento",
 )
 def confirm_extraction(
     extraction_id: uuid.UUID,
     payload: ReviewConfirmation,
     session: Session = Depends(db_session),
 ) -> Extraction:
-    """Clears a field that was routed to review because its confidence was low.
+    """Cierra un campo que fue a revisión porque su confianza era baja.
 
-    The value does not change; what changes is that a named person takes
-    responsibility for it. Approval is blocked while any field still needs
-    review.
+    El valor no cambia; lo que cambia es que una persona con nombre se hace
+    responsable de él. Mientras quede algún campo pendiente de revisión no se
+    puede aprobar.
     """
     row = review.confirm_field(
         session,
@@ -175,19 +177,19 @@ def confirm_extraction(
 @router.post(
     "/findings/{finding_id}/resolve",
     response_model=ValidationFinding,
-    summary="Accept or dismiss a finding, with a reason",
+    summary="Aceptar o descartar una incidencia, con motivo",
 )
 def resolve_finding(
     finding_id: uuid.UUID,
     payload: FindingResolution,
     session: Session = Depends(db_session),
 ) -> ValidationFinding:
-    """`accept: true` means the issue is real. It is not a waiver.
+    """`accept: true` significa que la incidencia es real. No es una dispensa.
 
-    An accepted blocker still prevents approval - the claim has to change,
-    not the verdict. `accept: false` dismisses it as a false positive and
-    requires a reason, which is recorded: a check that can be walked past
-    silently is not a check.
+    Un bloqueante aceptado sigue impidiendo aprobar: lo que tiene que cambiar
+    es la justificación, no el veredicto. `accept: false` la descarta como
+    falso positivo y exige un motivo, que queda registrado: una comprobación
+    que se puede saltar en silencio no es una comprobación.
     """
     row = review.resolve_finding(
         session,
@@ -199,31 +201,32 @@ def resolve_finding(
     return ValidationFinding.model_validate(row)
 
 
-@router.post("/dossiers/{dossier_id}/approve", status_code=204, summary="Approve the dossier")
+@router.post("/dossiers/{dossier_id}/approve", status_code=204, summary="Aprobar el expediente")
 def approve_dossier(
     dossier_id: uuid.UUID,
     payload: DossierDecision,
     session: Session = Depends(db_session),
 ) -> None:
-    """The only way a dossier is approved. No pipeline path reaches this state.
+    """La única forma de aprobar un expediente. Ningún camino del pipeline
+    llega a este estado.
 
-    Refused with `409` while any field still needs review or any blocker is
-    open or accepted. An approved dossier is immutable: correcting one means
-    creating a new dossier, so the audit trail stays a record of what was
-    actually submitted.
+    Se rechaza con `409` mientras quede algún campo pendiente de revisión o
+    algún bloqueante abierto o aceptado. Un expediente aprobado es inmutable:
+    corregirlo significa crear uno nuevo, de modo que la auditoría siga siendo
+    el registro de lo que realmente se entregó.
     """
     review.approve(session, dossier_id, actor=payload.actor, reason=payload.reason)
 
 
-@router.post("/dossiers/{dossier_id}/reject", status_code=204, summary="Reject the dossier")
+@router.post("/dossiers/{dossier_id}/reject", status_code=204, summary="Rechazar el expediente")
 def reject_dossier(
     dossier_id: uuid.UUID,
     payload: DossierDecision,
     session: Session = Depends(db_session),
 ) -> None:
-    """Sends the claim back, with a reason, recorded against the named actor.
+    """Devuelve la justificación, con un motivo, a nombre de quien la rechaza.
 
-    Unlike approval this is not terminal: a rejected dossier can receive new
-    documents and be processed again.
+    A diferencia de aprobar, esto no es terminal: un expediente rechazado
+    puede recibir documentos nuevos y volver a procesarse.
     """
     review.reject(session, dossier_id, actor=payload.actor, reason=payload.reason)

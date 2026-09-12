@@ -22,23 +22,25 @@ from iep.observability import metrics
 router = APIRouter(tags=["system"])
 
 
-@router.get("/healthz", summary="Is the process alive?")
+@router.get("/healthz", summary="¿Está vivo el proceso?")
 def healthz() -> dict[str, str]:
-    """Answers only "this process is running". It touches no dependency.
+    """Responde sólo «este proceso está en marcha». No toca ninguna dependencia.
 
-    This is what the container health check calls. It must not consult the
-    database: a liveness probe that fails when a dependency blinks makes an
-    orchestrator kill a process that was perfectly capable of recovering.
+    Es lo que llama el health check del contenedor, y por eso no debe
+    consultar la base de datos: una sonda de vida que falla porque una
+    dependencia pestañea hace que un orquestador mate un proceso que se
+    habría recuperado él solo.
     """
     return {"status": "ok", "version": __version__}
 
 
-@router.get("/readyz", summary="Can the process actually work?")
+@router.get("/readyz", summary="¿Puede el proceso trabajar de verdad?")
 def readyz(response: Response) -> dict[str, Any]:
-    """Checks the things a request needs: the database and the object store.
+    """Comprueba lo que una petición necesita: la base de datos y el almacén.
 
-    Returns `503` with a per-check breakdown when one of them is unavailable,
-    so the answer says *what* is wrong rather than only that something is.
+    Devuelve `503` con el detalle de cada comprobación cuando alguna no está
+    disponible, así que la respuesta dice *qué* falla y no sólo que algo
+    falla.
     """
     checks: dict[str, str] = {}
 
@@ -65,13 +67,15 @@ def readyz(response: Response) -> dict[str, Any]:
     return {"status": "ready" if ready else "not_ready", "checks": checks}
 
 
-@router.get("/metrics", summary="Counters in Prometheus text format", response_class=Response)
+@router.get(
+    "/metrics", summary="Contadores en formato de texto de Prometheus", response_class=Response
+)
 def prometheus_metrics() -> Response:
-    """Jobs by status, findings by severity and status, and process counters.
+    """Trabajos por estado, incidencias por gravedad y estado, y contadores.
 
-    The counters live in this process, which is enough to demonstrate the
-    shape. A deployment would export them to a durable backend — see
-    `docs/operations.md`.
+    Los contadores viven en este proceso, que es suficiente para demostrar la
+    forma. Un despliegue los exportaría a un backend duradero — está en
+    `docs/es/operacion.md`.
     """
     gauges: dict[str, dict[tuple[tuple[str, str], ...], float]] = {}
     try:

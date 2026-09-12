@@ -22,17 +22,17 @@ from iep.domain.enums import JobStatus
 router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(require_api_key)])
 
 
-@router.get("", response_model=list[ProcessingJob], summary="List processing jobs")
+@router.get("", response_model=list[ProcessingJob], summary="Listar trabajos de procesamiento")
 def list_jobs(
     session: Session = Depends(db_session),
     job_status: JobStatus | None = None,
     dossier_id: uuid.UUID | None = None,
     limit: int = 50,
 ) -> list[ProcessingJob]:
-    """Newest first. Filter by `job_status` or by `dossier_id`.
+    """Del más reciente al más antiguo. Se filtra por `job_status` o `dossier_id`.
 
-    A job carries its attempt count and its last error, so a failure is
-    something you read rather than something you deduce.
+    Cada trabajo lleva su número de intentos y su último error, así que un
+    fallo es algo que se lee y no algo que hay que deducir.
     """
     stmt = select(JobRow).order_by(JobRow.created_at.desc()).limit(min(limit, 200))
     if job_status is not None:
@@ -42,13 +42,14 @@ def list_jobs(
     return [ProcessingJob.model_validate(row) for row in session.execute(stmt).scalars()]
 
 
-@router.get("/{job_id}", response_model=ProcessingJob, summary="One job in detail")
+@router.get("/{job_id}", response_model=ProcessingJob, summary="Un trabajo, en detalle")
 def get_job(job_id: uuid.UUID, session: Session = Depends(db_session)) -> ProcessingJob:
-    """Status, attempts, the attempt ceiling, the lease holder and the last error.
+    """Estado, intentos, tope de intentos, quién lo tiene tomado y último error.
 
-    `SUCCEEDED` means the pipeline finished; the dossier is then in
-    `NEEDS_REVIEW`, never in `APPROVED`. `DEAD_LETTER` means the attempts were
-    spent on a failure that looked recoverable; `FAILED` means it never was.
+    `SUCCEEDED` significa que el pipeline terminó; el expediente queda
+    entonces en `NEEDS_REVIEW`, nunca en `APPROVED`. `DEAD_LETTER` significa
+    que se gastaron los intentos en un fallo que parecía recuperable;
+    `FAILED`, que nunca lo fue.
     """
     row = session.get(JobRow, job_id)
     if row is None:

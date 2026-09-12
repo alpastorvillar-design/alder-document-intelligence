@@ -49,12 +49,13 @@ _env.filters["fecha"] = vocab.spanish_date
 
 
 def original_opens_inline(media_kind: object) -> bool:
-    """Whether a browser will show this kind or hand it over as a file.
+    """Si un navegador mostrará este tipo o lo entregará como fichero.
 
-    Read from the same table the response header uses, so the button cannot
-    promise "abrir" while the header says `attachment`. A workbook is the only
-    kind no browser renders, and a label that ignored that left a reviewer
-    wondering whether a download was a bug.
+    Se lee de la misma tabla que usa la cabecera de la respuesta, para que el
+    botón no pueda prometer «abrir» mientras la cabecera dice `attachment`. Un
+    libro de Excel es el único tipo que ningún navegador pinta, y una etiqueta
+    que lo ignoraba dejaba a quien revisa preguntándose si la descarga era un
+    fallo.
     """
     try:
         _, disposition = ORIGINAL_MEDIA[MediaKind(str(media_kind))]
@@ -98,16 +99,18 @@ def _page(name: str, **context: Any) -> Response:
 
 @router.get("", include_in_schema=False)
 def index_redirect() -> RedirectResponse:
-    """`/ui` is a natural thing to type; send it to the queue rather than 404."""
+    """`/ui` es lo natural de teclear: llévalo a la bandeja en vez de dar 404."""
     return RedirectResponse(url="/ui/dossiers", status_code=307)
 
 
-@router.get("/dossiers", response_class=Response, summary="The review queue (start here)")
+@router.get("/dossiers", response_class=Response, summary="La bandeja de revisión (empieza aquí)")
 def queue(session: Session = Depends(db_session)) -> Response:
-    """The dossiers waiting for a decision, newest first, with what each is holding.
+    """Los expedientes que esperan una decisión, del más nuevo al más viejo,
+    con lo que bloquea a cada uno.
 
-    Open `http://127.0.0.1:8000/ui/dossiers` in a browser. This is the screen a
-    reviewer works from; the JSON API underneath it is what an automation uses.
+    Abre `http://127.0.0.1:8000/ui/dossiers` en un navegador. Esta es la
+    pantalla desde la que trabaja quien revisa; la API JSON que hay debajo es
+    lo que usa una automatización.
     """
     rows = list(
         session.execute(select(Dossier).order_by(Dossier.created_at.desc()).limit(50)).scalars()
@@ -132,15 +135,16 @@ def queue(session: Session = Depends(db_session)) -> Response:
 @router.get(
     "/dossiers/new",
     response_class=Response,
-    summary="Open a dossier and drop its documents in",
+    summary="Abrir un expediente y soltarle sus documentos",
 )
 def new_dossier() -> Response:
-    """The intake screen: the claim's own data, then the files that support it.
+    """La pantalla de alta: primero los datos de la justificación, luego los
+    ficheros que la soportan.
 
-    The page uses `POST /dossiers`, then one `POST /dossiers/{id}/documents` per
-    file, then `POST /dossiers/{id}/process` - the same three calls an
-    integration would make, which is why a refusal here looks exactly like a
-    refusal there.
+    La página usa `POST /dossiers`, después un `POST /dossiers/{id}/documents`
+    por fichero, y después `POST /dossiers/{id}/process` — las mismas tres
+    llamadas que haría una integración, que es la razón de que un rechazo aquí
+    se vea exactamente igual que un rechazo allí.
     """
     return _page("new.html")
 
@@ -153,13 +157,13 @@ def new_dossier() -> Response:
 @router.get(
     "/dossiers/{dossier_id}/progress",
     response_class=Response,
-    summary="Watch the run while the worker does it",
+    summary="Ver la ejecución mientras el worker trabaja",
 )
 def progress(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> Response:
-    """Polls the job until it finishes, then goes to the review screen.
+    """Consulta el trabajo hasta que termina y entonces va a la revisión.
 
-    The stages shown are the pipeline's own: capturing external sources,
-    reading documents, classifying, aggregating, validating.
+    Las etapas que se muestran son las del propio pipeline: capturar fuentes
+    externas, leer documentos, clasificar, agregar, validar.
     """
     dossier = dossiers.get(session, dossier_id)
     job = session.execute(
@@ -179,14 +183,15 @@ def progress(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> R
 @router.get(
     "/dossiers/{dossier_id}",
     response_class=Response,
-    summary="Review one dossier: findings, fields, evidence",
+    summary="Revisar un expediente: incidencias, campos, evidencia",
 )
 def review_view(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> Response:
-    """What the rules concluded, then every field with a way back to its source.
+    """A qué han llegado las reglas, y luego cada campo con un camino de vuelta
+    a su origen.
 
-    The buttons post to the `review` endpoints, so anything done here is
-    recorded with an actor and a reason exactly as an API call would be.
-    Approval is refused while a blocking finding is open.
+    Los botones llaman a los endpoints de `review`, así que todo lo que se
+    haga aquí queda registrado con quién y por qué, igual que si viniera de la
+    API. Aprobar se rechaza mientras haya una incidencia bloqueante abierta.
     """
     dossier = dossiers.get(session, dossier_id)
 
@@ -266,19 +271,20 @@ def review_view(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -
 @router.get(
     "/evidence/{extraction_id}",
     response_class=Response,
-    summary="Show the source of one value, with the place marked",
+    summary="Ver de dónde sale un valor, con el sitio marcado",
 )
 def evidence(
     extraction_id: uuid.UUID,
     session: Session = Depends(db_session),
     store: ObjectStore = Depends(object_store),
 ) -> Response:
-    """The document this value was read from, with a box around the reading.
+    """El documento del que se leyó este valor, con un recuadro sobre la
+    lectura.
 
-    This is the locator walked backwards. For a scan it is the image with the
-    words the engine read outlined; for a PDF it is the rasterised page with
-    the quoted text outlined; for a workbook it is the cell with its
-    neighbours; for a captured page it is the matched fragment and the selector.
+    Es el locator recorrido hacia atrás. En un escaneo es la imagen con las
+    palabras que leyó el motor recuadradas; en un PDF, la página rasterizada
+    con el texto citado recuadrado; en un libro de Excel, la celda con sus
+    vecinas; en una página capturada, el fragmento que casó y el selector.
     """
     extraction = session.get(Extraction, extraction_id)
     if extraction is None:
@@ -326,7 +332,9 @@ def evidence_image(
     session: Session = Depends(db_session),
     store: ObjectStore = Depends(object_store),
 ) -> Response:
-    """The page behind an evidence view, as an image the browser can draw on."""
+    """La página que hay detrás de una vista de evidencia, como imagen sobre la
+    que el navegador puede dibujar.
+    """
     extraction = session.get(Extraction, extraction_id)
     if extraction is None:
         raise NotFoundError("No hay ninguna extraccion con ese identificador.")
@@ -354,23 +362,24 @@ def evidence_image(
 @router.get(
     "/documents/{document_id}/original",
     response_class=Response,
-    summary="The document exactly as it was submitted",
+    summary="El documento tal como se entregó",
 )
 def original_document(
     document_id: uuid.UUID,
     session: Session = Depends(db_session),
     store: ObjectStore = Depends(object_store),
 ) -> Response:
-    """The stored bytes, unchanged, under their own media type.
+    """Los bytes almacenados, sin tocar, con su propio tipo de medio.
 
-    The evidence viewer draws on a rasterised copy so it can place a box on the
-    page. That copy is not the document: opening it for a PDF handed the
-    reviewer a PNG of page one, and for a workbook there was nothing to open at
-    all. This serves what was submitted, so a PDF opens in the PDF viewer, a
-    scan opens as an image, and a workbook downloads and opens in Excel.
+    El visor de evidencia dibuja sobre una copia rasterizada para poder poner
+    un recuadro en la página. Esa copia no es el documento: abrirla para un
+    PDF le daba a quien revisa un PNG de la primera página, y para un libro de
+    Excel no había nada que abrir. Esto sirve lo que se entregó, así que un PDF
+    se abre en el visor de PDF, un escaneo se abre como imagen y un libro se
+    descarga y se abre en Excel.
 
-    A refused document has no bytes - by design, nothing unparsable is stored -
-    so it answers 404 rather than an empty file.
+    Un documento rechazado no tiene bytes —por diseño, nada ilegible se
+    almacena—, así que responde 404 en lugar de un fichero vacío.
     """
     document = session.get(Document, document_id)
     if document is None:

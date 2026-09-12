@@ -3,6 +3,14 @@
 The OpenAPI document is the demonstrable interface of this system: everything
 a reviewer or an automation engine can do is described there, including the
 error shape.
+
+Which is why everything OpenAPI publishes is in Spanish - this page, the tag
+descriptions, and every route's `summary` and docstring - while the rest of
+the codebase keeps its comments and docstrings in English. The line is not
+about taste: a route handler's docstring *is* the endpoint's description, so
+it is read by whoever uses the API, and the domain, the documents and the
+people who would use this are Spanish. Route paths, field paths and rule ids
+stay in English because they are keys rather than prose.
 """
 
 from __future__ import annotations
@@ -20,81 +28,89 @@ from iep.domain.contracts import ApiError
 from iep.logging import configure_logging
 
 DESCRIPTION = """
-Evidence-linked review of innovation funding dossiers.
+Revisión de expedientes de ayudas a la innovación, con cada dato ligado a la
+evidencia de la que salió.
 
-Documents are ingested, extracted with a locator back to the page, cell or word
-box they came from, cross-checked by deterministic rules, and routed to a human
-whenever the system cannot settle a question on its own. Nothing here approves
-a dossier: approval is a human action recorded in an append-only audit trail.
+Los documentos se dan de alta, se les extraen los datos guardando el sitio
+exacto del que salió cada uno —la página, la celda o la caja de palabras del
+escaneo—, se cruzan entre sí con reglas deterministas, y todo lo que el
+sistema no puede resolver por su cuenta se deriva a una persona. Aquí nada
+aprueba un expediente: aprobar es una acción humana, y queda registrada en una
+auditoría que sólo admite añadir.
 
-### The shortest useful path
+### El camino más corto que sirve para algo
 
-1. `POST /dossiers` — create the dossier.
-2. `POST /dossiers/{id}/documents` — one call per file.
-3. `POST /dossiers/{id}/process` — enqueue the work; a worker picks it up.
-4. `GET /jobs/{id}` — watch it, or just wait a second.
-5. `GET /dossiers/{id}/findings` — what the rules concluded.
-6. `GET /ui/dossiers/{id}` — the same thing as a page a person can act on.
+1. `POST /dossiers` — crear el expediente.
+2. `POST /dossiers/{id}/documents` — una llamada por fichero.
+3. `POST /dossiers/{id}/process` — encolar el trabajo; lo recoge un worker.
+4. `GET /jobs/{id}` — seguirlo, o simplemente esperar un segundo.
+5. `GET /dossiers/{id}/findings` — a qué han llegado las reglas.
+6. `GET /ui/dossiers/{id}` — lo mismo, como una pantalla en la que actuar.
 
-Every error response has one shape (`error`, `message`, `correlation_id`,
-optional `detail`) and never a stack trace. The correlation id appears in the
-API and worker logs, so one request can be followed end to end.
+Todas las respuestas de error tienen la misma forma (`error`, `message`,
+`correlation_id` y, cuando aplica, `detail`) y nunca una traza. El
+`correlation_id` aparece en los registros de la API y del worker, así que una
+petición se puede seguir de punta a punta.
 
-A guided tour of all of this is in `docs/walkthrough.md`; the same document in
-Spanish is `docs/es/recorrido.md`.
+El recorrido comentado de todo esto está en `docs/es/recorrido.md`; el mismo
+documento en inglés es `docs/walkthrough.md`.
 """
 
 TAGS = [
     {
         "name": "system",
         "description": (
-            "Is the process alive, can it work, and what are its counters. "
-            "`/healthz` and `/readyz` are deliberately separate: conflating "
-            "them makes an orchestrator restart a healthy process because the "
-            "database blinked."
+            "Si el proceso está vivo, si además puede trabajar, y sus "
+            "contadores. `/healthz` y `/readyz` están separados a propósito: "
+            "confundirlos hace que un orquestador reinicie un proceso sano "
+            "porque la base de datos ha pestañeado."
         ),
     },
     {
         "name": "dossiers",
         "description": (
-            "Create a dossier, put documents in it, and ask for it to be "
-            "processed. A file is checked by size, by signature and by opening "
-            "it with its real parser **before** anything is stored; a refused "
-            "file is still recorded, with its reason, so a reviewer sees what "
-            "was submitted."
+            "Crear un expediente, meterle documentos y pedir que se procese. "
+            "Cada fichero se comprueba por tamaño, por firma y abriéndolo con "
+            "su analizador de verdad **antes** de guardar nada; de un fichero "
+            "rechazado queda constancia igualmente, con su motivo, para que "
+            "quien revisa vea qué se entregó."
         ),
     },
     {
         "name": "jobs",
         "description": (
-            "The processing queue. A failed job stays visible with its error "
-            "and attempt count: `FAILED` and `DEAD_LETTER` are inspectable "
-            "states, not a silent drop."
+            "La cola de procesamiento. Un trabajo que falla sigue a la vista "
+            "con su error y su número de intentos: `FAILED` y `DEAD_LETTER` "
+            "son estados que se pueden inspeccionar, no un descarte en "
+            "silencio."
         ),
     },
     {
         "name": "review",
         "description": (
-            "What a person does. Read the extracted fields and the findings, "
-            "correct or confirm a value, accept or dismiss a finding, and "
-            "finally approve or reject. Every action needs an actor and a "
-            "reason, and a correction never erases what the machine read."
+            "Lo que hace una persona. Leer los campos extraídos y las "
+            "incidencias, corregir o confirmar un valor, aceptar o descartar "
+            "una incidencia y, al final, aprobar o rechazar. Cada acción "
+            "exige quién la hace y por qué, y una corrección nunca borra lo "
+            "que leyó la máquina."
         ),
     },
     {
         "name": "artifacts",
         "description": (
-            "What you take away: the HTML report, JSON and CSV exports, the "
-            "append-only audit trail, lexical/vector/hybrid evidence search, "
-            "and an optional read-only grounded-answer boundary."
+            "Lo que te llevas: el informe en HTML y en PDF, las "
+            "exportaciones en JSON y CSV, la auditoría que sólo admite "
+            "añadir, la búsqueda de evidencia —léxica, vectorial o híbrida— y "
+            "un punto de integración opcional, de sólo lectura, que responde "
+            "citando la evidencia."
         ),
     },
     {
         "name": "ui",
         "description": (
-            "A minimal server-rendered review screen. It exists so the "
-            "evidence can be looked at without a client; it is not a product "
-            "front end. Start at `GET /ui/dossiers`."
+            "Una pantalla de revisión mínima, renderizada en el servidor. "
+            "Existe para poder mirar la evidencia sin montar un cliente; no "
+            "es el front de un producto. Se empieza en `GET /ui/dossiers`."
         ),
     },
 ]

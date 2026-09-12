@@ -38,7 +38,7 @@ router = APIRouter(prefix="/dossiers", tags=["dossiers"], dependencies=[Depends(
 
 
 @router.post(
-    "", response_model=Dossier, status_code=status.HTTP_201_CREATED, summary="Create a dossier"
+    "", response_model=Dossier, status_code=status.HTTP_201_CREATED, summary="Crear un expediente"
 )
 def create_dossier(
     payload: DossierCreate,
@@ -46,12 +46,12 @@ def create_dossier(
     session: Session = Depends(db_session),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
 ) -> Dossier:
-    """Opens a claim for review: business reference, project period, claimed total.
+    """Abre una justificación para revisar: referencia, periodo e importe.
 
-    The reference (`INN-YYYY-NNN`) is unique, so re-submitting one is a replay
-    of an existing dossier rather than a second one. Send an `Idempotency-Key`
-    header and a retried request returns the original result instead of
-    creating a duplicate.
+    La referencia (`INN-AAAA-NNN`) es única, así que volver a enviar una es
+    repetir un expediente que ya existe y no crear un segundo. Manda una
+    cabecera `Idempotency-Key` y una petición reintentada devuelve el
+    resultado original en lugar de duplicar nada.
     """
     endpoint = "POST /dossiers"
     request_fp = idempotency.fingerprint(payload.model_dump(mode="json"))
@@ -85,7 +85,7 @@ def create_dossier(
     return result
 
 
-@router.get("", response_model=list[Dossier], summary="List dossiers")
+@router.get("", response_model=list[Dossier], summary="Listar expedientes")
 def list_dossiers(
     session: Session = Depends(db_session),
     dossier_status: DossierStatus | None = None,
@@ -93,10 +93,10 @@ def list_dossiers(
     limit: int = 50,
     offset: int = 0,
 ) -> list[Dossier]:
-    """Newest first. `reference` looks one up by its business reference.
+    """Del más reciente al más antiguo. `reference` busca uno por su referencia.
 
-    An integrator holds `INN-2025-042`, not our uuid, so that filter is the
-    difference between one call and paging the whole list client-side.
+    Quien integra tiene `INN-2025-042`, no nuestro uuid, así que ese filtro es
+    la diferencia entre una llamada y paginar la lista entera en el cliente.
     """
     stmt = select(DossierRow).order_by(DossierRow.created_at.desc())
     if dossier_status is not None:
@@ -109,13 +109,13 @@ def list_dossiers(
     return [Dossier.model_validate(row) for row in session.execute(stmt).scalars()]
 
 
-@router.get("/{dossier_id}", response_model=Dossier, summary="One dossier and its state")
+@router.get("/{dossier_id}", response_model=Dossier, summary="Un expediente y su estado")
 def get_dossier(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> Dossier:
-    """`status` is the state machine position — see `docs/workflow.md`.
+    """`status` es la posición en la máquina de estados — `docs/es/workflow.md`.
 
-    A successful run always leaves it in `NEEDS_REVIEW`, whether or not
-    anything was found. `PROCESSING` cannot reach `APPROVED`: approval is a
-    human action.
+    Una ejecución correcta lo deja siempre en `NEEDS_REVIEW`, se haya
+    encontrado algo o no. De `PROCESSING` no se puede llegar a `APPROVED`:
+    aprobar es una acción de una persona.
     """
     return Dossier.model_validate(dossiers.get(session, dossier_id))
 
@@ -124,7 +124,7 @@ def get_dossier(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -
     "/{dossier_id}/documents",
     response_model=Document,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload one file",
+    summary="Subir un fichero",
 )
 def upload_document(
     dossier_id: uuid.UUID,
@@ -134,16 +134,18 @@ def upload_document(
     store: ObjectStore = Depends(object_store),
     settings: Settings = Depends(settings_dep),
 ) -> Document:
-    """One file per call, as `multipart/form-data`.
+    """Un fichero por llamada, como `multipart/form-data`.
 
-    The file is checked by size, then by signature, then by opening it with its
-    real parser, and only then stored — under its SHA-256, so the same bytes
-    twice are one document and you get `200` instead of `201`.
+    El fichero se comprueba por tamaño, luego por firma, luego abriéndolo con
+    su analizador de verdad, y sólo entonces se guarda — bajo su SHA-256, así
+    que los mismos bytes dos veces son un solo documento y recibes `200` en
+    lugar de `201`.
 
-    The filename and the declared content type are kept as provenance and are
-    never trusted to pick a parser or a storage path. A file that is refused
-    still gets a row and an audit event, with the reason, and returns `422`:
-    what was submitted stays visible even though the bytes were not kept.
+    El nombre del fichero y el tipo declarado se conservan como procedencia y
+    no se usan nunca para elegir analizador ni ruta de almacenamiento. De un
+    fichero rechazado queda igualmente su fila y su evento de auditoría, con
+    el motivo, y responde `422`: lo que se entregó sigue a la vista aunque no
+    se hayan guardado los bytes.
     """
     dossier = dossiers.get(session, dossier_id)
 
@@ -190,13 +192,13 @@ def upload_document(
     return Document.model_validate(result.document)
 
 
-@router.get("/{dossier_id}/documents", response_model=list[Document], summary="What was delivered")
+@router.get("/{dossier_id}/documents", response_model=list[Document], summary="Qué se entregó")
 def list_documents(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> list[Document]:
-    """Everything submitted, in arrival order — including what was refused and why.
+    """Todo lo entregado, en orden de llegada — incluido lo rechazado y por qué.
 
-    `media_kind` is what the signature and the parser decided; `kind` is what
-    the classifier concluded it is. `alternate_filenames` lists the other names
-    the same bytes arrived under.
+    `media_kind` es lo que decidieron la firma y el analizador; `kind` es lo
+    que el clasificador concluyó que es. `alternate_filenames` lista los otros
+    nombres con los que llegaron los mismos bytes.
     """
     dossiers.get(session, dossier_id)
     stmt = (
@@ -211,7 +213,7 @@ def list_documents(dossier_id: uuid.UUID, session: Session = Depends(db_session)
     "/{dossier_id}/process",
     response_model=ProcessingJob,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Enqueue processing",
+    summary="Encolar el procesamiento",
 )
 def start_processing(
     dossier_id: uuid.UUID,
@@ -222,16 +224,16 @@ def start_processing(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
     correlation_id: str = Depends(correlation),
 ) -> ProcessingJob:
-    """Queues the work and returns the job. A worker picks it up; this does not block.
+    """Encola el trabajo y devuelve el job. Lo recoge un worker; esto no bloquea.
 
-    Without an explicit `Idempotency-Key`, the key is derived from the dossier
-    plus the set of document digests it currently holds. Pressing this twice
-    with nothing changed returns the same job with `200`; adding a document
-    produces a new one.
+    Sin una `Idempotency-Key` explícita, la clave se deriva del expediente más
+    el conjunto de huellas de los documentos que tiene en ese momento. Pulsar
+    esto dos veces sin cambiar nada devuelve el mismo trabajo con `200`;
+    añadir un documento produce uno nuevo.
 
-    Optional body: `{"semantic_provider": "deterministic" | "llm"}`. The
-    provider only classifies documents — no amount a rule compares ever comes
-    from it.
+    Cuerpo opcional: `{"semantic_provider": "deterministic" | "llm"}`. El
+    proveedor sólo clasifica documentos — ninguna cifra que compare una regla
+    sale de ahí.
     """
     dossier = dossiers.get(session, dossier_id)
 
