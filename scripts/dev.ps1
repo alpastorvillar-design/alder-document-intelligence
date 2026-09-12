@@ -83,10 +83,32 @@ function Stop-HostProcesses {
         }
 }
 
+function Get-PortHolder {
+    # The pid listening on 8000, or $null. `Get-NetTCPConnection` reports the
+    # owning pid even when the process is gone and the socket has not been
+    # reclaimed yet, which is a state this script has to be able to describe.
+    (Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -First 1).OwningProcess
+}
+
+function Wait-ForFreePort {
+    # A listening socket can outlive its process for a few seconds. Waiting is
+    # almost always enough; saying so when it is not is the point.
+    for ($i = 0; $i -lt 10; $i++) {
+        if (-not (Get-PortHolder)) { return $true }
+        Start-Sleep -Milliseconds 700
+    }
+    return -not (Get-PortHolder)
+}
+
 if ($Stop) {
     Write-Host "Parando todo."
     Stop-HostProcesses
     docker compose stop
+    $holder = Get-PortHolder
+    if ($holder) {
+        Write-Warning "Algo sigue escuchando en 8000 (pid $holder). Si no aparece en el Administrador de tareas es un socket que el sistema todavia no ha liberado: espera unos segundos."
+    }
     Write-Host "Los volumenes se conservan: la demo sigue ahi."
     exit 0
 }
@@ -205,10 +227,43 @@ $workerArgs = "-NoExit", "-Command",
     "Set-Location '$repo'; $assignments; & '$python' -m iep.worker.runner"
 Start-Process powershell -ArgumentList $workerArgs | Out-Null
 
+# Before promising anything. uvicorn logs a bind failure as an ERROR line and
+# exits 0, so without this the script printed "Listo", started nothing, and
+# reported success - which is how an afternoon went into wondering why a code
+# change had not taken effect. It had; the request was being served by a
+# process from before it.
+if (-not (Wait-ForFreePort)) {
+    $holder = Get-PortHolder
+    throw "El puerto 8000 sigue ocupado por el pid $holder, asi que la API no puede arrancar. " +
+        "Si ese pid no existe ya, es un socket sin liberar y basta esperar unos segundos. " +
+        "Si existe, cierralo: normalmente es una API de una sesion anterior que este script no alcanza."
+}
+
 Write-Host ""
 Write-Host "Listo.  $url"
 Write-Host "  modelos: los locales de Ollama, mas Haiku/Sonnet/Opus y los de codex"
 Write-Host "  el PDF del informe lo genera tu Chrome"
 Write-Host "  Ctrl+C aqui para la API; el worker esta en la otra ventana"
 Write-Host ""
+# Re-run this same command after changing anything under `src`. Jinja
+# re-reads a changed template on the next request; Python does not re-import a
+# changed module, so a process started before an edit serves the new template
+# against the old code - and the two disagree in ways that read as application
+# defects rather than as a stale process:
+#
+#   a label shortened in Python, with the screen still showing the old wording
+#   - and writing it into any report generated from its own button, where it
+#     stays for good, because a report is a snapshot;
+#   a filename built in Python, with the download still carrying the old name;
+#   a template filter added in Python and used by the template, which is a
+#   500 on "Generar informe": "No filter named 'breakable'".
+#
+# `--reload --reload-dir src` was tried here and does not work on this
+# machine: the reloader starts, parent and child, and a change under `src`
+# never restarts the child - measured by editing a label and asking the API
+# for it, twice, with a relative and an absolute watch directory. `watchfiles`
+# itself sees the change from this directory, so the fault is in how uvicorn's
+# reloader is driving it, not in the watcher. Rather than ship a flag whose
+# comment promises something it does not deliver, the restart is the
+# instruction, and this script is the restart.
 & $python -m uvicorn iep.api.app:create_app --factory --host 127.0.0.1 --port 8000

@@ -99,6 +99,27 @@ def test_host_mode_stops_the_container_api_and_worker() -> None:
     assert "docker compose stop api worker" in dev()
 
 
+def test_it_does_not_promise_readiness_before_it_can_bind() -> None:
+    """ "Listo" after the check, not before it.
+
+    uvicorn logs a bind failure as an ERROR line and then exits 0. The banner
+    was printed before it started, so a run whose port was already taken said
+    "Listo.  http://127.0.0.1:8000/ui/dossiers", started nothing, and reported
+    success - and the request that followed was served by a process from
+    before the change being tested, which is the worst version of this because
+    it looks like the change did not work.
+    """
+    text = dev()
+    check = text.index("if (-not (Wait-ForFreePort))")
+    banner = text.index(
+        'Write-Host "Listo.  $url"\nWrite-Host "  modelos: los locales de Ollama, mas'
+    )
+    assert check < banner, "el script promete antes de comprobar que puede enlazar"
+    # And the failure says which pid, because the answer depends on whether
+    # that process still exists.
+    assert "$holder" in text
+
+
 def test_host_mode_sets_the_embedding_provider() -> None:
     """The one variable whose absence is silent.
 
