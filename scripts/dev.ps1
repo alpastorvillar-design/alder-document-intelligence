@@ -21,9 +21,12 @@ So: one at a time, and on the same port either way.
                     and `codex` models, because those binaries live on this
                     machine and a Linux container cannot run them.
 
+  -WithN8n          starts n8n in Docker and points it at the API selected by
+                    the mode above.
+
 .EXAMPLE
   .\scripts\dev.ps1
-  .\scripts\dev.ps1 -Mode host
+  .\scripts\dev.ps1 -Mode host -WithN8n
   .\scripts\dev.ps1 -Stop
 #>
 [CmdletBinding()]
@@ -126,7 +129,30 @@ Stop-HostProcesses
 
 Write-Host "Levantando: $($services -join ', ')"
 docker compose up -d --wait @services
-if ($WithN8n) { docker compose --profile n8n up -d n8n }
+if ($WithN8n) {
+    # n8n runs in Docker in both modes. In container mode it reaches the API
+    # through the Compose service name; in host mode it uses Docker Desktop's
+    # host gateway. The override exists only while Compose creates n8n, so the
+    # caller's environment is not changed.
+    $previousN8nApiBaseUrl = $env:IEP_N8N_API_BASE_URL
+    try {
+        if ($Mode -eq "host") {
+            $env:IEP_N8N_API_BASE_URL = "http://host.docker.internal:8000"
+        }
+        else {
+            Remove-Item Env:IEP_N8N_API_BASE_URL -ErrorAction SilentlyContinue
+        }
+        docker compose --profile n8n up -d n8n
+    }
+    finally {
+        if ($null -eq $previousN8nApiBaseUrl) {
+            Remove-Item Env:IEP_N8N_API_BASE_URL -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:IEP_N8N_API_BASE_URL = $previousN8nApiBaseUrl
+        }
+    }
+}
 
 if ($Mode -eq "container") {
     Write-Host ""

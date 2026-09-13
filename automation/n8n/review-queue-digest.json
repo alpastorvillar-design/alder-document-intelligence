@@ -1,0 +1,356 @@
+{
+  "id": "iep-review-queue-digest",
+  "name": "Daily review queue digest",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000001",
+      "name": "Every morning",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -700,
+        180
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "b2000000-0000-4000-8000-000000000002",
+      "name": "Run it by hand",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg1",
+              "name": "apiBaseUrl",
+              "value": "={{ $env.IEP_API_BASE_URL || 'http://api:8000' }}",
+              "type": "string"
+            },
+            {
+              "id": "cfg2",
+              "name": "reviewBaseUrl",
+              "value": "={{ $env.IEP_REVIEW_BASE_URL || 'http://127.0.0.1:8000' }}",
+              "type": "string"
+            },
+            {
+              "id": "cfg3",
+              "name": "correlationId",
+              "value": "={{ 'n8n-digest-' + $execution.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000003",
+      "name": "Configure digest",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -460,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.apiBaseUrl }}/dossiers",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "dossier_status",
+              "value": "NEEDS_REVIEW"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            },
+            {
+              "name": "offset",
+              "value": "0"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Correlation-ID",
+              "value": "={{ $json.correlationId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000004",
+      "name": "List dossiers needing review",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -220,
+        260
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const reviewBaseUrl = $('Configure digest').first().json.reviewBaseUrl;\nconst dossiers = $input.all()\n  .map((item) => item.json)\n  .filter((dossier) => dossier.id)\n  .sort((left, right) => Number(right.claimed_total_eur) - Number(left.claimed_total_eur));\nconst totalClaimedEur = dossiers.reduce(\n  (total, dossier) => total + Number(dossier.claimed_total_eur),\n  0,\n);\nreturn [{\n  json: {\n    pendingCount: dossiers.length,\n    totalClaimedEur: Number(totalClaimedEur.toFixed(2)),\n    dossiers: dossiers.map((dossier) => ({\n      reference: dossier.reference,\n      title: dossier.title,\n      claimedTotalEur: Number(dossier.claimed_total_eur),\n      reviewUrl: `${reviewBaseUrl}/ui/dossiers/${dossier.id}`,\n    })),\n  },\n}];"
+      },
+      "id": "b2000000-0000-4000-8000-000000000005",
+      "name": "Build queue summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has1",
+              "leftValue": "={{ $json.pendingCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000006",
+      "name": "Anything to review?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        260,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "out1",
+              "name": "channel",
+              "value": "simulated: no email or chat connector is configured",
+              "type": "string"
+            },
+            {
+              "id": "out2",
+              "name": "subject",
+              "value": "={{ $json.pendingCount + ' dossier(s) need review' }}",
+              "type": "string"
+            },
+            {
+              "id": "out3",
+              "name": "body",
+              "value": "={{ $json.dossiers.map((dossier) => dossier.reference + ' · ' + dossier.claimedTotalEur + ' EUR · ' + dossier.reviewUrl).join('\\n') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000007",
+      "name": "Prepare reviewer digest (simulated)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        500,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "none1",
+              "name": "outcome",
+              "value": "nothing_to_notify",
+              "type": "string"
+            },
+            {
+              "id": "none2",
+              "name": "detail",
+              "value": "No dossier currently needs human review.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000008",
+      "name": "Nothing to notify",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        500,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "err1",
+              "name": "outcome",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "err2",
+              "name": "detail",
+              "value": "={{ $json.error?.message || $json.message || 'the pipeline API could not provide the review queue' }}",
+              "type": "string"
+            },
+            {
+              "id": "err3",
+              "name": "correlationId",
+              "value": "={{ $('Configure digest').first().json.correlationId }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000009",
+      "name": "Report the failure",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        20,
+        360
+      ]
+    }
+  ],
+  "connections": {
+    "Every morning": {
+      "main": [
+        [
+          {
+            "node": "Configure digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run it by hand": {
+      "main": [
+        [
+          {
+            "node": "Configure digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configure digest": {
+      "main": [
+        [
+          {
+            "node": "List dossiers needing review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List dossiers needing review": {
+      "main": [
+        [
+          {
+            "node": "Build queue summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build queue summary": {
+      "main": [
+        [
+          {
+            "node": "Anything to review?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to review?": {
+      "main": [
+        [
+          {
+            "node": "Prepare reviewer digest (simulated)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nothing to notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "versionId": "b2000000-0000-4000-8000-0000000000ff",
+  "meta": {
+    "instanceId": "innovation-evidence-pipeline-local"
+  },
+  "tags": []
+}

@@ -1,0 +1,583 @@
+{
+  "id": "iep-approved-dossier-handoff",
+  "name": "Approved dossier handoff",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "approved-dossier-handoff",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000001",
+      "name": "Handoff webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        220
+      ],
+      "webhookId": "c3000000-0000-4000-8000-000000000001"
+    },
+    {
+      "parameters": {},
+      "id": "c3000000-0000-4000-8000-000000000002",
+      "name": "Run it by hand",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "req1",
+              "name": "reference",
+              "value": "={{ $json.body?.reference || 'INN-2025-041' }}",
+              "type": "string"
+            },
+            {
+              "id": "req2",
+              "name": "apiBaseUrl",
+              "value": "={{ $env.IEP_API_BASE_URL || 'http://api:8000' }}",
+              "type": "string"
+            },
+            {
+              "id": "req3",
+              "name": "reviewBaseUrl",
+              "value": "={{ $env.IEP_REVIEW_BASE_URL || 'http://127.0.0.1:8000' }}",
+              "type": "string"
+            },
+            {
+              "id": "req4",
+              "name": "correlationId",
+              "value": "={{ 'n8n-handoff-' + $execution.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000003",
+      "name": "Read the request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.apiBaseUrl }}/dossiers",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "reference",
+              "value": "={{ $json.reference }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Correlation-ID",
+              "value": "={{ $json.correlationId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "c3000000-0000-4000-8000-000000000004",
+      "name": "Find the dossier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -240,
+        300
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "pick1",
+              "name": "dossierId",
+              "value": "={{ $json.id || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "pick2",
+              "name": "reference",
+              "value": "={{ $json.reference || $('Read the request').first().json.reference }}",
+              "type": "string"
+            },
+            {
+              "id": "pick3",
+              "name": "status",
+              "value": "={{ $json.status || 'NOT_FOUND' }}",
+              "type": "string"
+            },
+            {
+              "id": "pick4",
+              "name": "apiBaseUrl",
+              "value": "={{ $('Read the request').first().json.apiBaseUrl }}",
+              "type": "string"
+            },
+            {
+              "id": "pick5",
+              "name": "reviewBaseUrl",
+              "value": "={{ $('Read the request').first().json.reviewBaseUrl }}",
+              "type": "string"
+            },
+            {
+              "id": "pick6",
+              "name": "correlationId",
+              "value": "={{ $('Read the request').first().json.correlationId }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000005",
+      "name": "Read dossier state",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "found1",
+              "leftValue": "={{ $json.dossierId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000006",
+      "name": "Dossier found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "approved1",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "APPROVED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000007",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Read dossier state').first().json.apiBaseUrl }}/dossiers/{{ $('Read dossier state').first().json.dossierId }}/export.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Correlation-ID",
+              "value": "={{ $('Read dossier state').first().json.correlationId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "c3000000-0000-4000-8000-000000000008",
+      "name": "Fetch approved export",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        60
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "map1",
+              "name": "outcome",
+              "value": "ready_for_handoff",
+              "type": "string"
+            },
+            {
+              "id": "map2",
+              "name": "target",
+              "value": "simulated: no ERP or document manager is configured",
+              "type": "string"
+            },
+            {
+              "id": "map3",
+              "name": "eventType",
+              "value": "innovation.dossier.approved.v1",
+              "type": "string"
+            },
+            {
+              "id": "map4",
+              "name": "reference",
+              "value": "={{ $json.dossier.reference }}",
+              "type": "string"
+            },
+            {
+              "id": "map5",
+              "name": "status",
+              "value": "={{ $json.dossier.status }}",
+              "type": "string"
+            },
+            {
+              "id": "map6",
+              "name": "documentCount",
+              "value": "={{ $json.documents.length }}",
+              "type": "number"
+            },
+            {
+              "id": "map7",
+              "name": "findingCount",
+              "value": "={{ $json.findings.length }}",
+              "type": "number"
+            },
+            {
+              "id": "map8",
+              "name": "reviewDecisionCount",
+              "value": "={{ $json.review_decisions.length }}",
+              "type": "number"
+            },
+            {
+              "id": "map9",
+              "name": "reportVersion",
+              "value": "={{ $json.report_version }}",
+              "type": "string"
+            },
+            {
+              "id": "map10",
+              "name": "generatedAt",
+              "value": "={{ $json.generated_at }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000009",
+      "name": "Map downstream payload (simulated)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        960,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "block1",
+              "name": "outcome",
+              "value": "blocked",
+              "type": "string"
+            },
+            {
+              "id": "block2",
+              "name": "reference",
+              "value": "={{ $json.reference }}",
+              "type": "string"
+            },
+            {
+              "id": "block3",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "block4",
+              "name": "detail",
+              "value": "Only an approved dossier can be handed to a downstream system.",
+              "type": "string"
+            },
+            {
+              "id": "block5",
+              "name": "reviewUrl",
+              "value": "={{ $json.reviewBaseUrl + '/ui/dossiers/' + $json.dossierId }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000010",
+      "name": "Block unapproved handoff",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        720,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "missing1",
+              "name": "outcome",
+              "value": "not_found",
+              "type": "string"
+            },
+            {
+              "id": "missing2",
+              "name": "reference",
+              "value": "={{ $json.reference }}",
+              "type": "string"
+            },
+            {
+              "id": "missing3",
+              "name": "detail",
+              "value": "No dossier exists for the requested reference.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000011",
+      "name": "Report missing dossier",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        480,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "error1",
+              "name": "outcome",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "error2",
+              "name": "detail",
+              "value": "={{ $json.error?.message || $json.message || 'the pipeline API did not accept the handoff request' }}",
+              "type": "string"
+            },
+            {
+              "id": "error3",
+              "name": "correlationId",
+              "value": "={{ $('Read the request').first().json.correlationId }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000012",
+      "name": "Report the failure",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        460
+      ]
+    }
+  ],
+  "connections": {
+    "Handoff webhook": {
+      "main": [
+        [
+          {
+            "node": "Read the request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run it by hand": {
+      "main": [
+        [
+          {
+            "node": "Read the request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the request": {
+      "main": [
+        [
+          {
+            "node": "Find the dossier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find the dossier": {
+      "main": [
+        [
+          {
+            "node": "Read dossier state",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read dossier state": {
+      "main": [
+        [
+          {
+            "node": "Dossier found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dossier found?": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report missing dossier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Fetch approved export",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Block unapproved handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch approved export": {
+      "main": [
+        [
+          {
+            "node": "Map downstream payload (simulated)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "versionId": "c3000000-0000-4000-8000-0000000000ff",
+  "meta": {
+    "instanceId": "innovation-evidence-pipeline-local"
+  },
+  "tags": []
+}

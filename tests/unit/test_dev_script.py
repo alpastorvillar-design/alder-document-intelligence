@@ -168,8 +168,22 @@ def test_the_worker_inherits_the_configuration_it_cannot_disagree_about() -> Non
     # The invariant behind all of it: no `IEP_*` variable is assigned twice, so
     # there is one place per value and nothing to keep in step by hand.
     assigned = re.findall(r"\$env:(IEP_\w+)\s*=", text)
-    duplicated = {name for name in assigned if assigned.count(name) > 1}
+    # IEP_N8N_API_BASE_URL is a short-lived Compose override: host mode sets it
+    # and the finally block restores the caller's previous value. It is not
+    # inherited by the application processes and is deliberately assigned
+    # twice for that save/restore pair.
+    duplicated = {
+        name for name in assigned if assigned.count(name) > 1 and name != "IEP_N8N_API_BASE_URL"
+    }
     assert not duplicated, f"assigned in more than one place: {sorted(duplicated)}"
+
+
+def test_n8n_reaches_whichever_api_mode_is_running() -> None:
+    """The workflow engine stays in Docker, but the API has two valid homes."""
+    text = dev()
+    assert '$env:IEP_N8N_API_BASE_URL = "http://host.docker.internal:8000"' in text
+    assert "$previousN8nApiBaseUrl = $env:IEP_N8N_API_BASE_URL" in text
+    assert "$env:IEP_N8N_API_BASE_URL = $previousN8nApiBaseUrl" in text
 
 
 def test_only_the_worker_is_matched_by_its_command_line() -> None:

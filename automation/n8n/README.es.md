@@ -2,12 +2,17 @@
 
 # Orquestación con n8n
 
-`dossier-review.json` es un workflow importable que gobierna el pipeline a
-través de su API HTTP y enruta el resultado. Es opcional: `docker compose up` no
-arranca n8n, y todas las pruebas, el arnés de evaluación y la demostración
-funcionan sin él.
+Este directorio contiene tres workflows importables. Son opcionales:
+`docker compose up` no arranca n8n, y el núcleo, las pruebas y el arnés de
+evaluación funcionan sin él.
 
-## Qué hace
+| Fichero | Patrón que demuestra | Resultado |
+| --- | --- | --- |
+| `dossier-review.json` | webhook, idempotencia, trabajo asíncrono, sondeo y error común | procesa y dirige el expediente a revisión |
+| `review-queue-digest.json` | programación, lectura de una colección, agregación y salida simulada | resumen diario de la bandeja pendiente |
+| `approved-dossier-handoff.json` | webhook, guardia de estado y mapeo de contrato | prepara la entrega de un expediente aprobado |
+
+## 1. Procesamiento y enrutado
 
 ```
 webhook (o disparador manual)
@@ -28,6 +33,27 @@ probados. Esa separación es justamente el motivo de usar una herramienta de
 workflows: mover una regla de validación a un nodo la dejaría en un sitio sin
 pruebas y sin historial.
 
+## 2. Resumen diario de revisión
+
+`review-queue-digest.json` se puede lanzar a mano y lleva un disparador diario a
+las 08:00. Consulta únicamente los expedientes en `NEEDS_REVIEW`, suma el importe
+reclamado y construye una lista ordenada con enlaces a la pantalla de revisión.
+La salida imita el cuerpo de un correo o mensaje, pero no llama a ningún servicio
+externo ni lleva credenciales. En un despliegue real ese último nodo se sustituye
+por el conector corporativo autorizado.
+
+## 3. Entrega de un expediente aprobado
+
+`approved-dossier-handoff.json` recibe una referencia, consulta el estado y sólo
+recupera `export.json` si el expediente está en `APPROVED`. Un expediente en
+revisión o rechazado queda en la rama bloqueada. La última transformación produce
+un contrato `innovation.dossier.approved.v1`, pero la entrega a un ERP o gestor
+documental es simulada: este repositorio no afirma disponer de esa integración.
+
+Los dos workflows nuevos son deliberadamente de sólo lectura. Muestran
+orquestación, priorización y una barrera de seguridad sin duplicar en n8n las
+reglas o las transiciones de estado del backend.
+
 ## Por qué cada pieza es como es
 
 - **Idempotency-Key en la llamada de proceso.** n8n reintenta. Sin la clave, un
@@ -45,27 +71,49 @@ pruebas y sin historial.
   Compose. No hay nada externo configurado, y el paso de notificación es un nodo
   Set que formatea el mensaje que *enviaría*.
 
-## Cómo ejecutarlo
+## Cómo importarlos y ejecutarlos
+
+El script de desarrollo selecciona la dirección correcta de la API para n8n:
+
+```powershell
+# API y worker en contenedores
+powershell -ExecutionPolicy Bypass -File scripts/dev.ps1 -Mode container -WithN8n
+
+# API y worker en Windows (necesario para los adaptadores de CLI locales)
+powershell -ExecutionPolicy Bypass -File scripts/dev.ps1 -Mode host -WithN8n
+```
 
 Importa y activa antes de arrancar el servidor, para que el fichero SQLite de la
 demostración tenga un único escritor. Después abre http://localhost:5678 o llama
 al webhook:
 
 ```bash
+docker compose --profile n8n stop n8n
 docker compose --profile n8n run --rm --no-deps n8n \
   import:workflow --input=/workflows/dossier-review.json
 docker compose --profile n8n run --rm --no-deps n8n \
+  import:workflow --input=/workflows/review-queue-digest.json
+docker compose --profile n8n run --rm --no-deps n8n \
+  import:workflow --input=/workflows/approved-dossier-handoff.json
+docker compose --profile n8n run --rm --no-deps n8n \
   update:workflow --id=iep-dossier-review --active=true
+docker compose --profile n8n run --rm --no-deps n8n \
+  update:workflow --id=iep-approved-dossier-handoff --active=true
 docker compose --profile n8n up -d --wait n8n
 curl -X POST http://localhost:5678/webhook/dossier-review \
      -H 'content-type: application/json' \
      -d '{"reference":"INN-2025-042"}'
+curl -X POST http://localhost:5678/webhook/approved-dossier-handoff \
+     -H 'content-type: application/json' \
+     -d '{"reference":"INN-2025-041"}'
 ```
 
-El workflow lleva un `id` estable, así que reimportarlo lo actualiza en el sitio
-en lugar de dejar un montón de copias. La activación no está incorporada al
-fichero a propósito: un workflow que llega ya escuchando es una sorpresa, no una
-funcionalidad.
+Cada workflow lleva un `id` estable, así que reimportarlo lo actualiza en el
+sitio en lugar de dejar copias. La activación no está incorporada a los ficheros
+a propósito: un workflow que llega escuchando o ejecutando su horario es una
+sorpresa, no una funcionalidad. El resumen diario se ejecuta manualmente desde
+el editor durante la demostración y sólo se activa cuando su horario haya sido
+aceptado por quien opera el proceso.
 
 ## Verificación
 
@@ -79,10 +127,12 @@ la salida generada por la evaluación, no a este documento.
 
 ## Límites
 
-- La espera previa al sondeo es de cuatro segundos fijos y el bucle no tiene
+- La espera previa al sondeo del primer workflow es de cuatro segundos fijos y el bucle no tiene
   techo de intentos. En un despliegue real eso se convierte en un reintento
   acotado con antigüedad máxima, y el endpoint de trabajos gana un contrato de
   "abandonar después de".
+- El resumen y la entrega terminan en nodos simulados. Añadir correo, Teams, ERP
+  o gestor documental exige credenciales, autorización y un contrato real.
 - n8n guarda su propio estado en un volumen SQLite. Un despliegue real lo
   apuntaría a PostgreSQL y lo pondría detrás de autenticación.
 - Las pruebas estructurales no sustituyen a una importación y ejecución reales.

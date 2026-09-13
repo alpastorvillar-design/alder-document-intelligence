@@ -45,10 +45,23 @@ foreach ($reference in $references) {
 }
 
 if ($WithN8n) {
-    docker compose --profile n8n run --rm --no-deps n8n `
-        import:workflow --input=/workflows/dossier-review.json
-    docker compose --profile n8n run --rm --no-deps n8n `
-        update:workflow --id=iep-dossier-review --active=true
+    # Import while the n8n server is stopped: the local demo uses SQLite and
+    # must not have two processes writing the same file. Workflows arrive
+    # inactive; only the two webhook entry points need activation.
+    docker compose --profile n8n stop n8n
+    $workflows = @(
+        @{ File = "dossier-review.json"; Id = "iep-dossier-review"; Activate = $true },
+        @{ File = "review-queue-digest.json"; Id = "iep-review-queue-digest"; Activate = $false },
+        @{ File = "approved-dossier-handoff.json"; Id = "iep-approved-dossier-handoff"; Activate = $true }
+    )
+    foreach ($workflow in $workflows) {
+        docker compose --profile n8n run --rm --no-deps n8n `
+            import:workflow --input="/workflows/$($workflow.File)"
+        if ($workflow.Activate) {
+            docker compose --profile n8n run --rm --no-deps n8n `
+                update:workflow --id=$($workflow.Id) --active=true
+        }
+    }
     docker compose --profile n8n up -d --wait n8n
 }
 

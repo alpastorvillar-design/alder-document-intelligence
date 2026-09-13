@@ -168,14 +168,20 @@ jobs:
           docker compose -p iep-ci up -d --wait postgres devsources api worker
           curl --fail --silent http://127.0.0.1:8000/healthz
           curl --fail --silent http://127.0.0.1:8000/readyz
-      - name: Import the optional n8n workflow
+      - name: Import the optional n8n workflows
         run: |
           # Import before the server starts: the demo uses SQLite and two n8n
           # processes must not migrate or write the same file concurrently.
           docker compose -p iep-ci --profile n8n run --rm --no-deps n8n \
             import:workflow --input=/workflows/dossier-review.json
           docker compose -p iep-ci --profile n8n run --rm --no-deps n8n \
+            import:workflow --input=/workflows/review-queue-digest.json
+          docker compose -p iep-ci --profile n8n run --rm --no-deps n8n \
+            import:workflow --input=/workflows/approved-dossier-handoff.json
+          docker compose -p iep-ci --profile n8n run --rm --no-deps n8n \
             update:workflow --id=iep-dossier-review --active=true
+          docker compose -p iep-ci --profile n8n run --rm --no-deps n8n \
+            update:workflow --id=iep-approved-dossier-handoff --active=true
           docker compose -p iep-ci --profile n8n up -d --wait n8n
       - name: Execute the n8n route against synthetic data
         run: |
@@ -207,6 +213,13 @@ jobs:
           done
           cat /tmp/n8n-response.json
           python -c "import json; r=json.load(open('/tmp/n8n-response.json')); assert r.get('channel', '').startswith('simulated:'); assert r.get('blockers', 0) > 0"
+          curl --fail --silent --show-error \
+            -H 'content-type: application/json' \
+            -d '{"reference":"INN-2025-042"}' \
+            -o /tmp/n8n-handoff-response.json \
+            http://127.0.0.1:5678/webhook/approved-dossier-handoff
+          cat /tmp/n8n-handoff-response.json
+          python -c "import json; r=json.load(open('/tmp/n8n-handoff-response.json')); assert r.get('outcome') == 'blocked'; assert r.get('status') == 'NEEDS_REVIEW'"
       - name: Stop and remove CI-only Compose resources
         if: always()
         run: docker compose -p iep-ci --profile n8n down --volumes --remove-orphans

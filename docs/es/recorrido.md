@@ -257,26 +257,34 @@ soltar el fichero.
 6. Escribe tu nombre, pon un motivo en una incidencia y pulsa *Falso positivo*.
    Recarga: queda quién y por qué.
 7. Pulsa *Generar informe*: se abre el informe HTML.
-8. Ahora abre `INN-2025-043`, que sólo tiene **una** incidencia. Ese es el caso
+8. Ahora abre `INN-2025-045`, que sólo tiene **una** incidencia. Ese es el caso
    que se parece a un expediente real.
 
-## 6. Cómo abrir n8n y ver el workflow
+## 6. Cómo abrir n8n y ver los workflows
 
 n8n **no arranca por defecto**. Se levanta con su perfil:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/demo.ps1 -SkipBuild -WithN8n
+# Todo el backend en Docker
+powershell -ExecutionPolicy Bypass -File scripts/dev.ps1 -Mode container -WithN8n
+
+# API y worker en Windows para usar los adaptadores de CLI locales
+powershell -ExecutionPolicy Bypass -File scripts/dev.ps1 -Mode host -WithN8n
 ```
 
 O a mano, en PowerShell:
 
 ```powershell
+docker compose --profile n8n stop n8n
 docker compose --profile n8n run --rm --no-deps n8n import:workflow --input=/workflows/dossier-review.json
+docker compose --profile n8n run --rm --no-deps n8n import:workflow --input=/workflows/review-queue-digest.json
+docker compose --profile n8n run --rm --no-deps n8n import:workflow --input=/workflows/approved-dossier-handoff.json
 docker compose --profile n8n run --rm --no-deps n8n update:workflow --id=iep-dossier-review --active=true
+docker compose --profile n8n run --rm --no-deps n8n update:workflow --id=iep-approved-dossier-handoff --active=true
 docker compose --profile n8n up -d --wait n8n
 ```
 
-Para estos tres usa PowerShell y no Git Bash: Git Bash reescribe la ruta de
+Para estos comandos usa PowerShell y no Git Bash: Git Bash reescribe la ruta de
 contenedor `/workflows/...` como ruta de Windows y la importación falla con
 `ENOENT`.
 
@@ -284,8 +292,9 @@ Se importa **antes** de arrancar el servidor a propósito: n8n guarda su estado
 en SQLite y dos procesos escribiendo a la vez dan `SQLITE_BUSY`.
 
 Después abre `http://127.0.0.1:5678`. La primera vez te pedirá crear una cuenta
-local — es sólo de tu instancia, no sale a ningún sitio. Dentro verás el
-workflow *Dossier review orchestration*. Pulsa cualquier nodo para ver qué hace.
+local — es sólo de tu instancia, no sale a ningún sitio. Dentro verás
+*Dossier review orchestration*, *Daily review queue digest* y *Approved dossier
+handoff*. Pulsa cualquier nodo para ver qué hace.
 
 Para dispararlo:
 
@@ -295,6 +304,17 @@ curl -X POST http://127.0.0.1:5678/webhook/dossier-review -H "content-type: appl
 
 Responde con la notificación simulada: asunto, número de incidencias abiertas,
 bloqueantes y enlace a la pantalla de revisión.
+
+El resumen diario se ejecuta a mano desde su disparador durante la demostración.
+La entrega aprobada se puede llamar así:
+
+```bash
+curl -X POST http://127.0.0.1:5678/webhook/approved-dossier-handoff -H "content-type: application/json" -d "{\"reference\":\"INN-2025-041\"}"
+```
+
+Sólo recupera la exportación si el expediente está aprobado; con `042` devuelve
+la rama bloqueada. Ambos resultados son simulados y no salen a un correo, ERP o
+gestor documental real.
 
 **Qué demuestra y qué no.** Demuestra que el pipeline se puede orquestar desde
 fuera por HTTP, con clave de idempotencia y correlation id. No contiene lógica
