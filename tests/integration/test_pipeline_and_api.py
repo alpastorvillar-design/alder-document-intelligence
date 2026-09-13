@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from iep.api import vocabulary as vocab
+from iep.api.routes.ui import default_call_page_url
 from iep.config import Settings
 from iep.connectors.public_page import PublicPageScraper
 from iep.connectors.registry import RegistryConnector
@@ -1040,6 +1041,19 @@ class TestReviewPages:
         422 on the intake screen rather than an obvious error.
         """
         assert client.get("/ui/dossiers/new").status_code == 200
+
+    def test_the_intake_form_suggests_the_call_page_this_deployment_reaches(
+        self, client: TestClient, wired_settings: Settings
+    ) -> None:
+        """The address comes from configuration, not from the template.
+
+        Written into the template it was the Compose address, which the scraper
+        refuses when the API and the worker run on the host. The rule itself is
+        in tests/unit/test_intake_defaults.py; this is the page carrying it.
+        """
+        page = client.get("/ui/dossiers/new").text
+        expected = default_call_page_url(wired_settings)
+        assert f'id="call_page_url" value="{expected}"' in page
 
     def test_the_bare_ui_path_redirects_to_the_list(self, client: TestClient) -> None:
         response = client.get("/ui", follow_redirects=False)

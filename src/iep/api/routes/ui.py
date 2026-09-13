@@ -28,8 +28,9 @@ from sqlalchemy.orm import Session
 
 from iep.api import evidence as evidence_view
 from iep.api import vocabulary as vocab
-from iep.api.deps import db_session, object_store, require_api_key
+from iep.api.deps import db_session, object_store, require_api_key, settings_dep
 from iep.api.errors import NotFoundError
+from iep.config import Settings
 from iep.db.models import Document, Dossier, Extraction, Finding, ProcessingJob
 from iep.domain.enums import DocumentStatus, FieldStatus, FindingStatus, MediaKind, Severity
 from iep.dossiers import service as dossiers
@@ -92,6 +93,20 @@ def _page(name: str, **context: Any) -> Response:
     return Response(content=html, media_type="text/html; charset=utf-8")
 
 
+def default_call_page_url(settings: Settings) -> str:
+    """The call page the intake form suggests before anybody types one.
+
+    The local source simulator serves the personnel registry and the published
+    call page, so the registry address this process is configured with is one
+    its worker is known to reach: `devsources` inside Compose, 127.0.0.1 when
+    the API and the worker run on the host. The form used to carry the Compose
+    address written into the template, and on the host the scraper refused it:
+    a dossier submitted as the form arrived got an EXTERNAL_SOURCE_UNAVAILABLE
+    blocker and could never be approved.
+    """
+    return f"{settings.registry_api_base_url.rstrip('/')}/public/convocatoria.html"
+
+
 # --------------------------------------------------------------------------
 # 1. The queue
 # --------------------------------------------------------------------------
@@ -137,7 +152,7 @@ def queue(session: Session = Depends(db_session)) -> Response:
     response_class=Response,
     summary="Abrir un expediente y soltarle sus documentos",
 )
-def new_dossier() -> Response:
+def new_dossier(settings: Settings = Depends(settings_dep)) -> Response:
     """La pantalla de alta: primero los datos de la justificación, luego los
     ficheros que la soportan.
 
@@ -145,8 +160,13 @@ def new_dossier() -> Response:
     por fichero, y después `POST /dossiers/{id}/process` — las mismas tres
     llamadas que haría una integración, que es la razón de que un rechazo aquí
     se vea exactamente igual que un rechazo allí.
+
+    El formulario llega relleno con un expediente de ejemplo, y la página de
+    convocatoria apunta al simulador local por la dirección que usa este mismo
+    despliegue: `devsources` dentro de Compose y `127.0.0.1` cuando la API y el
+    worker corren en el host.
     """
-    return _page("new.html")
+    return _page("new.html", call_page_url=default_call_page_url(settings))
 
 
 # --------------------------------------------------------------------------
