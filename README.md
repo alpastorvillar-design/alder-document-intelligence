@@ -190,16 +190,15 @@ híbrida y RAG opcional](docs/es/rag.md).
 
 ## Documentación
 
-Toda la documentación existe en español y en inglés, con un selector de idioma en
-la primera línea de cada documento. El índice completo está en
+La documentación principal está disponible en español y en inglés, con un
+selector de idioma en cada documento bilingüe. El índice en español está en
 [docs/es/README.md](docs/es/README.md).
 
-¿Primera vez aquí? Empieza por el **[recorrido guiado](docs/es/recorrido.md)**:
-qué se está ejecutando, qué hace cada endpoint, cómo lanzar la demostración, cómo
-abrir n8n, y dónde encajan —y dónde no— el RAG y un modelo de lenguaje.
+¿Primera vez aquí? Empieza por el **[guion de
+demostración](docs/es/demostracion.md)** y utiliza el arranque rápido de este
+README para levantar el entorno.
 
-- [Recorrido guiado](docs/es/recorrido.md) y
-  [demostración del LLM](docs/es/demostracion-llm.md), además de
+- [Demostración del LLM](docs/es/demostracion-llm.md) y
   [recuperación híbrida y RAG opcional](docs/es/rag.md)
 - [Arquitectura](docs/es/arquitectura.md),
   [modelo de dominio](docs/es/modelo-de-dominio.md) y

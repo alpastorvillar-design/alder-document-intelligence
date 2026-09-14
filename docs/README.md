@@ -2,8 +2,8 @@
 
 # Documentation index
 
-Every document exists in both languages, and each one links to its counterpart
-on its first line.
+This index collects the English documentation. Each bilingual document links to
+its Spanish counterpart on the first line.
 
 ## Start here
 

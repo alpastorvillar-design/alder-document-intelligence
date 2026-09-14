@@ -1,4 +1,4 @@
-**English** · [Español](es/recorrido.md)
+**English** · [Documentación en español](es/README.md)
 
 # Guided walkthrough
 

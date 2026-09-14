@@ -52,8 +52,8 @@ Todas las respuestas de error tienen la misma forma (`error`, `message`,
 `correlation_id` aparece en los registros de la API y del worker, así que una
 petición se puede seguir de punta a punta.
 
-El recorrido comentado de todo esto está en `docs/es/recorrido.md`; el mismo
-documento en inglés es `docs/walkthrough.md`.
+La documentación funcional está indexada en `docs/es/README.md`; la versión en
+inglés está en `docs/README.md`.
 """
 
 TAGS = [

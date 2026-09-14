@@ -2,14 +2,13 @@
 
 # Índice de documentación
 
-Todos los documentos existen en los dos idiomas, y cada uno enlaza con su
-equivalente en la primera línea.
+Este índice reúne la documentación en español. Cada documento bilingüe enlaza
+con su equivalente en inglés desde la primera línea.
 
 ## Empieza por aquí
 
 | Documento | Qué responde |
 | --- | --- |
-| [Recorrido guiado](recorrido.md) | Qué se está ejecutando, qué hace cada endpoint, cómo lanzar la demo, cómo abrir n8n, dónde encaja el RAG |
 | [Recuperación híbrida y RAG opcional](rag.md) | pgvector, embeddings, modos de búsqueda, respuestas con citas y prueba alojada segura |
 | [Demostración del LLM](demostracion-llm.md) | Cómo ver funcionando el camino del modelo alojado — gratis contra un simulador local, o contra un modelo real por céntimos |
 | [Guion de demo de cinco minutos](demostracion.md) | Qué enseñar, en qué orden, y qué decir de ello |

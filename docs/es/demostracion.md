@@ -2,8 +2,8 @@
 
 # Demostración local de cinco minutos
 
-> Si lo que buscas es **cómo se lanza** la demostración paso a paso, está en
-> [recorrido.md](recorrido.md). Este documento es el guion de qué enseñar.
+Para lanzar el entorno sigue el arranque rápido del README. Este documento es el
+guion de qué enseñar una vez que los servicios están disponibles.
 
 ## Preparación
 

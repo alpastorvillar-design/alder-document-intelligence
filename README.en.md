@@ -178,8 +178,9 @@ RAG](docs/rag.md).
 
 ## Documentation
 
-Every document exists in English and Spanish, with a switcher on its first line.
-The full index is [docs/README.md](docs/README.md).
+The core documentation is available in English and Spanish, with a language
+switcher in each bilingual document. The English index is
+[docs/README.md](docs/README.md).
 
 New here? Start with the **[guided walkthrough](docs/walkthrough.md)** — what is
 running, what every endpoint does, how to launch the demo, how to open n8n, and
