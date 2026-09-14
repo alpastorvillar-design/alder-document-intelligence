@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-# `docs/` and `README.es.md` are not copied into the runtime image; the suite
+# `docs/` and `README.en.md` are not copied into the runtime image; the suite
 # also runs from /app inside it.
 SKIP = not (REPO / "docs").exists()
 

@@ -1,3 +1,3 @@
-"""Innovation Evidence Pipeline."""
+"""Pruevia document-evidence pipeline."""
 
 __version__ = "0.1.0"

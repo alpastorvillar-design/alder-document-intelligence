@@ -1,58 +1,63 @@
-**English** · [Español](README.es.md)
+**Español** · [English](README.en.md)
 
-# Innovation Evidence Pipeline
+# Pruevia
 
-Reviewing an innovation funding claim is a document problem before it is a data
-problem. A single dossier arrives as a technical report in PDF, a pile of
-scanned expense receipts, a timesheet workbook, a record in a corporate system,
-and a published call for proposals on a web page. Someone has to decide whether
-the declared spend is actually supported — and, if a claim is later challenged,
-show where every figure came from.
+**Revisión documental con un camino verificable hasta cada fuente.**
 
-This repository is a **production-oriented reference implementation** of that
-review step: it ingests heterogeneous documents, extracts fields while keeping a
-locator back to the exact page, cell or bounding box they came from, cross-checks
-the sources against each other with deterministic rules, routes what it cannot
-settle to a human, and produces an auditable report.
+Revisar una justificación de ayudas a la innovación es un problema documental
+antes que un problema de datos. Un expediente llega como una memoria técnica en
+PDF, un montón de justificantes de gasto escaneados, un libro de partes
+horarios, un registro en un sistema corporativo y una convocatoria publicada en
+una página web. Alguien tiene que decidir si el gasto declarado está realmente
+soportado y, si la justificación se cuestiona más adelante, mostrar de dónde
+salió cada cifra.
 
-It is a reference implementation, not a deployed system. See
-[docs/production-gap.md](docs/production-gap.md) for what would have to change
-before it ran against real dossiers.
+Este repositorio es una **implementación de referencia orientada a producción**
+de ese paso de revisión: ingesta documentación heterogénea, extrae campos
+conservando un localizador a la página, celda o caja exacta de la que
+proceden, cruza las fuentes entre sí con reglas deterministas, envía a una
+persona lo que no puede resolver y produce un informe auditable.
 
-## The design decision that matters
+Es una implementación de referencia, no un sistema desplegado. En
+[docs/es/brecha-produccion.md](docs/es/brecha-produccion.md) está lo que habría
+que cambiar antes de ejecutarlo contra expedientes reales.
 
-A language model is genuinely useful here — classifying documents, pulling a
-project title out of prose, spotting that two sections contradict each other.
-It is also the wrong tool for deciding whether €184,320 of declared personnel
-cost matches the timesheet.
+## La decisión de diseño que importa
 
-So the pipeline splits the work:
+Un modelo de lenguaje es genuinamente útil aquí: clasificar documentos, sacar el
+título de un proyecto de un texto en prosa, detectar que dos apartados se
+contradicen. También es la herramienta equivocada para decidir si 184.320 € de
+coste de personal declarado cuadran con el parte horario.
 
-| Concern | Handled by |
+Por eso el pipeline reparte el trabajo:
+
+| Responsabilidad | Quién la asume |
 | --- | --- |
-| Locating text, cells, and words on a scan | Deterministic extractors (PyMuPDF, openpyxl, Tesseract) |
-| Interpreting prose, classifying, proposing candidate fields | A pluggable semantic provider |
-| Finding supporting passages | Lexical, exact pgvector, or hybrid retrieval |
-| Drafting an answer from retrieved passages | Optional read-only RAG provider with verified citation ids |
-| Arithmetic, eligibility, duplicates, cross-source reconciliation | Deterministic, versioned rules |
-| Anything ambiguous, low-confidence or contradictory | A human reviewer, with the evidence in front of them |
-| Approving or rejecting | A human, recorded in an append-only audit trail |
+| Localizar texto, celdas y palabras en un escaneo | Extractores deterministas (PyMuPDF, openpyxl, Tesseract) |
+| Interpretar prosa, clasificar, proponer campos candidatos | Un proveedor semántico intercambiable |
+| Encontrar fragmentos de soporte | Recuperación léxica, pgvector exacta o híbrida |
+| Redactar desde fragmentos recuperados | Proveedor RAG opcional de solo lectura con ids de cita verificados |
+| Aritmética, elegibilidad, duplicados, cruce entre fuentes | Reglas deterministas y versionadas |
+| Cualquier cosa ambigua, de baja confianza o contradictoria | Una persona revisora, con la evidencia delante |
+| Aprobar o rechazar | Una persona, registrado en una auditoría append-only |
 
-Every extracted field carries its source document, its locator, the extractor
-that produced it, that extractor's version, the contract version, a confidence
-score, and any human correction. Nothing in the pipeline can approve a dossier.
+Cada campo extraído lleva su documento de origen, su localizador, el extractor
+que lo produjo, la versión de ese extractor, la versión del contrato, una
+confianza y cualquier corrección humana. Nada dentro del pipeline puede aprobar
+un expediente.
 
-## Status
+## Estado
 
-The vertical slice is implemented and exercised by unit, PostgreSQL integration,
-migration, recovery, and container smoke tests. Published measurements come
-from the evaluation harness rather than being copied into this page; see
-[measured results](docs/measured-results.md).
+La vertical está implementada y ejercitada por pruebas unitarias, de integración
+contra PostgreSQL, de migración, de recuperación y de humo en contenedor. Las
+mediciones publicadas salen del arnés de evaluación en lugar de copiarse a esta
+página; están en [resultados medidos](docs/es/resultados-medidos.md).
 
-## Quickstart
+## Puesta en marcha
 
-Prerequisites are Docker Engine with Compose v2 and enough free space for the
-pinned base images. No external service or model credential is required.
+Los requisitos son Docker Engine con Compose v2 y espacio libre suficiente para
+las imágenes base fijadas. No hace falta ningún servicio externo ni credencial
+de modelo.
 
 ```bash
 cp .env.example .env
@@ -64,137 +69,152 @@ docker compose exec -T api iep process --reference INN-2025-042
 docker compose exec -T api iep report --reference INN-2025-042
 ```
 
-On Windows, [`scripts/demo.ps1`](scripts/demo.ps1) performs those steps for
-both the consistent and deliberately defective dossiers; add `-Fresh` to delete
-them first, since a dossier under review refuses new documents by design. Stop
-only this stack with `docker compose --profile n8n down`; add `--volumes` when
-its local data is no longer needed.
+En Windows, [`scripts/demo.ps1`](scripts/demo.ps1) ejecuta esos pasos para el
+expediente consistente y para el que lleva defectos sembrados a propósito; añade
+`-Fresh` para borrarlos antes, porque un expediente en revisión rechaza
+documentos nuevos por diseño. Para parar únicamente este stack:
+`docker compose --profile n8n down`; añade `--volumes` cuando sus datos locales
+ya no hagan falta.
 
-Afterwards, [`scripts/dev.ps1`](scripts/dev.ps1) opens it: with no argument
-everything runs in Docker, and `-Mode host` runs the API and worker on the
-machine instead - which is what adds the `claude` and `codex` models, since
-those binaries cannot run in a Linux container. Both serve the same address,
-and only one at a time: two API processes sharing this database without sharing
-a filesystem break each other in ways that read as defects in the application.
-[`docs/rag.md`](docs/rag.md) has that story.
+Después, [`scripts/dev.ps1`](scripts/dev.ps1) es lo que la abre: sin argumentos
+todo corre en Docker, y con `-Mode host` la API y el worker corren en la
+máquina, que es lo que añade los modelos de `claude` y de `codex`, porque esos
+binarios no pueden ejecutarse en un contenedor Linux. Los dos modos sirven la
+misma dirección, y sólo uno a la vez: dos procesos de API que comparten esta
+base de datos sin compartir sistema de ficheros se rompen el uno al otro de
+formas que parecen defectos de la aplicación. Está contado en
+[`docs/es/rag.md`](docs/es/rag.md).
 
-The API, review screen, and local source simulator bind only to loopback:
-`http://127.0.0.1:8000/docs`, `http://127.0.0.1:8000/ui/dossiers`, and
-`http://127.0.0.1:8080`. The optional workflow UI is described in
-[`automation/n8n/README.md`](automation/n8n/README.md).
+La API, la pantalla de revisión y el simulador local de fuentes escuchan sólo en
+loopback: `http://127.0.0.1:8000/docs`, `http://127.0.0.1:8000/ui/dossiers` y
+`http://127.0.0.1:8080`. La interfaz opcional de workflows se describe en
+[`automation/n8n/README.es.md`](automation/n8n/README.es.md).
 
-## The review screen
+## La pantalla de revisión
 
-The pipeline's output is a decision somebody has to make and defend, so it has
-a screen rather than only an API. Five of them, in the order a dossier moves
-through: the queue, intake, progress, the review itself, and the evidence
-behind one value. Server-rendered Jinja against the same JSON API an
-integration would call — no build step, no second implementation of the rules,
-and nothing loaded from the network, so it works with no Internet access.
+Lo que produce el pipeline es una decisión que alguien tiene que tomar y
+defender, así que tiene pantalla y no sólo API. Cinco, en el orden en que un
+expediente las recorre: la bandeja, el alta, el progreso, la revisión y la
+evidencia detrás de un valor. Jinja renderizado en servidor contra la misma
+API JSON que llamaría una integración: sin paso de compilación, sin una segunda
+implementación de las reglas y sin nada que se cargue de la red, así que
+funciona sin conexión a Internet.
 
-The interface is in Spanish. The domain, the documents and the people who
-would use it are Spanish; route paths, field paths and rule ids stay in
-English because they are keys, not prose.
+La interfaz está en español. El dominio, los documentos y las personas que la
+usarían lo son; las rutas, los `field_path` y los identificadores de regla
+siguen en inglés porque son claves, no prosa.
 
-**The queue** — every dossier waiting on a decision, with what is blocking it.
+**La bandeja** — los expedientes que esperan una decisión, con lo que los
+bloquea.
 
-![The review queue](docs/img/01-queue.png)
+![La bandeja de revisión](docs/img/01-queue.png)
 
-**Intake** — drag the dossier's files in. Each one is checked by size, by its
-real signature, and by opening it with its parser *before* it is stored, and a
-refusal names the file and the reason. Nothing unparsable reaches the store,
-but the refusal is recorded, so what is missing is visible instead of having to
-be guessed.
+**El alta** — se arrastran los ficheros del expediente. Cada uno se comprueba
+por tamaño, por su firma real y abriéndolo con su parser *antes* de guardarse,
+y un rechazo dice qué fichero es y por qué. Nada que no se pueda abrir llega al
+almacén, pero el rechazo queda registrado, así que se ve qué falta en lugar de
+tener que adivinarlo.
 
-![Creating a dossier and uploading its documents](docs/img/02-intake.png)
+![Alta de un expediente y subida de sus documentos](docs/img/02-intake.png)
 
-**Review** — the verdict first, then every finding as a card: what it is called
-in plain language, the figures behind it, the documents it affects, why the
-rule fires, and the requirement it enforces. That last part is what makes a
-finding arguable rather than an opinion. Approval is refused while a blocker is
-open or a field is unconfirmed; dismissing a finding as a false positive needs
-a reason and is recorded.
+**La revisión** — primero el veredicto, y después cada incidencia como una
+ficha: cómo se llama en lenguaje llano, las cifras que la provocan, los
+documentos a los que afecta, por qué salta la regla y el requisito que aplica.
+Eso último es lo que convierte una incidencia en algo discutible en lugar de
+una opinión. La aprobación se niega mientras haya un bloqueante abierto o un
+campo sin confirmar; descartar una incidencia como falso positivo exige motivo
+y queda registrado.
 
-![The review screen for a dossier with eleven blocking findings](docs/img/03-review.png)
+![La pantalla de revisión de un expediente con once incidencias bloqueantes](docs/img/03-review.png)
 
-**Evidence** — for any value, the document it was read from with the exact
-place boxed. The box is drawn from the coordinates stored during extraction,
-not recomputed for display. From here the original opens: a PDF as a PDF, a
-scan as an image, a workbook as a download Excel takes.
+**La evidencia** — para cualquier valor, el documento del que se leyó con el
+sitio exacto recuadrado. El recuadro se dibuja con las coordenadas que se
+guardaron durante la extracción, no recalculadas al mostrarlo. Desde aquí se
+abre el original: un PDF como PDF, un escaneo como imagen, un libro como
+descarga que abre Excel.
 
-![A scanned receipt with the total boxed where it was read](docs/img/04-evidence.png)
+![Un justificante escaneado con el total recuadrado donde se leyó](docs/img/04-evidence.png)
 
-**The report** — the artefact that leaves the building, and the one thing here
-written for somebody who was not in the room. It leads with the check the
-justification rests on: for each concepto de gasto, what the memoria declares
-against what the supporting documents add up to, the difference, and whether it
-cuadra. A figure that was never read stays missing rather than becoming a zero.
-"Descargar PDF" asks the server for it: `reports/latest.pdf` renders the
-stored HTML with Chromium, in the image, so the filed document is the same one
-for everybody. That replaced the browser's print dialogue after a PDF produced
-that way arrived as 26 bitmaps with no embedded fonts and no selectable text —
-"print as image", which makes an archived document unsearchable. The rendered
-one carries embedded fonts, between ten and twenty-two thousand text operators
-depending on the dossier, and not one bitmap. How many fonts and pages depends
-on the renderer — the image's chromium and a desktop Chrome paginate the same
-stored HTML a little differently — which is why the filed copy is the one the
-image makes. The print stylesheet still governs the layout, and "Imprimir"
-still opens the dialogue for paper.
+**El informe** — el documento que sale de la casa, y lo único de aquí escrito
+para alguien que no estaba delante. Empieza por la comprobación sobre la que se
+sostiene la justificación: para cada concepto de gasto, lo que declara la
+memoria frente a lo que suman los documentos que la soportan, la diferencia y
+si cuadra. Una cifra que no se llegó a leer sigue faltando en lugar de
+convertirse en un cero. «Descargar PDF» se lo pide al servidor:
+`reports/latest.pdf` renderiza el HTML almacenado con Chromium, dentro de la
+imagen, así que el documento que se archiva es el mismo para todo el mundo.
+Sustituyó al diálogo del navegador después de que un PDF hecho por esa vía
+llegara como 26 mapas de bits, sin fuentes incrustadas y sin texto
+seleccionable —«imprimir como imagen», que deja un documento archivado sin
+poder buscarse—. El renderizado lleva fuentes incrustadas, entre diez y
+veintidós mil operadores de texto según el expediente, y ni un solo mapa de
+bits. Cuántas fuentes y cuántas páginas salgan depende del renderizador —el
+chromium de la imagen y un Chrome de escritorio paginan el mismo HTML
+almacenado de forma algo distinta—, y por eso la copia que se archiva es la que
+hace la imagen. La hoja de estilos de impresión sigue mandando en la
+maquetación, y «Imprimir» sigue abriendo el diálogo para papel.
 
-![The justification report, with the reconciliation table first](docs/img/05-report.png)
+![El informe de justificación, con la conciliación de importes primero](docs/img/05-report.png)
 
-**Asking the evidence** — the review and evidence screens carry the same
-read-only copilot, in a drawer that opens beside the dossier rather than over
-it, because the table is the thing a reviewer needs to keep reading while they
-ask about it. It retrieves the segments closest to the question and asks a
-model to draft an answer *citing them*; every citation is checked against what
-was actually sent, and an id the model was not given rejects the whole answer
-rather than appearing as a footnote. It cannot approve, reject or change a
-field, and asking is recorded in the audit trail.
+**Preguntar a las evidencias** — la pantalla de revisión y la de evidencia
+llevan el mismo copiloto de sólo lectura, en un cajón que se abre al lado del
+expediente y no encima, porque la tabla es justo lo que quien revisa necesita
+seguir leyendo mientras pregunta. Recupera los fragmentos más cercanos a la
+pregunta y pide a un modelo que redacte una respuesta *citándolos*; cada cita
+se comprueba contra lo que realmente se envió, y un identificador que el modelo
+no recibió tumba la respuesta entera en lugar de aparecer como nota al pie. No
+puede aprobar, rechazar ni cambiar un campo, y preguntar queda en la auditoría.
 
-The model is chosen on the screen, from what this machine can actually reach:
-local models discovered from Ollama, with their weights shown because that is
-what decides whether an answer takes seconds or minutes, and the `claude` or
-`codex` CLI when the API runs on the host. A model id from a client is resolved
-against that catalogue rather than trusted, because on the CLI backends it
-would otherwise reach `argv`. The meter reports tokens spent today, separating
-metered calls from local ones, which cost nothing and are not counted against
-any budget.
+El modelo se elige en la pantalla, entre los que esta máquina alcanza de
+verdad: los locales que descubre en Ollama, con el tamaño de sus pesos a la
+vista porque es lo que decide si una respuesta tarda segundos o minutos, y el
+CLI de `claude` o `codex` cuando la API corre en el host. Un identificador de
+modelo que llega de un cliente se resuelve contra ese catálogo en vez de
+confiar en él, porque en los backends de CLI acabaría en `argv`. El medidor
+informa de los tokens gastados hoy y separa las llamadas medidas de las
+locales, que no cuestan nada y no consumen presupuesto.
 
-![The copilot: the model that answered, the answer, and the citation it was checked against](docs/img/06-ask.png)
+![El copiloto: el modelo que respondió, la respuesta y la cita contra la que se comprueba](docs/img/06-ask.png)
 
-The six images above are produced by [`scripts/shots.py`](scripts/shots.py) against the running stack, at one width, so they can be regenerated after any change to the interface rather than re-taken by hand.
+Las seis imágenes de arriba las genera [`scripts/shots.py`](scripts/shots.py) contra el stack en marcha, todas al mismo ancho, así que se pueden regenerar después de cualquier cambio en la interfaz en lugar de volver a hacerlas a mano.
 
-Generation is off by default. `IEP_RAG_PROVIDER=ollama` answers from a model on
-this machine, with no key and nothing leaving it; `IEP_RAG_PROVIDER=cli` answers
-through `claude` or `codex` on the same host — a development-only provider, so
-the integration point can be shown without an API key — and
-`IEP_RAG_PROVIDER=openai` is the hosted path a deployment would use. Either way the box says which switch is
-missing when it is off, and how many calls the application has spent against
-the ceiling it enforces on itself. See [hybrid retrieval and optional
-RAG](docs/rag.md).
+La generación viene apagada. `IEP_RAG_PROVIDER=ollama` responde con un modelo
+de esta máquina, sin clave y sin que nada salga de ella; `IEP_RAG_PROVIDER=cli`
+responde con `claude` o `codex` en esta misma máquina —un proveedor sólo para
+desarrollo, para poder mostrar el punto de integración sin clave de API— y
+`IEP_RAG_PROVIDER=openai` es la vía alojada que usaría un despliegue. En
+cualquier caso el copiloto dice qué interruptor falta cuando está apagado, y
+cuántas llamadas ha gastado la aplicación frente al techo que se impone a sí
+misma. Véase [recuperación
+híbrida y RAG opcional](docs/es/rag.md).
 
-## Documentation
+## Documentación
 
-Every document exists in English and Spanish, with a switcher on its first line.
-The full index is [docs/README.md](docs/README.md).
+Toda la documentación existe en español y en inglés, con un selector de idioma en
+la primera línea de cada documento. El índice completo está en
+[docs/es/README.md](docs/es/README.md).
 
-New here? Start with the **[guided walkthrough](docs/walkthrough.md)** — what is
-running, what every endpoint does, how to launch the demo, how to open n8n, and
-where retrieval and a language model do and do not fit.
+¿Primera vez aquí? Empieza por el **[recorrido guiado](docs/es/recorrido.md)**:
+qué se está ejecutando, qué hace cada endpoint, cómo lanzar la demostración, cómo
+abrir n8n, y dónde encajan —y dónde no— el RAG y un modelo de lenguaje.
 
-- [Guided walkthrough](docs/walkthrough.md) and
-  [LLM demonstration](docs/llm-demo.md), plus
-  [hybrid retrieval and optional RAG](docs/rag.md)
-- [Architecture](docs/architecture.md), [domain model](docs/domain-model.md),
-  and [workflow](docs/workflow.md)
-- [Ingestion and provenance](docs/ingestion-and-provenance.md),
-  [validation](docs/validation-strategy.md), and [AI safety](docs/ai-safety.md)
-- [Threat model](docs/threat-model.md), [operations](docs/operations.md), and
-  [production gap](docs/production-gap.md)
-- [Measurements](docs/measured-results.md), [business impact](docs/business-impact.md),
-  [limitations](docs/limitations.md), and [demo guide](docs/demo.md)
+- [Recorrido guiado](docs/es/recorrido.md) y
+  [demostración del LLM](docs/es/demostracion-llm.md), además de
+  [recuperación híbrida y RAG opcional](docs/es/rag.md)
+- [Arquitectura](docs/es/arquitectura.md),
+  [modelo de dominio](docs/es/modelo-de-dominio.md) y
+  [flujo de trabajo](docs/es/workflow.md)
+- [Ingesta y procedencia](docs/es/ingesta-y-procedencia.md),
+  [validación](docs/es/estrategia-de-validacion.md) y
+  [seguridad de la IA](docs/es/seguridad-ia.md)
+- [Modelo de amenazas](docs/es/modelo-de-amenazas.md),
+  [operación](docs/es/operacion.md) y
+  [brecha con producción](docs/es/brecha-produccion.md)
+- [Mediciones](docs/es/resultados-medidos.md),
+  [impacto de negocio](docs/es/impacto-negocio.md),
+  [limitaciones](docs/es/limitaciones.md) y
+  [guion de demostración](docs/es/demostracion.md)
 
-## Licence
+## Licencia
 
-MIT. See [LICENSE](LICENSE).
+MIT. Véase [LICENSE](LICENSE).

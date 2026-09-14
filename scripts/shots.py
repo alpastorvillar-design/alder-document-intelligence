@@ -8,6 +8,7 @@ re-taken by hand.
 import pathlib
 import subprocess
 import sys
+import urllib.request
 
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 BASE = "http://127.0.0.1:8000"
@@ -55,6 +56,12 @@ def trimmed_height(image) -> int:
 
 def shoot(name: str, url: str, height: int, keep: int | None) -> None:
     from PIL import Image
+
+    # Chrome exits successfully even when the server renders a JSON 404.  A
+    # preflight prevents that error page from silently replacing a published
+    # product screenshot.
+    with urllib.request.urlopen(url, timeout=60):  # noqa: S310
+        pass
 
     # Absoluta: Chrome resuelve esta ruta contra su propio directorio.
     raw = (OUT / f"{name}.raw.png").resolve()

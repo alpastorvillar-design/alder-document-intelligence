@@ -127,7 +127,7 @@ def create_app() -> FastAPI:
         yield
 
     app = FastAPI(
-        title="Innovation Evidence Pipeline",
+        title="Pruevia API",
         version=__version__,
         description=DESCRIPTION,
         openapi_tags=TAGS,
