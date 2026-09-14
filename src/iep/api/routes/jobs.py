@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,10 +24,10 @@ router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(require_
 
 @router.get("", response_model=list[ProcessingJob], summary="Listar trabajos de procesamiento")
 def list_jobs(
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     job_status: JobStatus | None = None,
     dossier_id: uuid.UUID | None = None,
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=200),
 ) -> list[ProcessingJob]:
     """Del más reciente al más antiguo. Se filtra por `job_status` o `dossier_id`.
 
@@ -43,7 +43,9 @@ def list_jobs(
 
 
 @router.get("/{job_id}", response_model=ProcessingJob, summary="Un trabajo, en detalle")
-def get_job(job_id: uuid.UUID, session: Session = Depends(db_session)) -> ProcessingJob:
+def get_job(
+    job_id: uuid.UUID, session: Session = Depends(db_session, scope="function")
+) -> ProcessingJob:
     """Estado, intentos, tope de intentos, quién lo tiene tomado y último error.
 
     `SUCCEEDED` significa que el pipeline terminó; el expediente queda

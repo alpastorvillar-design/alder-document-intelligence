@@ -17,8 +17,15 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - name: Scan every published revision for credential signatures
         run: python scripts/scan_secrets.py
+      - name: Audit the pinned Python runtime dependencies
+        run: |
+          python -m pip install pip-audit==2.9.0
+          python -m pip_audit --disable-pip --no-deps -r requirements.lock
 
   lint:
     runs-on: ubuntu-24.04
@@ -162,7 +169,7 @@ jobs:
         run: |
           docker run --rm innovation-evidence-pipeline:local tesseract --version
           docker run --rm innovation-evidence-pipeline:local \
-            python -c "import pytesseract, fitz, openpyxl; print('extractors importable')"
+            python -c "import pytesseract, pymupdf, openpyxl; print('extractors importable')"
       - name: Start the isolated stack from a clean state
         run: |
           docker compose -p iep-ci up -d --wait postgres devsources api worker

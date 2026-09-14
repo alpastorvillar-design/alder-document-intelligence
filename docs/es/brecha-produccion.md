@@ -68,7 +68,8 @@ de procesamiento del núcleo.
 - Hacer transaccional la publicación del fichero de informe con el estado de la
   base de datos.
 - Añadir límites duros de antigüedad e intentos extremo a extremo en el workflow.
-- Ejecutar puertas de vulnerabilidades de dependencias, licencias, imágenes y
-  lista de materiales de software bajo una política de remediación acordada.
+- Ampliar la puerta de vulnerabilidades de dependencias Python con controles de
+  licencias, imágenes y lista de materiales de software bajo una política de
+  remediación acordada.
 - Ejercitar cargas grandes en paralelo y terminación controlada de procesos en un
   runtime de contenedores parecido a producción.

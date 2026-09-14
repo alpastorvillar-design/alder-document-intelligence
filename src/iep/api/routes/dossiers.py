@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, Header, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, Query, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -43,7 +43,7 @@ router = APIRouter(prefix="/dossiers", tags=["dossiers"], dependencies=[Depends(
 def create_dossier(
     payload: DossierCreate,
     response: Response,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
 ) -> Dossier:
     """Abre una justificación para revisar: referencia, periodo e importe.
@@ -87,11 +87,11 @@ def create_dossier(
 
 @router.get("", response_model=list[Dossier], summary="Listar expedientes")
 def list_dossiers(
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     dossier_status: DossierStatus | None = None,
     reference: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> list[Dossier]:
     """Del más reciente al más antiguo. `reference` busca uno por su referencia.
 
@@ -110,7 +110,9 @@ def list_dossiers(
 
 
 @router.get("/{dossier_id}", response_model=Dossier, summary="Un expediente y su estado")
-def get_dossier(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> Dossier:
+def get_dossier(
+    dossier_id: uuid.UUID, session: Session = Depends(db_session, scope="function")
+) -> Dossier:
     """`status` es la posición en la máquina de estados — `docs/es/workflow.md`.
 
     Una ejecución correcta lo deja siempre en `NEEDS_REVIEW`, se haya
@@ -130,7 +132,7 @@ def upload_document(
     dossier_id: uuid.UUID,
     response: Response,
     file: UploadFile = File(...),
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     store: ObjectStore = Depends(object_store),
     settings: Settings = Depends(settings_dep),
 ) -> Document:
@@ -193,12 +195,14 @@ def upload_document(
 
 
 @router.get("/{dossier_id}/documents", response_model=list[Document], summary="Qué se entregó")
-def list_documents(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> list[Document]:
+def list_documents(
+    dossier_id: uuid.UUID, session: Session = Depends(db_session, scope="function")
+) -> list[Document]:
     """Todo lo entregado, en orden de llegada — incluido lo rechazado y por qué.
 
-    `media_kind` es lo que decidieron la firma y el analizador; `kind` es lo
-    que el clasificador concluyó que es. `alternate_filenames` lista los otros
-    nombres con los que llegaron los mismos bytes.
+    `media_kind` es lo que decidieron la firma y el analizador; `document_kind`
+    es lo que el clasificador concluyó que es. `alternate_filenames` lista los
+    otros nombres con los que llegaron los mismos bytes.
     """
     dossiers.get(session, dossier_id)
     stmt = (
@@ -219,7 +223,7 @@ def start_processing(
     dossier_id: uuid.UUID,
     response: Response,
     payload: ProcessingRequest | None = None,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     settings: Settings = Depends(settings_dep),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
     correlation_id: str = Depends(correlation),

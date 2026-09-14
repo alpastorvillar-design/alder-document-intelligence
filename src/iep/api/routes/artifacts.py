@@ -61,7 +61,7 @@ router = APIRouter(tags=["artifacts"], dependencies=[Depends(require_api_key)])
 )
 def generate_report(
     dossier_id: uuid.UUID,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     settings: Settings = Depends(settings_dep),
 ) -> DossierReport:
     """Genera un informe HTML autocontenido y registra la huella de su contenido.
@@ -84,7 +84,7 @@ def generate_report(
     summary="Informes generados hasta ahora",
 )
 def list_reports(
-    dossier_id: uuid.UUID, session: Session = Depends(db_session)
+    dossier_id: uuid.UUID, session: Session = Depends(db_session, scope="function")
 ) -> list[DossierReport]:
     """Del más reciente al más antiguo, cada uno con su huella y el estado
     con el que se generó.
@@ -105,7 +105,7 @@ def list_reports(
 )
 def latest_report(
     dossier_id: uuid.UUID,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     settings: Settings = Depends(settings_dep),
 ) -> Response:
     """El informe en sí, en HTML. Ábrelo en un navegador.
@@ -124,7 +124,7 @@ def latest_report(
 )
 def latest_report_pdf(
     dossier_id: uuid.UUID,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     settings: Settings = Depends(settings_dep),
 ) -> Response:
     """El mismo informe, renderizado a PDF en esta máquina.
@@ -223,7 +223,9 @@ def _stored_report(
     response_class=Response,
     summary="Todo, en JSON, para otro sistema",
 )
-def export_json(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> Response:
+def export_json(
+    dossier_id: uuid.UUID, session: Session = Depends(db_session, scope="function")
+) -> Response:
     """El expediente, sus documentos, cada extracción con su locator y cada
     incidencia.
 
@@ -254,7 +256,7 @@ def export_csv(
             "separator is a semicolon - otherwise every row arrives in column A."
         ),
     ),
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
 ) -> Response:
     """Una fila por extracción, con el locator escrito de forma legible.
 
@@ -278,7 +280,7 @@ def export_csv(
 )
 def dossier_audit(
     dossier_id: uuid.UUID,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     limit: int = Query(default=500, ge=1, le=2000),
 ) -> list[AuditEvent]:
     """Sólo añade: altas, rechazos, trabajos, transiciones, decisiones humanas.
@@ -301,7 +303,7 @@ def find_evidence(
     dossier_id: uuid.UUID,
     q: str = Query(min_length=2, max_length=200),
     limit: int = Query(default=5, ge=1, le=50),
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     settings: Settings = Depends(settings_dep),
     mode: retrieval.SearchMode = Query(default="lexical"),
 ) -> dict[str, object]:
@@ -388,7 +390,7 @@ def find_evidence(
 def answer_evidence_question(
     dossier_id: uuid.UUID,
     request: RagQuestion,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     settings: Settings = Depends(settings_dep),
 ) -> RagAnswer:
     """Integración opcional con un modelo; apagada por defecto, y nunca cambia
@@ -593,7 +595,7 @@ def answer_evidence_question(
 )
 def rag_status(
     dossier_id: uuid.UUID,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     settings: Settings = Depends(settings_dep),
 ) -> RagStatus:
     """El estado de la integración opcional con un modelo, para pintarlo en una

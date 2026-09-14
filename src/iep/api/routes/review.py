@@ -35,7 +35,7 @@ router = APIRouter(tags=["review"], dependencies=[Depends(require_api_key)])
 )
 def list_extractions(
     dossier_id: uuid.UUID,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     field_status: FieldStatus | None = None,
     field_path: str | None = Query(default=None, max_length=200),
 ) -> list[Extraction]:
@@ -72,7 +72,7 @@ def list_extractions(
 )
 def list_findings(
     dossier_id: uuid.UUID,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     finding_status: FindingStatus | None = None,
     severity: Severity | None = None,
 ) -> list[ValidationFinding]:
@@ -102,7 +102,7 @@ def list_findings(
     summary="Qué decidió cada persona, y por qué",
 )
 def list_decisions(
-    dossier_id: uuid.UUID, session: Session = Depends(db_session)
+    dossier_id: uuid.UUID, session: Session = Depends(db_session, scope="function")
 ) -> list[ReviewDecision]:
     """Sólo añade, de la más antigua a la más nueva: corregir, confirmar,
     aceptar, descartar, aprobar, rechazar.
@@ -127,7 +127,7 @@ def list_decisions(
 def correct_extraction(
     extraction_id: uuid.UUID,
     payload: ReviewCorrection,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
 ) -> Extraction:
     """Registra el valor humano al lado del de la máquina, nunca encima.
 
@@ -156,7 +156,7 @@ def correct_extraction(
 def confirm_extraction(
     extraction_id: uuid.UUID,
     payload: ReviewConfirmation,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
 ) -> Extraction:
     """Cierra un campo que fue a revisión porque su confianza era baja.
 
@@ -182,7 +182,7 @@ def confirm_extraction(
 def resolve_finding(
     finding_id: uuid.UUID,
     payload: FindingResolution,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
 ) -> ValidationFinding:
     """`accept: true` significa que la incidencia es real. No es una dispensa.
 
@@ -205,7 +205,7 @@ def resolve_finding(
 def approve_dossier(
     dossier_id: uuid.UUID,
     payload: DossierDecision,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
 ) -> None:
     """La única forma de aprobar un expediente. Ningún camino del pipeline
     llega a este estado.
@@ -222,7 +222,7 @@ def approve_dossier(
 def reject_dossier(
     dossier_id: uuid.UUID,
     payload: DossierDecision,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
 ) -> None:
     """Devuelve la justificación, con un motivo, a nombre de quien la rechaza.
 

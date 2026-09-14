@@ -962,6 +962,21 @@ class TestApi:
         response = client.get("/healthz", headers={"X-Correlation-ID": "trace-me"})
         assert response.headers["X-Correlation-ID"] == "trace-me"
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/dossiers?limit=-1",
+            "/dossiers?limit=201",
+            "/dossiers?offset=-1",
+            "/jobs?limit=-1",
+            "/jobs?limit=201",
+        ],
+    )
+    def test_list_pagination_rejects_out_of_range_values(
+        self, client: TestClient, path: str
+    ) -> None:
+        assert client.get(path).status_code == 422
+
     def test_an_unsupported_upload_is_refused_with_a_reason(self, client: TestClient) -> None:
         created = client.post(
             "/dossiers",

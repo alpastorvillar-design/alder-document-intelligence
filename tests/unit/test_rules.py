@@ -229,6 +229,17 @@ class TestOcrConfidence:
             list(rules.rule_ocr_confidence(context(documents=[doc], ocr={INVOICE_ID: 93.0}))) == []
         )
 
+    @pytest.mark.parametrize(
+        ("confidence", "expected"),
+        [(77.99, {"LOW_OCR_CONFIDENCE"}), (78.0, set())],
+    )
+    def test_the_rule_boundary_has_one_explicit_mean_confidence_threshold(
+        self, confidence: float, expected: set[str]
+    ) -> None:
+        doc = document(INVOICE_ID, DocumentKind.EXPENSE_INVOICE)
+        findings = rules.rule_ocr_confidence(context(documents=[doc], ocr={INVOICE_ID: confidence}))
+        assert ids(findings) == expected
+
 
 class TestPromptInjection:
     def test_instructions_in_a_document_are_reported(self) -> None:

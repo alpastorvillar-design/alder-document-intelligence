@@ -109,9 +109,9 @@ SOURCE_KIND = {
 # --------------------------------------------------------------------------
 # Rules
 #
-# `base` cites the requirement the rule enforces. The wording of the
-# requirements comes from the published CDTI technical-economic justification
-# instructions, which are a public document; nothing here reproduces its text.
+# `base` cites the requirement the rule enforces. The wording is deliberately
+# generic so this reference implementation is not tied to one programme or
+# authority.
 # --------------------------------------------------------------------------
 
 

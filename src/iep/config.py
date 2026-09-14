@@ -172,11 +172,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     ocr_language: str = "spa"
-    ocr_min_word_confidence: float = 60.0
     ocr_dpi: int = 300
     ocr_timeout_seconds: float = 30.0
 
-    # Confidence at or below which an extraction is sent to a human instead of
+    # Confidence below which an extraction is sent to a human instead of
     # being trusted. Raising it trades reviewer time for fewer silent errors.
     review_confidence_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
 

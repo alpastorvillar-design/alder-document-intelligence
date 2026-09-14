@@ -8,9 +8,11 @@
   multi-page tables, rotations, and poor mobile photos need a broader benchmark.
 - Extraction patterns target this fixture contract. There is no generic document
   understanding claim.
-- Lexical, exact vector and hybrid retrieval exist, but the deterministic
-  feature-hashing provider is not a learned semantic model. No representative
-  semantic-retrieval benchmark has been published yet.
+- Lexical, exact vector and hybrid retrieval exist. The default deterministic
+  feature-hashing provider is not a learned semantic model; the optional local
+  Ollama path supports learned multilingual embeddings, but its measurements
+  cover only this synthetic corpus. No representative real-world
+  semantic-retrieval benchmark has been published.
 - The RAG adapter and its citation/egress controls are tested against doubles.
   No hosted answer-quality evaluation or production call is claimed.
 - The deterministic semantic provider is not a hosted model run. The optional
@@ -24,7 +26,8 @@
 - Metrics remain in process; there is no durable telemetry backend or alerting.
 - The optional workflow lacks a hard overall polling-age ceiling and production
   authentication.
-- Dependency locks improve reproducibility but do not replace vulnerability,
-  licence, image, and provenance governance.
+- CI checks the pinned Python runtime dependencies against known vulnerability
+  records. That point-in-time gate and the dependency locks do not replace
+  licence, container-image, and provenance governance.
 - No throughput, concurrency ceiling, availability, recovery-time, or cost claim
   is established by the demo.

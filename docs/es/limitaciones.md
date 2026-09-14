@@ -9,9 +9,11 @@
   y las fotos malas de móvil necesitan un banco de pruebas más amplio.
 - Los patrones de extracción apuntan a este contrato de fixture. No se afirma
   comprensión genérica de documentos.
-- Existen recuperación léxica, vectorial exacta e híbrida, pero el proveedor
-  determinista por hashing no es un modelo semántico aprendido. Todavía no se
-  ha publicado un benchmark representativo de recuperación semántica.
+- Existen recuperación léxica, vectorial exacta e híbrida. El proveedor
+  determinista por hashing predeterminado no es un modelo semántico aprendido;
+  la vía local opcional con Ollama admite embeddings multilingües aprendidos,
+  pero sus mediciones sólo cubren este corpus sintético. No se ha publicado un
+  benchmark representativo de recuperación semántica sobre datos reales.
 - El adaptador RAG y sus controles de citas y salida de datos se prueban contra
   dobles. No se afirma haber evaluado calidad con un modelo alojado ni ejecutado
   una llamada de producción.
@@ -28,7 +30,8 @@
   alertado.
 - Al workflow opcional le falta un techo duro de antigüedad total de sondeo y
   autenticación de producción.
-- Los bloqueos de dependencias mejoran la reproducibilidad, pero no sustituyen a
-  la gobernanza de vulnerabilidades, licencias, imágenes y procedencia.
+- La CI comprueba las dependencias Python fijadas contra los registros de
+  vulnerabilidades conocidos. Esa puerta puntual y los bloqueos de dependencias
+  no sustituyen a la gobernanza de licencias, imágenes y procedencia.
 - La demostración no establece ninguna afirmación de rendimiento, techo de
   concurrencia, disponibilidad, tiempo de recuperación ni coste.

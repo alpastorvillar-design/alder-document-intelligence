@@ -119,7 +119,7 @@ def index_redirect() -> RedirectResponse:
 
 
 @router.get("/dossiers", response_class=Response, summary="La bandeja de revisión (empieza aquí)")
-def queue(session: Session = Depends(db_session)) -> Response:
+def queue(session: Session = Depends(db_session, scope="function")) -> Response:
     """Los expedientes que esperan una decisión, del más nuevo al más viejo,
     con lo que bloquea a cada uno.
 
@@ -179,7 +179,9 @@ def new_dossier(settings: Settings = Depends(settings_dep)) -> Response:
     response_class=Response,
     summary="Ver la ejecución mientras el worker trabaja",
 )
-def progress(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> Response:
+def progress(
+    dossier_id: uuid.UUID, session: Session = Depends(db_session, scope="function")
+) -> Response:
     """Consulta el trabajo hasta que termina y entonces va a la revisión.
 
     Las etapas que se muestran son las del propio pipeline: capturar fuentes
@@ -205,7 +207,9 @@ def progress(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> R
     response_class=Response,
     summary="Revisar un expediente: incidencias, campos, evidencia",
 )
-def review_view(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -> Response:
+def review_view(
+    dossier_id: uuid.UUID, session: Session = Depends(db_session, scope="function")
+) -> Response:
     """A qué han llegado las reglas, y luego cada campo con un camino de vuelta
     a su origen.
 
@@ -295,7 +299,7 @@ def review_view(dossier_id: uuid.UUID, session: Session = Depends(db_session)) -
 )
 def evidence(
     extraction_id: uuid.UUID,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     store: ObjectStore = Depends(object_store),
 ) -> Response:
     """El documento del que se leyó este valor, con un recuadro sobre la
@@ -349,7 +353,7 @@ def evidence(
 )
 def evidence_image(
     extraction_id: uuid.UUID,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     store: ObjectStore = Depends(object_store),
 ) -> Response:
     """La página que hay detrás de una vista de evidencia, como imagen sobre la
@@ -386,7 +390,7 @@ def evidence_image(
 )
 def original_document(
     document_id: uuid.UUID,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session, scope="function"),
     store: ObjectStore = Depends(object_store),
 ) -> Response:
     """Los bytes almacenados, sin tocar, con su propio tipo de medio.

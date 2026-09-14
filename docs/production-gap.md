@@ -53,7 +53,7 @@ It is deliberately absent from the core processing path.
   reservations left in flight by a process crash.
 - Make report-file publication transactional with database state.
 - Add hard end-to-end workflow age/attempt limits.
-- Run dependency-vulnerability, licence, image, and software-bill-of-materials
-  gates under an agreed remediation policy.
+- Extend the Python dependency-vulnerability gate with licence, container-image,
+  and software-bill-of-materials gates under an agreed remediation policy.
 - Exercise large parallel workloads and controlled process termination in a
   production-like container runtime.

@@ -81,6 +81,13 @@ def test_every_operation_says_what_it_is_for() -> None:
     assert not naked, f"operaciones sin summary: {naked}"
 
 
+def test_the_document_list_names_the_field_its_contract_actually_returns() -> None:
+    operation = create_app().openapi()["paths"]["/dossiers/{dossier_id}/documents"]["get"]
+    description = operation["description"]
+    assert "`document_kind`" in description
+    assert "`kind` es" not in description
+
+
 def test_the_guard_can_actually_fail() -> None:
     """The regex is the whole test, so it is worth proving it bites.
 
