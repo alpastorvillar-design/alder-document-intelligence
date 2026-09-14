@@ -5,40 +5,81 @@ can be regenerated after any change to the interface instead of being
 re-taken by hand.
 """
 
+import json
 import pathlib
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
+from typing import Any
 
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 BASE = "http://127.0.0.1:8000"
 OUT = pathlib.Path("docs/img")
 WIDTH = 1400
 
-D42 = "2ad8f756-a7b8-4bc6-b433-d17eb6464566"
-D41 = "cadd323a-96bc-4622-a4ac-430d6cc14a5c"
-EVIDENCE = "8f4b588f-14bf-442a-8fdc-842879bb80e9"
 
-# name, url, how tall to render, how much of it to keep.
-#
-# The render height only has to exceed the page; the trailing background is
-# trimmed afterwards, so it does not have to be tuned per page. `keep` caps
-# the result for the long pages, where the point is the top of the screen and
-# not all fourteen findings.
-SHOTS = [
-    ("01-queue", f"{BASE}/ui/dossiers", 1600, None),
-    ("02-intake", f"{BASE}/ui/dossiers/new", 1800, None),
-    ("03-review", f"{BASE}/ui/dossiers/{D42}", 3200, 1320),
-    # El escaneo es un A4 con mucho blanco, asi que el recorte por fondo no
-    # encuentra donde parar: se le dice.
-    ("04-evidence", f"{BASE}/ui/evidence/{EVIDENCE}", 2400, 1180),
-    # El informe del expediente con incidencias: el que ensena el producto
-    # trabajando, no el que sale limpio.
-    ("05-report", f"{BASE}/dossiers/{D42}/reports/latest.html", 3200, 1320),
-]
+def api_json(path: str) -> Any:
+    """Read one JSON response from the local, synthetic demonstration."""
+
+    with urllib.request.urlopen(f"{BASE}{path}", timeout=60) as response:  # noqa: S310
+        return json.load(response)
 
 
-def trimmed_height(image) -> int:
+def dossier_id(reference: str) -> str:
+    """Resolve a stable business reference to the run-specific UUID."""
+
+    encoded = urllib.parse.quote(reference, safe="")
+    matches = api_json(f"/dossiers?reference={encoded}")
+    if len(matches) != 1:
+        raise SystemExit(f"expected one dossier for {reference}, found {len(matches)}")
+    return str(matches[0]["id"])
+
+
+def evidence_id(reference: str, filename: str, field_path: str) -> str:
+    """Find the evidence row without relying on UUIDs from an earlier run."""
+
+    current_dossier = dossier_id(reference)
+    documents = api_json(f"/dossiers/{current_dossier}/documents")
+    matching_documents = [
+        document for document in documents if document["original_filename"] == filename
+    ]
+    if len(matching_documents) != 1:
+        raise SystemExit(f"expected one {filename} in {reference}, found {len(matching_documents)}")
+    document_id = matching_documents[0]["id"]
+    extractions = api_json(f"/dossiers/{current_dossier}/extractions")
+    matching_extractions = [
+        extraction
+        for extraction in extractions
+        if extraction["document_id"] == document_id and extraction["field_path"] == field_path
+    ]
+    if len(matching_extractions) != 1:
+        raise SystemExit(
+            f"expected one {field_path} in {filename}, found {len(matching_extractions)}"
+        )
+    return str(matching_extractions[0]["id"])
+
+
+def shot_plan() -> list[tuple[str, str, int, int | None]]:
+    """Build URLs from data created by this run, not from an old database."""
+
+    dossier_42 = dossier_id("INN-2025-042")
+    evidence = evidence_id("INN-2025-041", "justificante-02-FS-2025-0588.jpg", "invoice.total_eur")
+    # name, url, how tall to render, how much of it to keep.  The render height
+    # exceeds the page; trailing background is trimmed afterwards. `keep` caps
+    # long pages where the point is the top, not every finding.
+    return [
+        ("01-queue", f"{BASE}/ui/dossiers", 1600, None),
+        ("02-intake", f"{BASE}/ui/dossiers/new", 1800, None),
+        ("03-review", f"{BASE}/ui/dossiers/{dossier_42}", 3200, 1320),
+        # An A4 scan has too much white for background trimming to find its end.
+        ("04-evidence", f"{BASE}/ui/evidence/{evidence}", 2400, 1180),
+        # The dossier with seeded findings shows the product working.
+        ("05-report", f"{BASE}/dossiers/{dossier_42}/reports/latest.html", 3200, 1320),
+    ]
+
+
+def trimmed_height(image: Any) -> int:
     """Where the page stops, so a screenshot is not mostly background.
 
     The render height is deliberately generous - a page has to fit in it - and
@@ -63,7 +104,7 @@ def shoot(name: str, url: str, height: int, keep: int | None) -> None:
     with urllib.request.urlopen(url, timeout=60):  # noqa: S310
         pass
 
-    # Absoluta: Chrome resuelve esta ruta contra su propio directorio.
+    # Absolute: Chrome otherwise resolves the path against its own directory.
     raw = (OUT / f"{name}.raw.png").resolve()
     # Every argument is a constant in this file and the binary is a fixed
     # path, so there is no untrusted input to check.
@@ -74,6 +115,7 @@ def shoot(name: str, url: str, height: int, keep: int | None) -> None:
             "--disable-gpu",
             "--no-sandbox",
             "--hide-scrollbars",
+            "--force-dark-mode",
             f"--window-size={WIDTH},{height}",
             f"--screenshot={raw}",
             url,
@@ -126,13 +168,13 @@ THREAD = f"""<div class="turn">
 </div>"""
 
 
-def ask_shot() -> None:
+def ask_shot(dossier_42: str) -> None:
     import re
     import urllib.request
 
     from PIL import Image
 
-    url = f"{BASE}/ui/dossiers/{D42}"
+    url = f"{BASE}/ui/dossiers/{dossier_42}"
     # A loopback http URL built from constants above.
     with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310
         page = response.read().decode("utf-8")
@@ -140,7 +182,7 @@ def ask_shot() -> None:
     styles = "\n".join(re.findall(r"<style>(.*?)</style>", page, re.S))
     drawer = re.search(r'<aside class="copilot"[^>]*>.*?</aside>', page, re.S)
     if drawer is None:
-        raise SystemExit("no encuentro el cajon del copiloto en la pagina")
+        raise SystemExit("the copilot drawer is missing from the page")
     panel = drawer.group(0).replace('class="copilot"', 'class="copilot open"', 1)
     # The thread and the meter are filled in by the browser; here they are the
     # recorded exchange.
@@ -150,10 +192,8 @@ def ask_shot() -> None:
     )
     # The picker is populated from the status endpoint, so it arrives empty.
     with urllib.request.urlopen(  # noqa: S310
-        f"{BASE}/dossiers/{D42}/questions", timeout=60
+        f"{BASE}/dossiers/{dossier_42}/questions", timeout=60
     ) as response:
-        import json
-
         status = json.load(response)
     options = "".join(
         f"<option{' selected' if model['id'].endswith('qwen3.5:9b') else ''}>"
@@ -217,9 +257,10 @@ def ask_shot() -> None:
 
 
 if __name__ == "__main__":
-    wanted = sys.argv[1:] or [name for name, *_ in SHOTS] + ["06-ask"]
-    for name, url, height, keep in SHOTS:
+    shots = shot_plan()
+    wanted = sys.argv[1:] or [name for name, *_ in shots] + ["06-ask"]
+    for name, url, height, keep in shots:
         if name in wanted:
             shoot(name, url, height, keep)
     if "06-ask" in wanted:
-        ask_shot()
+        ask_shot(dossier_id("INN-2025-042"))
