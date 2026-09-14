@@ -127,7 +127,7 @@ def create_app() -> FastAPI:
         yield
 
     app = FastAPI(
-        title="Pruevia API",
+        title="Alder API",
         version=__version__,
         description=DESCRIPTION,
         openapi_tags=TAGS,
