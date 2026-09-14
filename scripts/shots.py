@@ -99,7 +99,7 @@ def shoot(name: str, url: str, height: int, keep: int | None) -> None:
 #
 # The exchange is real - this is what `qwen3.5:9b` answered on INN-2025-042,
 # with the citation it returned and the token count it reported - recorded here
-# so the image can be regenerated without a model call, and without asking a
+# so the image can be recreated without a model call, and without asking a
 # question that would cost money on a metered backend.
 ANSWER = (
     "Según la memoria técnica (E1), hay 3 personas con dedicación al "
